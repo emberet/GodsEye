@@ -98,8 +98,10 @@ CREATE TABLE IF NOT EXISTS wallet_swaps (
   -- what the wallet paid / received: SOL, USDC, USDT, or SOL+USDC etc. (sol_amount is always in SOL)
   quote TEXT NOT NULL DEFAULT 'SOL',
   quote_amount REAL,
-  -- SOL's USD price used to convert a dollar-priced swap into SOL
+  -- SOL's USD price at the time of the swap
   sol_usd REAL,
+  -- what the swap was worth in USD when it settled (exact for USDC/USDT, SOL × price for SOL)
+  usd_amount REAL,
   UNIQUE (signature, wallet, mint)
 );
 CREATE INDEX IF NOT EXISTS idx_swaps_wallet_ts ON wallet_swaps(wallet, ts);
@@ -115,12 +117,17 @@ CREATE TABLE IF NOT EXISTS wallet_stats (
   pnl_7d_sol REAL NOT NULL,
   pnl_30d_sol REAL NOT NULL,
   pnl_all_sol REAL NOT NULL,
+  -- the same in USD, each trade valued when it settled (null if prices were missing)
+  pnl_7d_usd REAL,
+  pnl_30d_usd REAL,
+  pnl_all_usd REAL,
   closed_7d INTEGER NOT NULL,
   closed_30d INTEGER NOT NULL,
   wins_30d INTEGER NOT NULL,
   win_rate_30d REAL,
   best_trade_share REAL,
   avg_buy_sol REAL,
+  avg_buy_usd REAL,
   avg_hold_minutes REAL,
   early_buys INTEGER NOT NULL DEFAULT 0,
   early_buy_rate REAL,
@@ -159,7 +166,21 @@ CREATE TABLE IF NOT EXISTS token_info (
   decimals INTEGER,
   pool_created_at TEXT,
   creator TEXT,
+  pool_address TEXT,
   checked_at TEXT NOT NULL
+);
+
+-- Did the price crash right after a wallet sold? One row per sale checked (see analysis/crash.ts)
+CREATE TABLE IF NOT EXISTS crash_checks (
+  signature TEXT NOT NULL,
+  mint TEXT NOT NULL,
+  -- how far the token fell below the sell price within the window (%), null if no candle data
+  drop_pct REAL,
+  minutes_to_low REAL,
+  -- sold within 20% of the previous hour's high (not into a dump already under way)
+  near_top INTEGER,
+  checked_at TEXT NOT NULL,
+  PRIMARY KEY (signature, mint)
 );
 
 -- Every copy GodsEye made (or decided not to make)
@@ -201,6 +222,9 @@ CREATE TABLE IF NOT EXISTS positions (
   tokens_bought REAL NOT NULL,
   cost_sol REAL NOT NULL,
   proceeds_sol REAL NOT NULL DEFAULT 0,
+  cost_usd REAL,
+  proceeds_usd REAL NOT NULL DEFAULT 0,
+  pnl_usd REAL,
   entry_price_sol REAL NOT NULL,
   last_price_sol REAL,
   last_price_ts TEXT,
@@ -224,6 +248,7 @@ CREATE TABLE IF NOT EXISTS wallet_activity (
   sells INTEGER NOT NULL,
   volume_sol REAL NOT NULL,
   live_pnl_sol REAL NOT NULL DEFAULT 0,
+  live_pnl_usd REAL NOT NULL DEFAULT 0,
   live_closed INTEGER NOT NULL DEFAULT 0,
   live_wins INTEGER NOT NULL DEFAULT 0,
   live_kind TEXT NOT NULL DEFAULT 'unknown',

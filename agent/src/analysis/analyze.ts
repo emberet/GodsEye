@@ -6,7 +6,7 @@
  *   2. first time only: find its first transaction → age, "fresh" or not, and who funded it
  *   3. look up when each token it bought launched → how early it buys
  *   4. compute realized P&L, win rate, etc.
- *   5. gather evidence (creator links, sells right before a crash)
+ *   5. gather evidence (creator links, sales right before a crash — see crash.ts)
  *   6. assign a tier and an AI / human verdict, with reasons
  */
 import { type DB, NON_MEMECOIN_SYMBOLS, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
@@ -19,6 +19,7 @@ import { getPrices } from "../market/prices";
 import { classify } from "./classifier";
 import { computeStats, realize, type SwapLite } from "./pnl";
 import { assignTier, STATE_EVIDENCE, type TierInput } from "./tiers";
+import { checkExit, isCrashExit } from "./crash";
 
 /** Wallets whose public page changed since the last publish (for the hosted website). */
 export const dirtyWallets = new Set<string>();
@@ -37,18 +38,20 @@ interface WalletRowDb {
 /** How many token launch lookups one analysis run may make (GeckoTerminal is rate-limited). */
 const TOKEN_LOOKUPS_PER_RUN = 20;
 const CREATOR_LOOKUPS_PER_WALLET = 5;
+/** Candle lookups for "sold before a crash" per analysis run (each sale is checked once, then cached). */
+const CRASH_CHECKS_PER_RUN = 12;
 
 export function insertSwaps(db: DB, swaps: ParsedSwap[]): number {
   const ins = db.prepare(
-    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec, quote, quote_amount, sol_usd)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec, quote, quote_amount, sol_usd, usd_amount)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let n = 0;
   db.transaction(() => {
     for (const s of swaps) {
       const launched = cachedTokenInfo(db, s.mint)?.pool_created_at;
       const age = launched ? (Date.parse(s.ts) - Date.parse(launched)) / 1000 : null;
-      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null, s.quote, s.quoteAmount, s.solUsd).changes;
+      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null, s.quote, s.quoteAmount, s.solUsd, s.usdAmount).changes;
     }
   })();
   return n;
@@ -74,7 +77,45 @@ async function fillTokenAges(db: DB, wallet: string, budget: { left: number }): 
   }
 }
 
-export async function analyzeWallet(db: DB, address: string, budget = { left: TOKEN_LOOKUPS_PER_RUN }): Promise<void> {
+/**
+ * Recompute a wallet's P&L stats from the swaps already stored (no network).
+ * Memecoins only: drops stored swaps of tokens whose looked-up symbol says otherwise (e.g. EURC).
+ */
+export function recomputeStats(db: DB, address: string, now = Date.now()) {
+  const symbolsNow = db
+    .prepare("SELECT DISTINCT s.mint, t.symbol FROM wallet_swaps s JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? AND t.symbol IS NOT NULL")
+    .all(address) as { mint: string; symbol: string }[];
+  const drop = symbolsNow.filter((x) => NON_MEMECOIN_SYMBOLS.has(x.symbol.toUpperCase())).map((x) => x.mint);
+  if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
+  const swaps = db
+    .prepare("SELECT signature, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
+    .all(address) as SwapLite[];
+  const r = realize(swaps, config.earlyBuySeconds);
+  const stats = computeStats(swaps, r, now, config.earlyBuySeconds);
+  db.prepare(
+    `INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_7d_usd, pnl_30d_usd, pnl_all_usd,
+        closed_7d, closed_30d, wins_30d, win_rate_30d, best_trade_share, avg_buy_sol, avg_buy_usd, avg_hold_minutes, early_buys, early_buy_rate, first_trade_at, last_trade_at)
+     VALUES (@wallet, @computed_at, @swaps_total, @swaps_7d, @swaps_30d, @pnl_7d_sol, @pnl_30d_sol, @pnl_all_sol, @pnl_7d_usd, @pnl_30d_usd, @pnl_all_usd,
+        @closed_7d, @closed_30d, @wins_30d, @win_rate_30d, @best_trade_share, @avg_buy_sol, @avg_buy_usd, @avg_hold_minutes, @early_buys, @early_buy_rate, @first_trade_at, @last_trade_at)
+     ON CONFLICT(wallet) DO UPDATE SET computed_at=excluded.computed_at, swaps_total=excluded.swaps_total, swaps_7d=excluded.swaps_7d, swaps_30d=excluded.swaps_30d,
+        pnl_7d_sol=excluded.pnl_7d_sol, pnl_30d_sol=excluded.pnl_30d_sol, pnl_all_sol=excluded.pnl_all_sol,
+        pnl_7d_usd=excluded.pnl_7d_usd, pnl_30d_usd=excluded.pnl_30d_usd, pnl_all_usd=excluded.pnl_all_usd,
+        closed_7d=excluded.closed_7d, closed_30d=excluded.closed_30d, wins_30d=excluded.wins_30d, win_rate_30d=excluded.win_rate_30d,
+        best_trade_share=excluded.best_trade_share, avg_buy_sol=excluded.avg_buy_sol, avg_buy_usd=excluded.avg_buy_usd,
+        avg_hold_minutes=excluded.avg_hold_minutes, early_buys=excluded.early_buys, early_buy_rate=excluded.early_buy_rate,
+        first_trade_at=excluded.first_trade_at, last_trade_at=excluded.last_trade_at`,
+  ).run({ wallet: address, computed_at: nowIso(), ...stats });
+  return { swaps, r, stats };
+}
+
+/** Recompute stats for every analyzed wallet from stored swaps (fast; used after P&L rules change). */
+export function recomputeAllStats(db: DB): number {
+  const rows = db.prepare("SELECT address FROM wallets WHERE last_analyzed_at IS NOT NULL").all() as { address: string }[];
+  db.transaction(() => rows.forEach((w) => recomputeStats(db, w.address)))();
+  return rows.length;
+}
+
+export async function analyzeWallet(db: DB, address: string, budget = { left: TOKEN_LOOKUPS_PER_RUN }, crashBudget = { left: CRASH_CHECKS_PER_RUN }): Promise<void> {
   const row = db.prepare("SELECT * FROM wallets WHERE address = ?").get(address) as WalletRowDb | undefined;
   if (!row) return;
   const firstLook = !row.last_analyzed_at;
@@ -104,28 +145,8 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   // 3) How early it buys
   await fillTokenAges(db, address, budget);
 
-  // 4) Performance — memecoins only (drop tokens whose looked-up symbol says otherwise, e.g. EURC)
-  const symbolsNow = db
-    .prepare("SELECT DISTINCT s.mint, t.symbol FROM wallet_swaps s JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? AND t.symbol IS NOT NULL")
-    .all(address) as { mint: string; symbol: string }[];
-  const drop = symbolsNow.filter((r) => NON_MEMECOIN_SYMBOLS.has(r.symbol.toUpperCase())).map((r) => r.mint);
-  if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
-  const swaps = db
-    .prepare("SELECT signature, ts, mint, side, token_amount, sol_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
-    .all(address) as SwapLite[];
-  const r = realize(swaps, config.earlyBuySeconds);
-  const stats = computeStats(swaps, r, now, config.earlyBuySeconds);
-  db.prepare(
-    `INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, closed_7d, closed_30d, wins_30d,
-        win_rate_30d, best_trade_share, avg_buy_sol, avg_hold_minutes, early_buys, early_buy_rate, first_trade_at, last_trade_at)
-     VALUES (@wallet, @computed_at, @swaps_total, @swaps_7d, @swaps_30d, @pnl_7d_sol, @pnl_30d_sol, @pnl_all_sol, @closed_7d, @closed_30d, @wins_30d,
-        @win_rate_30d, @best_trade_share, @avg_buy_sol, @avg_hold_minutes, @early_buys, @early_buy_rate, @first_trade_at, @last_trade_at)
-     ON CONFLICT(wallet) DO UPDATE SET computed_at=excluded.computed_at, swaps_total=excluded.swaps_total, swaps_7d=excluded.swaps_7d, swaps_30d=excluded.swaps_30d,
-        pnl_7d_sol=excluded.pnl_7d_sol, pnl_30d_sol=excluded.pnl_30d_sol, pnl_all_sol=excluded.pnl_all_sol, closed_7d=excluded.closed_7d, closed_30d=excluded.closed_30d,
-        wins_30d=excluded.wins_30d, win_rate_30d=excluded.win_rate_30d, best_trade_share=excluded.best_trade_share, avg_buy_sol=excluded.avg_buy_sol,
-        avg_hold_minutes=excluded.avg_hold_minutes, early_buys=excluded.early_buys, early_buy_rate=excluded.early_buy_rate,
-        first_trade_at=excluded.first_trade_at, last_trade_at=excluded.last_trade_at`,
-  ).run({ wallet: address, computed_at: nowIso(), ...stats });
+  // 4) Performance
+  const { swaps, r, stats } = recomputeStats(db, address, now);
 
   // 5) Evidence
   const symbols = new Map<string, string>();
@@ -145,15 +166,12 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
     else if (funder && info.creator === funder) creatorLinks.push({ mint, symbol: sym(mint), relation: "funded_by_creator", signature: firstBuy.signature, ts: firstBuy.ts });
   }
 
-  const recentExits = r.closed.filter((c) => c.pnlSol > 0 && now - Date.parse(c.closedAt) < 7 * 86_400_000).slice(-30);
+  // Profitable exits in the last 30 days, newest first: did the price crash right after? (cached per sale)
   const crashExits: TierInput["crashExits"] = [];
-  if (recentExits.length) {
-    const prices = await getPrices([SOL_MINT, ...recentExits.map((c) => c.mint)]).catch(() => new Map());
-    const solUsd = prices.get(SOL_MINT)?.priceUsd;
-    for (const c of recentExits) {
-      const usd = prices.get(c.mint)?.priceUsd;
-      if (solUsd && usd) crashExits.push({ mint: c.mint, symbol: sym(c.mint), sellPriceSol: c.lastSellPriceSol, nowPriceSol: usd / solUsd, signature: c.lastSellSignature, ts: c.closedAt });
-    }
+  const exits = r.closed.filter((c) => c.pnlSol > 0 && now - Date.parse(c.closedAt) < 30 * 86_400_000).reverse();
+  for (const c of exits) {
+    const j = await checkExit(db, { mint: c.mint, signature: c.lastSellSignature, ts: c.closedAt, sellPriceSol: c.lastSellPriceSol }, config, crashBudget);
+    if (isCrashExit(j ?? null, config)) crashExits.push({ mint: c.mint, symbol: sym(c.mint), dropPct: j!.dropPct, minutesToLow: j!.minutesToLow, signature: c.lastSellSignature, ts: c.closedAt });
   }
 
   // 6) Tier + AI/human
@@ -162,7 +180,10 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   const t = assignTier({
     stats, closed: r.closed, now, isFresh: isFresh === 1, groupSize, funderTracked: funderRow ?? null, previousTier: row.tier,
     creatorLinks, crashExits, symbols,
-    cfg: { quitAfterDays: config.quitAfterDays, minClosedForProven: config.minClosedForProven, earlyBuySeconds: config.earlyBuySeconds },
+    cfg: {
+      quitAfterDays: config.quitAfterDays, minClosedForProven: config.minClosedForProven, earlyBuySeconds: config.earlyBuySeconds,
+      crashMinExits: config.crashMinExits, crashMinShare: config.crashMinShare,
+    },
   });
   const c = classify(swaps, { txPerHour });
 
@@ -202,10 +223,11 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     )
     .all(staleBefore, limit) as { address: string }[];
   const budget = { left: TOKEN_LOOKUPS_PER_RUN };
+  const crashBudget = { left: CRASH_CHECKS_PER_RUN };
   let done = 0;
   for (const { address } of rows) {
     try {
-      await analyzeWallet(db, address, budget);
+      await analyzeWallet(db, address, budget, crashBudget);
       done++;
     } catch (e) {
       db.prepare("UPDATE wallets SET analyze_errors = analyze_errors + 1 WHERE address = ?").run(address);

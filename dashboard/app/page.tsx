@@ -7,7 +7,7 @@ import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pct, pnlClass, signedSol } from "@/lib/format";
+import { ago, pct, pnlClass, signedSol, signedUsd } from "@/lib/format";
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,9 +34,9 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-2 gap-px border bg-border sm:grid-cols-3 lg:grid-cols-6">
-        <Stat className="border-0" label="Realized P&L" value={signedSol(s?.realizedPnlSol ?? null, 3)} sub="SOL from copies" valueClass={pnlClass(s?.realizedPnlSol)} />
+        <Stat className="border-0" label="Realized P&L" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${signedSol(s.realizedPnlSol, 3)} SOL from copies` : ""} valueClass={pnlClass(s?.realizedPnlUsd)} />
         <Stat className="border-0" label="Win rate" value={wr === null ? "—" : `${wr.toFixed(1)}%`} sub={s ? `${s.wins}W / ${s.losses}L` : ""} valueClass={wr === null ? "" : wr >= 50 ? "text-win" : "text-loss"} />
-        <Stat className="border-0" label="Open" value={s ? `${s.openPositions}/${s.maxPositions}` : "—"} sub={s ? `${signedSol(s.unrealizedPnlSol, 3)} unrealized` : ""} valueClass={pnlClass(s?.unrealizedPnlSol)} />
+        <Stat className="border-0" label="Open" value={s ? `${s.openPositions}/${s.maxPositions}` : "—"} sub={s ? `${s.unrealizedPnlUsd === null ? `${signedSol(s.unrealizedPnlSol, 3)} SOL` : signedUsd(s.unrealizedPnlUsd)} unrealized` : ""} valueClass={pnlClass(s?.unrealizedPnlUsd ?? s?.unrealizedPnlSol)} />
         <Stat className="border-0" label="Copying" value={s?.leaders ?? "—"} sub="wallets" />
         <Stat className="border-0" label="Analyzed" value={s?.walletsTracked.toLocaleString("en-US") ?? "—"} sub="wallets with a tier" />
         <Stat className="border-0" label="Seen live" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub="wallets, last 24h" />
@@ -69,7 +69,7 @@ export default function Home() {
                   <KindBadge kind={l.kind} score={null} />
                 </div>
                 <div className="flex items-center gap-3 num">
-                  <span className={pnlClass(l.pnl_7d_sol)}>{signedSol(l.pnl_7d_sol, 2)} 7d</span>
+                  <span className={pnlClass(l.pnl_7d_usd)}>{signedUsd(l.pnl_7d_usd)} 7d</span>
                   <span className="w-10 text-right font-bold text-win">{(l.copy_weight * 100).toFixed(0)}%</span>
                 </div>
               </div>

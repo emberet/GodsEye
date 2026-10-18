@@ -2,9 +2,9 @@
  * THE LEARNING LOOP — decides whom GodsEye copies, and how much.
  *
  * It always sides with whoever is making money right now:
- *   • A wallet's weight follows its realized profit over the last 7 days
- *     (60%) and 30 days (40%), scaled by its win rate and by how many trades
- *     back that up.
+ *   • A wallet's weight follows its realized profit — in USD, each trade
+ *     valued when it settled — over the last 7 days (60%) and 30 days (40%),
+ *     scaled by its win rate and by how many trades back that up.
  *   • Losing over 7 days → weight 0 immediately. No second chances until it
  *     makes money again (then it comes back on its own).
  *   • GodsEye also learns from its OWN results: if copying a wallet has lost
@@ -19,6 +19,7 @@ import type { Tier } from "@godseye/shared";
 export interface WeightInput {
   address: string;
   tier: Tier;
+  /** Realized profit in USD at settlement. */
   pnl7: number;
   pnl30: number;
   closed30: number;
@@ -37,11 +38,12 @@ export interface WeightResult {
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
 const sol = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)} SOL`;
+const usd = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 /** How attractive a wallet is to copy right now (0 = don't copy). */
 export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number }): WeightResult {
   if (w.tier === "quitter") return { weight: 0, reason: "stopped trading" };
-  if (w.pnl7 <= 0) return { weight: 0, reason: `not making money this week (${sol(w.pnl7)})` };
+  if (w.pnl7 <= 0) return { weight: 0, reason: `not making money this week (${usd(w.pnl7)})` };
   if (w.copyClosed14 >= 3 && w.copyPnl14 <= -cfg.copyLossDropSol) {
     return { weight: 0, reason: `GodsEye's copies of it lost ${sol(w.copyPnl14)} over 14 days, so it can't be copied profitably` };
   }
@@ -49,7 +51,7 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number }): Weig
   const confidence = clamp(w.closed30 / 20, 0.1, 1);
   const winFactor = w.winRate30 === null ? 0.25 : clamp((w.winRate30 - 0.3) / 0.3, 0.25, 1);
   let score = profit * confidence * winFactor;
-  const notes = [`${sol(w.pnl7)} this week`, `${sol(w.pnl30)} this month`, `${w.closed30} closed trades`];
+  const notes = [`${usd(w.pnl7)} this week`, `${usd(w.pnl30)} this month`, `${w.closed30} closed trades`];
   if (w.winRate30 !== null) notes.push(`${Math.round(w.winRate30 * 100)}% wins`);
   if (w.pnl30 <= 0) {
     score *= 0.5;

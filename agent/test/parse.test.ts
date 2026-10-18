@@ -176,3 +176,13 @@ test("non-memecoins (e.g. cbBTC) aren't counted, even when paid in USDC", () => 
   for (const b of [...tx.meta!.preTokenBalances!, ...tx.meta!.postTokenBalances!]) if (b.mint === MINT) b.mint = "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij";
   assert.deepEqual(parseSwaps(tx, WALLET, at100), []);
 });
+
+test("every swap carries its USD value at settlement", () => {
+  const sol = parseSwap(swapTx({ solDelta: -2.000005, tokenBefore: 0, tokenAfter: 10 }), WALLET, at100)!;
+  assert.equal(sol.usdAmount, 200);
+  assert.equal(sol.solUsd, 100);
+  const usdc = parseSwap(usdcSwap(500, 312.34, 0, 1000), WALLET, at100)!;
+  assert.ok(Math.abs(usdc.usdAmount! - 187.66) < 1e-6); // exact dollars, not SOL × price
+  const noPrice = parseSwap(swapTx({ solDelta: -2.000005, tokenBefore: 0, tokenAfter: 10 }), WALLET)!;
+  assert.equal(noPrice.usdAmount, null);
+});

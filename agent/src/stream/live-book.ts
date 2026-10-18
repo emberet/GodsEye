@@ -2,14 +2,14 @@
  * THE LIVE BOOK — every wallet seen swapping on the gRPC stream, in memory.
  *
  * For each wallet it keeps its last swaps (up to 200), so GodsEye can work out
- * a live realized P&L and a live AI / human score for wallets it has never
+ * a live realized P&L (in USD at settlement, and SOL) and a live AI / human score for wallets it has never
  * analyzed. Idle wallets are forgotten after a while; the busiest are kept if
  * memory gets tight. Running totals are written to the wallet_activity table
  * (see stream.ts), so the dashboard can list everyone, not just analyzed wallets.
  */
 import type { ParsedSwap } from "../chain/parse";
 import { classify } from "../analysis/classifier";
-import { realize, type SwapLite } from "../analysis/pnl";
+import { positionWon, realize, type SwapLite } from "../analysis/pnl";
 import type { WalletKind } from "@godseye/shared";
 
 const MAX_SWAPS_PER_WALLET = 200;
@@ -24,6 +24,7 @@ export interface LiveWallet {
   volumeSol: number;
   recent: SwapLite[];
   pnlSol: number;
+  pnlUsd: number;
   closed: number;
   wins: number;
   kind: WalletKind;
@@ -50,7 +51,7 @@ export class LiveBook {
   record(s: ParsedSwap, now = Date.now()): LiveWallet {
     let w = this.wallets.get(s.wallet);
     if (!w) {
-      w = { address: s.wallet, firstSeen: now, lastSeen: now, swaps: 0, buys: 0, sells: 0, volumeSol: 0, recent: [], pnlSol: 0, closed: 0, wins: 0, kind: "unknown", aiScore: null, promoted: false, dirty: true, sellsSinceScore: 0 };
+      w = { address: s.wallet, firstSeen: now, lastSeen: now, swaps: 0, buys: 0, sells: 0, volumeSol: 0, recent: [], pnlSol: 0, pnlUsd: 0, closed: 0, wins: 0, kind: "unknown", aiScore: null, promoted: false, dirty: true, sellsSinceScore: 0 };
       this.wallets.set(s.wallet, w);
     }
     w.lastSeen = now;
@@ -61,7 +62,7 @@ export class LiveBook {
       w.sells++;
       w.sellsSinceScore++;
     }
-    w.recent.push({ signature: s.signature, ts: s.ts, mint: s.mint, side: s.side, token_amount: s.tokenAmount, sol_amount: s.solAmount, price_sol: s.priceSol, venue: s.venue, jito_tip: s.jitoTip ? 1 : 0, token_age_sec: null });
+    w.recent.push({ signature: s.signature, ts: s.ts, mint: s.mint, side: s.side, token_amount: s.tokenAmount, sol_amount: s.solAmount, usd_amount: s.usdAmount, price_sol: s.priceSol, venue: s.venue, jito_tip: s.jitoTip ? 1 : 0, token_age_sec: null });
     if (w.recent.length > MAX_SWAPS_PER_WALLET) w.recent.splice(0, w.recent.length - MAX_SWAPS_PER_WALLET);
     w.dirty = true;
     return w;
@@ -74,8 +75,9 @@ export class LiveBook {
       if (w.sellsSinceScore > 0) {
         const r = realize(w.recent, this.opts.earlyBuySeconds);
         w.pnlSol = r.events.reduce((s, e) => s + e.pnlSol, 0);
+        w.pnlUsd = r.events.reduce((s, e) => s + (e.pnlUsd ?? 0), 0);
         w.closed = r.closed.length;
-        w.wins = r.closed.filter((c) => c.pnlSol > 0).length;
+        w.wins = r.closed.filter(positionWon).length;
         w.sellsSinceScore = 0;
       }
       if (w.recent.length >= 8) {
@@ -87,9 +89,9 @@ export class LiveBook {
     }
   }
 
-  /** Wallets worth a full analysis: making real money across several closed trades. */
-  promotable(minPnlSol: number, minClosed: number): LiveWallet[] {
-    return [...this.wallets.values()].filter((w) => !w.promoted && w.pnlSol >= minPnlSol && w.closed >= minClosed && w.wins / Math.max(1, w.closed) >= 0.5);
+  /** Wallets worth a full analysis: making real money (USD at settlement) across several closed trades. */
+  promotable(minPnlUsd: number, minClosed: number): LiveWallet[] {
+    return [...this.wallets.values()].filter((w) => !w.promoted && w.pnlUsd >= minPnlUsd && w.closed >= minClosed && w.wins / Math.max(1, w.closed) >= 0.5);
   }
 
   /** Forget idle wallets; if still over the cap, drop the least active. */

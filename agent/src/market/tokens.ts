@@ -15,6 +15,8 @@ export interface TokenInfo {
   decimals: number | null;
   pool_created_at: string | null;
   creator: string | null;
+  /** The token's deepest pool (used for price candles). */
+  pool_address: string | null;
   checked_at: string;
 }
 
@@ -25,16 +27,20 @@ export function cachedTokenInfo(db: DB, mint: string): TokenInfo | null {
   return (db.prepare("SELECT * FROM token_info WHERE mint = ?").get(mint) as TokenInfo | undefined) ?? null;
 }
 
-export async function tokenInfo(db: DB, mint: string, opts: { creator?: boolean } = {}): Promise<TokenInfo> {
+export async function tokenInfo(db: DB, mint: string, opts: { creator?: boolean; pool?: boolean } = {}): Promise<TokenInfo> {
   const cached = cachedTokenInfo(db, mint);
-  const stale = !cached || (!cached.pool_created_at && Date.now() - Date.parse(cached.checked_at) > RETRY_UNKNOWN_HOURS * 3_600_000);
-  let info: TokenInfo = cached ?? { mint, symbol: null, decimals: null, pool_created_at: null, creator: null, checked_at: nowIso() };
+  const stale =
+    !cached ||
+    (opts.pool && !cached.pool_address) ||
+    (!cached.pool_created_at && Date.now() - Date.parse(cached.checked_at) > RETRY_UNKNOWN_HOURS * 3_600_000);
+  let info: TokenInfo = cached ?? { mint, symbol: null, decimals: null, pool_created_at: null, creator: null, pool_address: null, checked_at: nowIso() };
   if (stale) {
-    const launch = await fetchTokenLaunch(mint).catch(() => ({ symbol: null, poolCreatedAt: null }));
+    const launch = await fetchTokenLaunch(mint).catch(() => ({ symbol: null, poolCreatedAt: null, topPool: null }));
     info = {
       ...info,
       symbol: launch.symbol ?? info.symbol,
       pool_created_at: launch.poolCreatedAt ?? info.pool_created_at,
+      pool_address: launch.topPool ?? info.pool_address,
       decimals: info.decimals ?? (await tokenDecimals(mint)) ?? null,
       checked_at: nowIso(),
     };
@@ -44,10 +50,10 @@ export async function tokenInfo(db: DB, mint: string, opts: { creator?: boolean 
     if (report?.creator) info = { ...info, creator: report.creator };
   }
   db.prepare(
-    `INSERT INTO token_info (mint, symbol, decimals, pool_created_at, creator, checked_at) VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO token_info (mint, symbol, decimals, pool_created_at, creator, pool_address, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(mint) DO UPDATE SET symbol=excluded.symbol, decimals=excluded.decimals, pool_created_at=excluded.pool_created_at,
-       creator=excluded.creator, checked_at=excluded.checked_at`,
-  ).run(info.mint, info.symbol, info.decimals, info.pool_created_at, info.creator, info.checked_at);
+       creator=excluded.creator, pool_address=excluded.pool_address, checked_at=excluded.checked_at`,
+  ).run(info.mint, info.symbol, info.decimals, info.pool_created_at, info.creator, info.pool_address, info.checked_at);
   return info;
 }
 

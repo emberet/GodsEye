@@ -4,7 +4,7 @@ import { SubNav, WALLET_LINKS } from "@/components/nav";
 import { Window } from "@/components/window";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedSol } from "@/lib/format";
+import { ago, pnlClass, signedUsd } from "@/lib/format";
 import type { WalletGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +52,7 @@ export default function GroupsPage() {
                   {m.is_fresh === 1 && <span className="border border-win/40 px-1 text-[10px] uppercase text-win">fresh</span>}
                   <TierBadge tier={m.tier} />
                   <KindBadge kind={m.kind} score={m.ai_score} />
-                  <span className={cn("ml-auto num", pnlClass(m.pnl_30d_sol))}>{signedSol(m.pnl_30d_sol, 2)} SOL 30d</span>
+                  <span className={cn("ml-auto num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)} 30d</span>
                 </div>
               ))}
             </div>

@@ -6,7 +6,7 @@ import { assignTier, type TierInput } from "../src/analysis/tiers";
 import { D, H, iso, swap } from "./helpers";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
-const cfg = { quitAfterDays: 7, minClosedForProven: 10, earlyBuySeconds: 600 };
+const cfg = { quitAfterDays: 7, minClosedForProven: 10, earlyBuySeconds: 600, crashMinExits: 3, crashMinShare: 0.25 };
 
 test("realize: average cost, partial sells, closed positions", () => {
   const swaps = [
@@ -142,4 +142,96 @@ test("P&L in SOL: bought with USDC, sold for SOL after SOL's price moved", () =>
     600,
   );
   assert.ok(Math.abs(r.closed[0].pnlSol - 0.5) < 1e-9);
+});
+
+import { isCrashExit, judgeExit } from "../src/analysis/crash";
+import type { Candle } from "../src/market/geckoterminal";
+
+const T0 = 1_760_000_400; // a 15-min candle boundary
+const c = (i: number, o: number, h: number, l: number, cl: number): Candle => [T0 + i * 900, o, h, l, cl];
+const crashCfg = { crashDropPct: 50, crashWindowMinutes: 60 };
+
+test("crash rule: sold near the top, fell 70% within the hour → counts", () => {
+  const candles = [c(-4, 0.9, 1.0, 0.9, 1.0), c(-1, 1.0, 1.05, 0.98, 1.0), c(0, 1.0, 1.0, 0.8, 0.8), c(1, 0.8, 0.8, 0.3, 0.35), c(4, 0.35, 0.4, 0.3, 0.32)];
+  const j = judgeExit(candles, T0 + 60, 1.0, 60)!;
+  assert.ok(j.nearTop);
+  assert.ok(j.dropPct >= 69 && j.dropPct <= 71, `drop ${j.dropPct}`);
+  assert.ok(j.minutesToLow <= 30);
+  assert.equal(isCrashExit(j, crashCfg), true);
+});
+
+test("crash rule: a slow decay over days, or selling into a dump already under way, doesn't count", () => {
+  // only -20% within the hour (the rest of the fall comes days later)
+  const slow = [c(-2, 1, 1, 1, 1), c(0, 1, 1, 0.9, 0.9), c(3, 0.9, 0.9, 0.8, 0.8)];
+  assert.equal(isCrashExit(judgeExit(slow, T0 + 60, 1.0, 60), crashCfg), false);
+  // sold at 0.5 after the token already fell from 1.0 in the previous hour
+  const intoDump = [c(-3, 1, 1, 0.9, 0.9), c(-1, 0.6, 0.6, 0.5, 0.5), c(0, 0.5, 0.5, 0.2, 0.2)];
+  const j = judgeExit(intoDump, T0 + 60, 0.5, 60)!;
+  assert.equal(j.nearTop, false);
+  assert.equal(isCrashExit(j, crashCfg), false);
+  // no candle data → can't judge
+  assert.equal(judgeExit([], T0, 1, 60), null);
+});
+
+test("tiers: crash exits make an insider only as a real pattern (≥3 and ≥25% of closed trades)", () => {
+  const exit = (i: number) => ({ mint: `M${i}`, symbol: `T${i}`, dropPct: 70, minutesToLow: 20, signature: `x${i}`, ts: iso(D, NOW) });
+  const many = trades(40, (i) => (i % 4 === 0 ? -0.1 : 0.3));
+  // 3 crash exits out of 40 closed trades = 7.5% → not insider
+  assert.notEqual(tierOf(many, { crashExits: [0, 1, 2].map(exit) }).tier, "insider");
+  // 4 out of 12 = 33% → insider
+  const t = tierOf(trades(12, () => 0.3), { crashExits: [0, 1, 2, 3].map(exit) });
+  assert.equal(t.tier, "insider");
+  assert.match(t.reason, /sold right before 4 crashes \(33% of its trades\)/);
+});
+
+test("USD P&L: SOL's own price move isn't trading profit", () => {
+  // Bought for 2 SOL when SOL = $100 ($200); sold for 2.5 SOL when SOL = $80 ($200).
+  // In SOL that looks like +0.5; in dollars it's break-even.
+  const r = realize(
+    [
+      swap({ ts: iso(2 * H, NOW), side: "buy", sol_amount: 2, usd_amount: 200, token_amount: 1000 }),
+      swap({ ts: iso(H, NOW), side: "sell", sol_amount: 2.5, usd_amount: 200, token_amount: 1000 }),
+    ],
+    600,
+  );
+  assert.ok(Math.abs(r.closed[0].pnlSol - 0.5) < 1e-9);
+  assert.equal(r.closed[0].pnlUsd, 0);
+  assert.equal(r.closed[0].pnlPct, 0); // % return is in USD when known
+});
+
+test("USD P&L: mixes SOL- and USDC-settled legs, partial sells included", () => {
+  const swaps = [
+    swap({ ts: iso(3 * H, NOW), side: "buy", sol_amount: 1, usd_amount: 100, token_amount: 100 }), // paid 1 SOL @ $100
+    swap({ ts: iso(2 * H, NOW), side: "buy", sol_amount: 2, usd_amount: 200, token_amount: 100 }), // paid $200 USDC
+    swap({ ts: iso(H, NOW), side: "sell", sol_amount: 1.5, usd_amount: 180, token_amount: 100 }), // got $180 for half (cost $150)
+    swap({ ts: iso(0.5 * H, NOW), side: "sell", sol_amount: 1, usd_amount: 120, token_amount: 100 }), // got $120 for the rest (cost $150)
+  ];
+  const r = realize(swaps, 600);
+  assert.equal(r.closed[0].costUsd, 300);
+  assert.equal(r.closed[0].proceedsUsd, 300);
+  assert.equal(r.closed[0].pnlUsd, 0);
+  assert.deepEqual(r.events.map((e) => e.pnlUsd), [30, -30]);
+  const st = computeStats(swaps, r, NOW, 600);
+  assert.equal(st.pnl_7d_usd, 0);
+  assert.equal(st.avg_buy_usd, 150);
+});
+
+test("USD P&L: a leg with no known USD value makes that position's USD result unknown, not zero", () => {
+  const r = realize(
+    [
+      swap({ ts: iso(2 * H, NOW), side: "buy", sol_amount: 1, usd_amount: null, token_amount: 10 }),
+      swap({ ts: iso(H, NOW), side: "sell", sol_amount: 2, usd_amount: 200, token_amount: 10 }),
+    ],
+    600,
+  );
+  assert.equal(r.closed[0].pnlUsd, null);
+  assert.equal(r.closed[0].pnlSol, 1);
+  const st = computeStats([], r, NOW, 600);
+  assert.equal(st.pnl_7d_usd, null);
+});
+
+test("tiers judge profit in USD and show dollars", () => {
+  const t = tierOf(trades(14, (i) => (i % 4 === 0 ? -0.1 : 0.3)));
+  assert.equal(t.tier, "proven");
+  assert.match(t.reason, /^\+\$\d/);
 });

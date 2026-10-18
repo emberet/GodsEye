@@ -12,11 +12,12 @@
  * Insider pattern needs at least one of:
  *   • it's the token's creator, or was funded by the token's creator, and bought that token
  *   • ≥ 3 profitable positions that started with a buy in the token's first minutes, and ≥ 40% of its buys are that early
- *   • ≥ 2 times it sold out shortly before the token crashed ≥ 60%
+ *   • it repeatedly sold right before a crash: ≥ CRASH_MIN_EXITS (3) sales near the top after which the
+ *     token fell ≥ 50% within an hour, making up ≥ CRASH_MIN_SHARE (25%) of its closed trades (see crash.ts)
  * Every rule that fires leaves a piece of evidence, shown on the wallet's page.
  */
 import type { Tier } from "@godseye/shared";
-import type { ClosedPosition, ComputedStats } from "./pnl";
+import { positionWon, type ClosedPosition, type ComputedStats } from "./pnl";
 
 export interface EvidenceItem {
   kind: string;
@@ -37,10 +38,10 @@ export interface TierInput {
   previousTier: Tier;
   /** Tokens this wallet bought where it is, or was funded by, the token's creator. */
   creatorLinks: { mint: string; symbol: string; relation: "is_creator" | "funded_by_creator"; signature: string; ts: string }[];
-  /** Positions it closed shortly before a crash: its last sell price vs. the price now. */
-  crashExits: { mint: string; symbol: string; sellPriceSol: number; nowPriceSol: number; signature: string; ts: string }[];
+  /** Sales that came right before a crash (already judged by crash.ts). */
+  crashExits: { mint: string; symbol: string; dropPct: number; minutesToLow: number; signature: string; ts: string }[];
   symbols: Map<string, string>;
-  cfg: { quitAfterDays: number; minClosedForProven: number; earlyBuySeconds: number };
+  cfg: { quitAfterDays: number; minClosedForProven: number; earlyBuySeconds: number; crashMinExits: number; crashMinShare: number };
 }
 
 /** Evidence kinds that describe the wallet's current state (replaced on every analysis), not one specific trade. */
@@ -52,15 +53,24 @@ export interface TierResult {
   evidence: EvidenceItem[];
 }
 
-const sol = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)} SOL`;
+/** Money as shown in reasons: USD at settlement when known, otherwise SOL. */
+export const money = (usd: number | null, sol: number) =>
+  usd !== null ? `${usd >= 0 ? "+" : "−"}$${Math.abs(usd).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : `${sol >= 0 ? "+" : ""}${sol.toFixed(2)} SOL`;
+const posMoney = (c: ClosedPosition) => money(c.pnlUsd, c.pnlSol);
+const posValue = (c: ClosedPosition) => c.pnlUsd ?? c.pnlSol;
 const LIKELY_EXCHANGE_GROUP = 25;
 
 export function assignTier(i: TierInput): TierResult {
   const s = i.stats;
+  // Profit is judged in USD at settlement (SOL only when no USD value is known).
+  const p7 = s.pnl_7d_usd ?? s.pnl_7d_sol;
+  const p30 = s.pnl_30d_usd ?? s.pnl_30d_sol;
+  const m7 = money(s.pnl_7d_usd, s.pnl_7d_sol);
+  const m30 = money(s.pnl_30d_usd, s.pnl_30d_sol);
   const nowIso = new Date(i.now).toISOString();
   const sym = (m: string) => i.symbols.get(m) ?? `${m.slice(0, 4)}…`;
 
-  if (s.swaps_total === 0 || !s.last_trade_at) return { tier: "unrated", reason: "No SOL-priced swaps seen yet", evidence: [] };
+  if (s.swaps_total === 0 || !s.last_trade_at) return { tier: "unrated", reason: "No memecoin swaps seen yet", evidence: [] };
 
   // 1) Quitter
   const idleDays = (i.now - Date.parse(s.last_trade_at)) / 86_400_000;
@@ -79,22 +89,23 @@ export function assignTier(i: TierInput): TierResult {
     });
   }
   const d30 = new Date(i.now - 30 * 86_400_000).toISOString();
-  const earlyWins = i.closed.filter((c) => c.earlyEntry && c.pnlSol > 0 && c.closedAt >= d30);
+  const earlyWins = i.closed.filter((c) => c.earlyEntry && positionWon(c) && c.closedAt >= d30);
   if (earlyWins.length >= 3 && (s.early_buy_rate ?? 0) >= 0.4) {
     for (const c of earlyWins.slice(0, 10)) {
       insider.push({
         kind: "early_entry",
-        detail: `Bought ${sym(c.mint)} within ${Math.round(i.cfg.earlyBuySeconds / 60)} min of launch, closed ${sol(c.pnlSol)} (${c.pnlPct.toFixed(0)}%)`,
+        detail: `Bought ${sym(c.mint)} within ${Math.round(i.cfg.earlyBuySeconds / 60)} min of launch, closed ${posMoney(c)} (${c.pnlPct.toFixed(0)}%)`,
         mint: c.mint, signature: c.lastSellSignature, ts: c.closedAt,
       });
     }
   }
-  const crashes = i.crashExits.filter((x) => x.nowPriceSol <= x.sellPriceSol * 0.4);
-  if (crashes.length >= 2) {
+  const crashes = i.crashExits;
+  const crashShare = s.closed_30d ? crashes.length / s.closed_30d : 0;
+  if (crashes.length >= i.cfg.crashMinExits && crashShare >= i.cfg.crashMinShare) {
     for (const x of crashes) {
       insider.push({
         kind: "sold_before_crash",
-        detail: `Sold out of ${x.symbol}; it's down ${Math.round((1 - x.nowPriceSol / x.sellPriceSol) * 100)}% since`,
+        detail: `Sold ${x.symbol} near the top; it fell ${Math.round(x.dropPct)}% within ${Math.max(1, Math.round(x.minutesToLow))} min`,
         mint: x.mint, signature: x.signature, ts: x.ts,
       });
     }
@@ -104,44 +115,44 @@ export function assignTier(i: TierInput): TierResult {
     const parts = [
       kinds.has("is_creator") || kinds.has("funded_by_creator") ? "linked to token creators" : null,
       kinds.has("early_entry") ? `${earlyWins.length} profitable launch-minute buys` : null,
-      kinds.has("sold_before_crash") ? `sold before ${crashes.length} crashes` : null,
+      kinds.has("sold_before_crash") ? `sold right before ${crashes.length} crashes (${Math.round(crashShare * 100)}% of its trades)` : null,
     ].filter(Boolean);
     return { tier: "insider", reason: `Insider pattern: ${parts.join(", ")}`, evidence: insider };
   }
 
   // 3) Lucky streak
-  if (s.pnl_30d_sol > 0 && s.closed_30d >= 1) {
-    const best = i.closed.filter((c) => c.closedAt >= d30).sort((a, b) => b.pnlSol - a.pnlSol)[0];
+  if (p30 > 0 && s.closed_30d >= 1) {
+    const best = i.closed.filter((c) => c.closedAt >= d30).sort((a, b) => posValue(b) - posValue(a))[0];
     if (s.best_trade_share !== null && s.best_trade_share >= 0.7 && s.closed_30d >= 2) {
-      const reason = `One trade made ${Math.round(s.best_trade_share * 100)}% of the 30-day profit (${sol(best.pnlSol)} on ${sym(best.mint)})`;
+      const reason = `One trade made ${Math.round(s.best_trade_share * 100)}% of the 30-day profit (${posMoney(best)} on ${sym(best.mint)})`;
       return { tier: "lucky_streak", reason, evidence: [{ kind: "concentrated_profit", detail: reason, mint: best.mint, signature: best.lastSellSignature, ts: best.closedAt }] };
     }
     if (s.closed_30d < i.cfg.minClosedForProven) {
-      const reason = `Up ${sol(s.pnl_30d_sol)} but only ${s.closed_30d} closed trades in 30 days (${i.cfg.minClosedForProven} needed to call it skill)`;
+      const reason = `Up ${m30} but only ${s.closed_30d} closed trades in 30 days (${i.cfg.minClosedForProven} needed to call it skill)`;
       return { tier: "lucky_streak", reason, evidence: [{ kind: "small_sample", detail: reason, ts: nowIso }] };
     }
   }
 
   // 4) Needs attention
   const attention: EvidenceItem[] = [];
-  if (s.pnl_30d_sol > 0 && s.pnl_7d_sol < 0) attention.push({ kind: "slipping", detail: `Profitable over 30 days (${sol(s.pnl_30d_sol)}) but losing this week (${sol(s.pnl_7d_sol)})`, ts: nowIso });
-  else if (i.previousTier === "proven" && s.pnl_7d_sol < 0) attention.push({ kind: "slipping", detail: `Was Proven, now losing this week (${sol(s.pnl_7d_sol)})`, ts: nowIso });
+  if (p30 > 0 && p7 < 0) attention.push({ kind: "slipping", detail: `Profitable over 30 days (${m30}) but losing this week (${m7})`, ts: nowIso });
+  else if (i.previousTier === "proven" && p7 < 0) attention.push({ kind: "slipping", detail: `Was Proven, now losing this week (${m7})`, ts: nowIso });
   if (i.isFresh && (s.avg_buy_sol ?? 0) >= 3) attention.push({ kind: "fresh_big", detail: `Brand-new wallet already buying ~${(s.avg_buy_sol ?? 0).toFixed(1)} SOL per trade`, ts: nowIso });
   if (i.groupSize >= 5 && i.groupSize < LIKELY_EXCHANGE_GROUP) attention.push({ kind: "sibling_wallets", detail: `One funder paid for ${i.groupSize} tracked wallets, including this one`, ts: nowIso });
   if (i.funderTracked) attention.push({ kind: "rotated_from", detail: `Funded by ${i.funderTracked.address.slice(0, 4)}…${i.funderTracked.address.slice(-4)}, a tracked wallet (${i.funderTracked.tier}): maybe the same trader on a new wallet`, ts: nowIso });
   if (attention.length) return { tier: "needs_attention", reason: attention.map((a) => a.detail).join(" · "), evidence: attention };
 
   // 5) Proven
-  if (s.pnl_30d_sol > 0 && s.pnl_7d_sol >= 0 && s.closed_30d >= i.cfg.minClosedForProven && (s.win_rate_30d ?? 0) >= 0.5 && (s.best_trade_share ?? 1) < 0.5) {
+  if (p30 > 0 && p7 >= 0 && s.closed_30d >= i.cfg.minClosedForProven && (s.win_rate_30d ?? 0) >= 0.5 && (s.best_trade_share ?? 1) < 0.5) {
     return {
       tier: "proven",
-      reason: `${sol(s.pnl_30d_sol)} over ${s.closed_30d} closed trades in 30 days, ${Math.round((s.win_rate_30d ?? 0) * 100)}% wins`,
+      reason: `${m30} over ${s.closed_30d} closed trades in 30 days, ${Math.round((s.win_rate_30d ?? 0) * 100)}% wins`,
       evidence: [],
     };
   }
 
   // 6) Unrated
   if (s.closed_30d < 3) return { tier: "unrated", reason: `Only ${s.closed_30d} closed trades in 30 days`, evidence: [] };
-  if (s.pnl_30d_sol <= 0) return { tier: "unrated", reason: `Not profitable: ${sol(s.pnl_30d_sol)} over 30 days`, evidence: [] };
-  return { tier: "unrated", reason: `Profitable (${sol(s.pnl_30d_sol)}) but under 50% wins or uneven profit`, evidence: [] };
+  if (p30 <= 0) return { tier: "unrated", reason: `Not profitable: ${m30} over 30 days`, evidence: [] };
+  return { tier: "unrated", reason: `Profitable (${m30}) but under 50% wins or uneven profit`, evidence: [] };
 }

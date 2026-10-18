@@ -5,7 +5,7 @@ import { Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { EquityChart, MonthlyChart, RollingWinRateChart } from "@/components/charts/perf-charts";
 import { usePoll } from "@/lib/use-poll";
-import { dt, pct, pnlClass } from "@/lib/format";
+import { dollars, dt, pct, pnlClass } from "@/lib/format";
 import type { Performance } from "@/lib/types";
 
 export default function PerformancePage() {
@@ -14,12 +14,12 @@ export default function PerformancePage() {
   const last = data?.equity.at(-1);
   return (
     <>
-      <PageHeader title="Copying" kicker="performance · closed positions only">
+      <PageHeader title="Copying" kicker="performance in USD · closed positions only">
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
       <div className="mb-3 grid grid-cols-2 gap-px border bg-border sm:grid-cols-3 lg:grid-cols-6">
-        <Stat className="border-0" label="Equity" value={last ? `${last.equity.toFixed(2)}` : "—"} sub={`SOL · started ${data?.startingCapitalSol ?? "—"}`} />
-        <Stat className="border-0" label="Total return" value={pct(last && data ? (last.cumPnl / data.startingCapitalSol) * 100 : null)} valueClass={pnlClass(last?.cumPnl)} />
+        <Stat className="border-0" label="Equity" value={last ? dollars(last.equity) : "—"} sub={`started ${dollars(data?.startingCapitalUsd ?? null)}`} />
+        <Stat className="border-0" label="Total return" value={pct(last && data?.startingCapitalUsd ? (last.cumPnl / data.startingCapitalUsd) * 100 : null)} valueClass={pnlClass(last?.cumPnl)} />
         <Stat className="border-0"
           label="Max drawdown"
           value={data ? `${data.drawdown.maxDrawdownPct.toFixed(2)}%` : "—"}

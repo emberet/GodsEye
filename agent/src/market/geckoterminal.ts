@@ -174,18 +174,35 @@ export async function fetchPoolTrades(poolAddress: string, minUsd: number): Prom
   }));
 }
 
-/** When a token's first pool was created, and its symbol. */
-export async function fetchTokenLaunch(mint: string): Promise<{ symbol: string | null; poolCreatedAt: string | null }> {
+/** When a token's first pool was created, its symbol, and its deepest pool (for price candles). */
+export async function fetchTokenLaunch(mint: string): Promise<{ symbol: string | null; poolCreatedAt: string | null; topPool: string | null }> {
   const res = await gt<{ data: GtPool[] }>(`/networks/solana/tokens/${mint}/pools?page=1`);
   let earliest: string | null = null;
   let symbol: string | null = null;
+  let topPool: string | null = null;
+  let topLiquidity = -1;
   for (const p of res.data) {
     const info = toPoolInfo(p);
     if (info.mint === mint && !symbol) symbol = info.symbol;
     const created = p.attributes.pool_created_at;
     if (created && (!earliest || created < earliest)) earliest = created;
+    if (info.liquidityUsd > topLiquidity) {
+      topLiquidity = info.liquidityUsd;
+      topPool = info.poolAddress;
+    }
   }
-  return { symbol, poolCreatedAt: earliest };
+  return { symbol, poolCreatedAt: earliest, topPool };
+}
+
+/** A price candle: start time (unix seconds), open, high, low, close (USD). */
+export type Candle = [number, number, number, number, number];
+
+/** 15-minute candles of a pool's base token ending before `beforeTimestamp`, oldest first. */
+export async function fetchCandles15m(poolAddress: string, beforeTimestamp: number, limit: number): Promise<Candle[]> {
+  const res = await gt<{ data: { attributes: { ohlcv_list: number[][] } } }>(
+    `/networks/solana/pools/${poolAddress}/ohlcv/minute?aggregate=15&limit=${limit}&currency=usd&before_timestamp=${beforeTimestamp}`,
+  );
+  return res.data.attributes.ohlcv_list.map((c) => [c[0], c[1], c[2], c[3], c[4]] as Candle).sort((a, b) => a[0] - b[0]);
 }
 
 /** Hourly USD closes for a pool's base token, newest first: [unix seconds, close][] (up to 1000 hours per call). */

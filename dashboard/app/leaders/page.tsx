@@ -5,7 +5,7 @@ import { Window } from "@/components/window";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dt, pnlClass, signedSol } from "@/lib/format";
+import { ago, dt, pnlClass, signedSol, signedUsd } from "@/lib/format";
 import type { LeadersData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -18,7 +18,7 @@ export default function LeadersPage() {
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
       <p className="mb-3 text-xs text-muted-foreground">
-        Weight follows each wallet&apos;s profit over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
+        Weight follows each wallet&apos;s profit in USD (valued when each trade settled) over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
         If copying a wallet loses GodsEye money over 14 days, it stops copying it. Top earners only; weights add up to the copy budget
         {data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""}.
       </p>
@@ -58,11 +58,11 @@ export default function LeadersPage() {
                     <span className="w-10 font-bold text-win">{(l.copy_weight * 100).toFixed(0)}%</span>
                   </div>
                 </TableCell>
-                <TableCell className={cn("text-right", pnlClass(l.pnl_7d_sol))}>{signedSol(l.pnl_7d_sol, 2)}</TableCell>
-                <TableCell className={cn("text-right", pnlClass(l.pnl_30d_sol))}>{signedSol(l.pnl_30d_sol, 2)}</TableCell>
+                <TableCell className={cn("text-right", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</TableCell>
+                <TableCell className={cn("text-right", pnlClass(l.pnl_30d_usd))}>{signedUsd(l.pnl_30d_usd)}</TableCell>
                 <TableCell className="text-right">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}%`}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(l.copy_pnl_sol))}>
-                  {signedSol(l.copy_pnl_sol, 3)} <span className="font-normal text-muted-foreground">({l.copy_closed})</span>
+                <TableCell className={cn("text-right font-bold", pnlClass(l.copy_pnl_usd))} title={`${signedSol(l.copy_pnl_sol, 3)} SOL`}>
+                  {signedUsd(l.copy_pnl_usd)} <span className="font-normal text-muted-foreground">({l.copy_closed})</span>
                 </TableCell>
                 <TableCell className="text-muted-foreground">{ago(l.last_activity_at)}</TableCell>
                 <TableCell className="max-w-[300px] truncate text-xs text-muted-foreground" title={l.weight_reason ?? ""}>{l.weight_reason}</TableCell>

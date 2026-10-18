@@ -7,7 +7,7 @@ import { Stat } from "@/components/stat";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dt, pnlClass, signedSol, solscanAccount, solscanTx } from "@/lib/format";
+import { ago, dollars, dt, pnlClass, signedSol, signedUsd, solscanAccount, solscanTx } from "@/lib/format";
 import type { WalletDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -87,11 +87,11 @@ export default function WalletPage({ params }: { params: { address: string } }) 
       </Window>
 
       <div className="mb-3 grid grid-cols-2 gap-px border bg-border sm:grid-cols-3 lg:grid-cols-6">
-        <Stat className="border-0" label="7d P&L" value={signedSol(s?.pnl_7d_sol, 2)} sub="SOL realized" valueClass={pnlClass(s?.pnl_7d_sol)} />
-        <Stat className="border-0" label="30d P&L" value={signedSol(s?.pnl_30d_sol, 2)} sub="SOL realized" valueClass={pnlClass(s?.pnl_30d_sol)} />
+        <Stat className="border-0" label="7d P&L" value={signedUsd(s?.pnl_7d_usd)} sub={`${signedSol(s?.pnl_7d_sol, 2)} SOL`} valueClass={pnlClass(s?.pnl_7d_usd)} />
+        <Stat className="border-0" label="30d P&L" value={signedUsd(s?.pnl_30d_usd)} sub={`${signedSol(s?.pnl_30d_sol, 2)} SOL`} valueClass={pnlClass(s?.pnl_30d_usd)} />
         <Stat className="border-0" label="Win rate 30d" value={s?.win_rate_30d == null ? "—" : `${Math.round(s.win_rate_30d * 100)}%`} sub={s ? `${s.wins_30d}/${s.closed_30d} closed` : ""} />
         <Stat className="border-0" label="Best trade share" value={s?.best_trade_share == null ? "—" : `${Math.round(s.best_trade_share * 100)}%`} sub="of 30d profit" />
-        <Stat className="border-0" label="Avg buy" value={s?.avg_buy_sol == null ? "—" : s.avg_buy_sol.toFixed(2)} sub={s?.avg_hold_minutes == null ? "SOL" : `SOL · holds ~${Math.round(s.avg_hold_minutes)}m`} />
+        <Stat className="border-0" label="Avg buy" value={dollars(s?.avg_buy_usd)} sub={s?.avg_hold_minutes == null ? `${s?.avg_buy_sol?.toFixed(2) ?? "—"} SOL` : `${s?.avg_buy_sol?.toFixed(2) ?? "—"} SOL · holds ~${Math.round(s.avg_hold_minutes)}m`} />
         <Stat className="border-0" label="Launch-minute buys" value={s?.early_buy_rate == null ? "—" : `${Math.round(s.early_buy_rate * 100)}%`} sub={s ? `${s.early_buys} buys` : ""} />
       </div>
 
@@ -153,7 +153,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
             </div>
             <div>
               <p className="mb-1 text-muted-foreground">
-                GodsEye&apos;s results copying it: <span className={cn("font-bold", pnlClass(data.copyPnlSol))}>{signedSol(data.copyPnlSol, 3)} SOL</span> over {data.copyClosed} closed positions
+                GodsEye&apos;s results copying it: <span className={cn("font-bold", pnlClass(data.copyPnlUsd))}>{signedUsd(data.copyPnlUsd)}</span> ({signedSol(data.copyPnlSol, 3)} SOL) over {data.copyClosed} closed positions
               </p>
               {data.copies.slice(0, 15).map((c) => (
                 <p key={c.id}>
@@ -185,8 +185,9 @@ export default function WalletPage({ params }: { params: { address: string } }) 
               <TableHead>When</TableHead>
               <TableHead>Side</TableHead>
               <TableHead>Token</TableHead>
+              <TableHead className="text-right">USD</TableHead>
               <TableHead className="text-right">SOL</TableHead>
-              <TableHead>Paid with</TableHead>
+              <TableHead>Settled in</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
               <TableHead className="text-right">After launch</TableHead>
               <TableHead>Venue</TableHead>
@@ -196,7 +197,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <TableBody>
             {data.swaps.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">No swaps against SOL or USDC/USDT seen yet.</TableCell>
+                <TableCell colSpan={10} className="py-8 text-center text-muted-foreground">No memecoin swaps settled in SOL or USDC/USDT seen yet.</TableCell>
               </TableRow>
             )}
             {data.swaps.map((x) => (
@@ -204,7 +205,8 @@ export default function WalletPage({ params }: { params: { address: string } }) 
                 <TableCell className="text-muted-foreground">{dt(x.ts)}</TableCell>
                 <TableCell className={x.side === "buy" ? "text-win" : "text-loss"}>{x.side}</TableCell>
                 <TableCell className="font-bold">{x.symbol ?? `${x.mint.slice(0, 4)}…`}</TableCell>
-                <TableCell className="text-right">{x.sol_amount.toFixed(3)}</TableCell>
+                <TableCell className="text-right">{dollars(x.usd_amount)}</TableCell>
+                <TableCell className="text-right text-muted-foreground">{x.sol_amount.toFixed(3)}</TableCell>
                 <TableCell className="text-muted-foreground">
                   {x.quote === "SOL" ? "SOL" : x.quote.includes("+") ? x.quote : `$${(x.quote_amount ?? 0).toFixed(2)} ${x.quote}`}
                 </TableCell>

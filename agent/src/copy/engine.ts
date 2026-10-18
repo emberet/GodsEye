@@ -26,6 +26,7 @@ import { rugCheck } from "../market/rugcheck";
 import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
+import { solUsdAt } from "../market/solprice";
 import type { Executor } from "./executor";
 import type { PublicKey } from "@solana/web3.js";
 
@@ -38,10 +39,18 @@ interface PositionRow {
   tokens_bought: number;
   cost_sol: number;
   proceeds_sol: number;
+  cost_usd: number | null;
+  proceeds_usd: number;
   entry_price_sol: number;
   last_price_sol: number | null;
   opened_at: string;
 }
+
+/** SOL → USD at this moment (null if the price is unknown). */
+const usdOf = (sol: number): number | null => {
+  const p = solUsdAt(Date.now());
+  return p ? sol * p : null;
+};
 
 export function isPaused(db: DB): boolean {
   return getMeta(db, "copy_paused") === "1" || fs.existsSync(dataPath("PAUSE"));
@@ -126,10 +135,10 @@ export class CopyEngine {
       const fill = await this.executor.buy(swap.mint, size);
       const pos = this.db
         .prepare(
-          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at)
-           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, entry_price_sol, last_price_sol, last_price_ts, opened_at)
+           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
-        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, fill.priceSol, fill.priceSol, nowIso(), nowIso());
+        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.priceSol, fill.priceSol, nowIso(), nowIso());
       this.db
         .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
         .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
@@ -163,13 +172,20 @@ export class CopyEngine {
       const fill = await this.executor.sell(pos.mint, tokens, all);
       const remaining = all ? 0 : Math.max(0, pos.token_amount - fill.tokenAmount);
       const proceeds = pos.proceeds_sol + fill.solAmount;
+      const fillUsd = usdOf(fill.solAmount);
+      const proceedsUsd = pos.proceeds_usd + (fillUsd ?? 0);
+      const usdKnown = pos.cost_usd !== null && fillUsd !== null;
       const closed = remaining <= pos.tokens_bought * 0.01;
-      this.db.prepare("UPDATE positions SET token_amount=?, proceeds_sol=?, last_price_sol=?, last_price_ts=? WHERE id=?").run(remaining, proceeds, fill.priceSol, nowIso(), pos.id);
+      this.db.prepare("UPDATE positions SET token_amount=?, proceeds_sol=?, proceeds_usd=?, cost_usd=?, last_price_sol=?, last_price_ts=? WHERE id=?")
+        .run(remaining, proceeds, proceedsUsd, usdKnown ? pos.cost_usd : null, fill.priceSol, nowIso(), pos.id);
       if (closed) {
         const pnl = proceeds - pos.cost_sol;
-        const pct = pos.cost_sol > 0 ? (pnl / pos.cost_sol) * 100 : 0;
-        this.db.prepare("UPDATE positions SET status='closed', token_amount=0, closed_at=?, exit_reason=?, pnl_sol=?, pnl_pct=? WHERE id=?").run(nowIso(), reason, pnl, pct, pos.id);
-        say(pnl >= 0 ? "win" : "loss", `Closed ${symbol} (copied from ${short(pos.leader)}): ${fmtSol(pnl)} (${fmtPct(pct)}) — ${reason}.`);
+        const pnlUsd = usdKnown ? proceedsUsd - (pos.cost_usd as number) : null;
+        // % return in USD when known (SOL's own price move between entry and exit isn't trading profit).
+        const pct = pnlUsd !== null && pos.cost_usd ? (pnlUsd / pos.cost_usd) * 100 : pos.cost_sol > 0 ? (pnl / pos.cost_sol) * 100 : 0;
+        this.db.prepare("UPDATE positions SET status='closed', token_amount=0, closed_at=?, exit_reason=?, pnl_sol=?, pnl_usd=?, pnl_pct=? WHERE id=?").run(nowIso(), reason, pnl, pnlUsd, pct, pos.id);
+        const shown = pnlUsd !== null ? `${pnlUsd >= 0 ? "+" : "−"}$${Math.abs(pnlUsd).toFixed(2)} (${fmtSol(pnl)})` : fmtSol(pnl);
+        say(pnl >= 0 ? "win" : "loss", `Closed ${symbol} (copied from ${short(pos.leader)}): ${shown} (${fmtPct(pct)}) — ${reason}.`);
       } else {
         say("trade", `Sold ${fill.tokenAmount.toPrecision(4)} ${symbol} for ${fill.solAmount.toFixed(4)} SOL — ${reason}.`);
       }
@@ -197,7 +213,11 @@ export class CopyEngine {
       if (bal !== null) {
         setMeta(this.db, "wallet_balance_sol", bal);
         setMeta(this.db, "wallet_balance_checked_at", nowIso());
-        if (getMeta(this.db, "starting_balance_sol") === null && bal > 0) setMeta(this.db, "starting_balance_sol", bal);
+        if (getMeta(this.db, "starting_balance_sol") === null && bal > 0) {
+          setMeta(this.db, "starting_balance_sol", bal);
+          const usd = usdOf(bal);
+          if (usd) setMeta(this.db, "starting_balance_usd", usd);
+        }
       }
     }
     if (!open.length) return;

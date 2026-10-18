@@ -11,10 +11,11 @@ function seed() {
   add.run("AAA", now, "proven", "human", 20, 0.6, 0, null, null, now);
   add.run("BBB", now, "insider", "ai", 90, 0.4, 1, "FUND", now, now);
   add.run("CCC", now, "quitter", "ai", 80, 0, 1, "FUND", now, now);
-  const stat = db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, closed_7d, closed_30d, wins_30d) VALUES (?, ?, 10, 5, 10, ?, ?, ?, 2, 5, 3)");
-  stat.run("AAA", now, 1, 5, 5);
-  stat.run("BBB", now, 2, 9, 9);
-  stat.run("CCC", now, -1, -2, -2);
+  const stat = db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_7d_usd, pnl_30d_usd, closed_7d, closed_30d, wins_30d) VALUES (?, ?, 10, 5, 10, ?, ?, ?, ?, ?, 2, 5, 3)");
+  // Sorting and P&L use the USD columns (each trade valued when it settled).
+  stat.run("AAA", now, 1, 5, 5, 100, 500);
+  stat.run("BBB", now, 2, 9, 9, 200, 900);
+  stat.run("CCC", now, -1, -2, -2, -100, -200);
   db.prepare("INSERT INTO wallet_evidence (wallet, kind, detail, mint, signature, ts) VALUES ('BBB', 'early_entry', 'Bought MOO early', 'M', '', ?)").run(now);
   db.prepare("INSERT INTO agent_meta (key, value, updated_at) VALUES ('wallet_pubkey', 'COW', ?)").run(now);
   return db;

@@ -8,7 +8,7 @@ import { Window } from "@/components/window";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedSol } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd } from "@/lib/format";
 import type { WalletList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -142,8 +142,8 @@ function WalletDatabase() {
                 <TableCell>
                   <KindBadge kind={w.kind} score={w.ai_score} />
                 </TableCell>
-                <TableCell className={cn("text-right", pnlClass(w.pnl_7d_sol))}>{signedSol(w.pnl_7d_sol, 2)}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(w.pnl_30d_sol))}>{signedSol(w.pnl_30d_sol, 2)}</TableCell>
+                <TableCell className={cn("text-right", pnlClass(w.pnl_7d_usd))} title={`${signedSol(w.pnl_7d_sol, 2)} SOL`}>{signedUsd(w.pnl_7d_usd)}</TableCell>
+                <TableCell className={cn("text-right font-bold", pnlClass(w.pnl_30d_usd))} title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>{signedUsd(w.pnl_30d_usd)}</TableCell>
                 <TableCell className="text-right">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</TableCell>
                 <TableCell className="text-right">{w.swaps_30d ?? "—"}</TableCell>
                 <TableCell className={cn("text-right", w.copy_weight > 0 ? "font-bold text-win" : "text-muted-foreground")}>{w.copy_weight > 0 ? `${(w.copy_weight * 100).toFixed(0)}%` : "—"}</TableCell>
@@ -170,7 +170,7 @@ function WalletDatabase() {
           </div>
         )}
         <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
-          P&amp;L is realized profit in SOL from swaps against SOL, USDC or USDT (dollar amounts converted at SOL&apos;s price at the time). Labels are automated reads of on-chain behaviour, not accusations.
+          P&amp;L is realized profit in USD from memecoin swaps settled in SOL, USDC or USDT, each trade valued when it settled (hover for SOL). Labels are automated reads of on-chain behaviour, not accusations.
           Each wallet&apos;s page lists the evidence behind its label.
         </p>
       </Window>

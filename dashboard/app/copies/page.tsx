@@ -7,7 +7,7 @@ import { Addr } from "@/components/wallet-badges";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dt, pct, pnlClass, signedSol, solscanTx } from "@/lib/format";
+import { ago, dollars, dt, pct, pnlClass, signedSol, signedUsd, solscanTx } from "@/lib/format";
 import type { CopiesData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -16,14 +16,14 @@ const STATUS: Record<string, "win" | "loss" | "amber" | "outline"> = { filled: "
 export default function CopiesPage() {
   const { data, updatedAt } = usePoll<CopiesData>("/api/copies", 10_000);
   const open = data?.open ?? [];
-  const totalU = open.reduce((s, p) => s + (p.unrealized_sol ?? 0), 0);
+  const totalU = open.reduce((s, p) => s + (p.unrealized_usd ?? 0), 0);
   return (
     <>
       <PageHeader title="Copying" kicker={updatedAt ? `positions · updated ${updatedAt.toISOString().slice(11, 19)} UTC` : "positions"}>
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
 
-      <Window title={`Open positions · ${open.length}`} className="mb-3" right={<span className={cn("text-xs font-bold num", totalU >= 0 ? "text-win" : "text-loss")}>{signedSol(totalU)} SOL</span>}>
+      <Window title={`Open positions · ${open.length}`} className="mb-3" right={<span className={cn("text-xs font-bold num", totalU >= 0 ? "text-win" : "text-loss")}>{signedUsd(totalU)}</span>}>
         <Table>
           <TableHeader>
             <TableRow>
@@ -47,10 +47,10 @@ export default function CopiesPage() {
                 <TableCell className="font-bold">{p.symbol ?? p.mint.slice(0, 6)}</TableCell>
                 <TableCell><Addr address={p.leader} /></TableCell>
                 <TableCell className="text-muted-foreground">{ago(p.opened_at)}</TableCell>
-                <TableCell className="text-right">{p.cost_sol.toFixed(4)} SOL</TableCell>
-                <TableCell className="text-right">{p.proceeds_sol > 0 ? `${p.proceeds_sol.toFixed(4)} SOL` : "—"}</TableCell>
+                <TableCell className="text-right">{dollars(p.cost_usd)} <span className="text-muted-foreground">({p.cost_sol.toFixed(3)} SOL)</span></TableCell>
+                <TableCell className="text-right">{p.proceeds_sol > 0 ? dollars(p.proceeds_usd) : "—"}</TableCell>
                 <TableCell className={cn("text-right font-bold", pnlClass(p.unrealized_pct))}>
-                  {pct(p.unrealized_pct ?? null)} <span className="font-normal">({signedSol(p.unrealized_sol ?? null)})</span>
+                  {pct(p.unrealized_pct ?? null)} <span className="font-normal">({p.unrealized_usd != null ? signedUsd(p.unrealized_usd) : `${signedSol(p.unrealized_sol ?? null)} SOL`})</span>
                 </TableCell>
                 <TableCell><Badge variant={p.mode === "real" ? "amber" : "outline"}>{p.mode}</Badge></TableCell>
               </TableRow>
@@ -129,10 +129,10 @@ export default function CopiesPage() {
                 <TableCell className="text-muted-foreground">{dt(p.closed_at)}</TableCell>
                 <TableCell className="font-bold">{p.symbol ?? p.mint.slice(0, 6)}</TableCell>
                 <TableCell><Addr address={p.leader} /></TableCell>
-                <TableCell className="text-right">{p.cost_sol.toFixed(4)}</TableCell>
-                <TableCell className="text-right">{p.proceeds_sol.toFixed(4)}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(p.pnl_sol))}>
-                  {signedSol(p.pnl_sol)} <span className="font-normal">({pct(p.pnl_pct)})</span>
+                <TableCell className="text-right">{dollars(p.cost_usd)}</TableCell>
+                <TableCell className="text-right">{dollars(p.proceeds_usd)}</TableCell>
+                <TableCell className={cn("text-right font-bold", pnlClass(p.pnl_usd ?? p.pnl_sol))} title={`${signedSol(p.pnl_sol)} SOL`}>
+                  {p.pnl_usd != null ? signedUsd(p.pnl_usd) : `${signedSol(p.pnl_sol)} SOL`} <span className="font-normal">({pct(p.pnl_pct)})</span>
                 </TableCell>
                 <TableCell className="text-xs text-muted-foreground">{p.exit_reason}</TableCell>
               </TableRow>

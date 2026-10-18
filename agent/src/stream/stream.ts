@@ -6,7 +6,7 @@
  * program is parsed by the same balance-change parser used for history, then:
  *   • a leader's swap  → straight to the copy engine (no polling delay)
  *   • a tracked wallet → stored in wallet_swaps, so its stats stay current
- *   • every wallet     → the live book: live P&L and AI/human score; wallets
+ *   • every wallet     → the live book: live P&L (USD at settlement) and AI/human score; wallets
  *                        making real money get promoted to full analysis
  * Reconnects on its own with backoff.
  */
@@ -155,17 +155,17 @@ export class LiveStream {
       this.book.rescore();
       const dirty = this.book.takeDirty();
       const up = this.db.prepare(
-        `INSERT INTO wallet_activity (address, first_seen_at, last_seen_at, swaps, buys, sells, volume_sol, live_pnl_sol, live_closed, live_wins, live_kind, live_ai_score, promoted)
-         VALUES (@address, @first, @last, @swaps, @buys, @sells, @volume, @pnl, @closed, @wins, @kind, @ai, @promoted)
+        `INSERT INTO wallet_activity (address, first_seen_at, last_seen_at, swaps, buys, sells, volume_sol, live_pnl_sol, live_pnl_usd, live_closed, live_wins, live_kind, live_ai_score, promoted)
+         VALUES (@address, @first, @last, @swaps, @buys, @sells, @volume, @pnl, @pnlUsd, @closed, @wins, @kind, @ai, @promoted)
          ON CONFLICT(address) DO UPDATE SET last_seen_at=excluded.last_seen_at, swaps=excluded.swaps, buys=excluded.buys, sells=excluded.sells,
-           volume_sol=excluded.volume_sol, live_pnl_sol=excluded.live_pnl_sol, live_closed=excluded.live_closed, live_wins=excluded.live_wins,
+           volume_sol=excluded.volume_sol, live_pnl_sol=excluded.live_pnl_sol, live_pnl_usd=excluded.live_pnl_usd, live_closed=excluded.live_closed, live_wins=excluded.live_wins,
            live_kind=excluded.live_kind, live_ai_score=excluded.live_ai_score, promoted=MAX(promoted, excluded.promoted)`,
       );
       this.db.transaction(() => {
         for (const w of dirty) {
           up.run({
             address: w.address, first: new Date(w.firstSeen).toISOString(), last: new Date(w.lastSeen).toISOString(), swaps: w.swaps, buys: w.buys, sells: w.sells,
-            volume: w.volumeSol, pnl: w.pnlSol, closed: w.closed, wins: w.wins, kind: w.kind, ai: w.aiScore, promoted: w.promoted || this.tracked.has(w.address) ? 1 : 0,
+            volume: w.volumeSol, pnl: w.pnlSol, pnlUsd: w.pnlUsd, closed: w.closed, wins: w.wins, kind: w.kind, ai: w.aiScore, promoted: w.promoted || this.tracked.has(w.address) ? 1 : 0,
           });
         }
       })();
@@ -189,12 +189,12 @@ export class LiveStream {
 
   /** Wallets making real money on the stream get a full analysis. */
   private promote(): void {
-    const list = this.book.promotable(config.streamPromotePnlSol, config.streamPromoteMinClosed);
+    const list = this.book.promotable(config.streamPromotePnlUsd, config.streamPromoteMinClosed);
     let n = 0;
     for (const w of list) {
       w.promoted = true;
       w.dirty = true;
-      const detail = `${w.pnlSol >= 0 ? "+" : ""}${w.pnlSol.toFixed(2)} SOL realized over ${w.closed} closed trades seen live (${w.wins} wins)`;
+      const detail = `${w.pnlUsd >= 0 ? "+" : "−"}$${Math.abs(w.pnlUsd).toFixed(0)} realized over ${w.closed} closed trades seen live (${w.wins} wins)`;
       if (addWallet(this.db, w.address, "live_stream", detail)) {
         n++;
         if (n <= 5) say("wallet", `Live stream: ${short(w.address)} is making money (${detail}) — queued for full analysis.`);

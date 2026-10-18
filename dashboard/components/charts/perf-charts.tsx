@@ -8,7 +8,7 @@ const tooltipStyle = { background: "#050707", border: "1px solid #24302f", fontF
 const day = (iso: string) => iso.slice(5, 10);
 
 export function EquityChart({ data }: { data: Performance }) {
-  const up = (data.equity.at(-1)?.equity ?? data.startingCapitalSol) >= data.startingCapitalSol;
+  const up = (data.equity.at(-1)?.equity ?? data.startingCapitalUsd) >= data.startingCapitalUsd;
   const color = up ? WIN : LOSS;
   return (
     <ResponsiveContainer width="100%" height={280}>
@@ -22,8 +22,8 @@ export function EquityChart({ data }: { data: Performance }) {
         <CartesianGrid strokeDasharray="2 4" vertical={false} />
         <XAxis dataKey="ts" tickFormatter={day} minTickGap={40} />
         <YAxis domain={["auto", "auto"]} width={56} tickFormatter={(v: number) => v.toFixed(1)} />
-        <ReferenceLine y={data.startingCapitalSol} stroke="#55615f" strokeDasharray="4 4" />
-        <Tooltip contentStyle={tooltipStyle} labelFormatter={(l: string) => l.replace("T", " ").slice(0, 16)} formatter={(v: number) => [`${v.toFixed(4)} SOL`, "equity"]} />
+        <ReferenceLine y={data.startingCapitalUsd} stroke="#55615f" strokeDasharray="4 4" />
+        <Tooltip contentStyle={tooltipStyle} labelFormatter={(l: string) => l.replace("T", " ").slice(0, 16)} formatter={(v: number) => [`$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`, "equity"]} />
         <Area type="stepAfter" dataKey="equity" stroke={color} strokeWidth={2} fill="url(#eq)" isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
@@ -53,7 +53,7 @@ export function MonthlyChart({ data }: { data: Performance }) {
         <XAxis dataKey="month" />
         <YAxis width={48} tickFormatter={(v: number) => `${v.toFixed(1)}%`} />
         <ReferenceLine y={0} stroke="#55615f" />
-        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, _n, p) => [`${v.toFixed(2)}% (${(p.payload as { pnlSol: number }).pnlSol.toFixed(3)} SOL)`, "return"]} />
+        <Tooltip contentStyle={tooltipStyle} formatter={(v: number, _n, p) => [`${v.toFixed(2)}% ($${(p.payload as { pnlSol: number }).pnlSol.toFixed(2)})`, "return"]} />
         <Bar dataKey="returnPct" isAnimationActive={false}>
           {data.monthly.map((m) => (
             <Cell key={m.month} fill={m.returnPct >= 0 ? WIN : LOSS} />

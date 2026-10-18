@@ -29,13 +29,26 @@ export function openDb(file = dbFilePath()): DB {
 /** Columns added after a table was first created (CREATE TABLE IF NOT EXISTS won't add them). */
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallets: { tx_per_hour: "REAL" },
-  wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL" },
+  wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL" },
+  token_info: { pool_address: "TEXT" },
+  wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL" },
+  positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL" },
+  wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
 };
 
 /** Run once, right after a column first appears. */
 const AFTER_ADDING: Record<string, string> = {
   // USDC/USDT-priced swaps used to be skipped: re-read every wallet's recent history once to pick them up.
   "wallet_swaps.quote": "UPDATE wallets SET last_signature = NULL",
+  // The old "sold before crash" rule compared with today's price and flagged normal memecoin decay:
+  // drop its evidence and re-check every wallet it tagged with the stricter candle-based rule.
+  // Value every stored swap in USD at the time it settled (dollar amount for USDC/USDT, SOL × that hour's price for SOL).
+  "wallet_swaps.usd_amount": `UPDATE wallet_swaps SET
+      sol_usd = COALESCE(sol_usd, (SELECT usd FROM sol_price_hourly WHERE hour = (CAST(strftime('%s', wallet_swaps.ts) AS INTEGER) / 3600) * 3600)),
+      usd_amount = CASE WHEN quote IN ('USDC', 'USDT') THEN quote_amount
+        ELSE sol_amount * COALESCE(sol_usd, (SELECT usd FROM sol_price_hourly WHERE hour = (CAST(strftime('%s', wallet_swaps.ts) AS INTEGER) / 3600) * 3600)) END`,
+  "token_info.pool_address":
+    "DELETE FROM wallet_evidence WHERE kind = 'sold_before_crash'; UPDATE wallets SET last_analyzed_at = '2000-01-01T00:00:00.000Z' WHERE tier = 'insider'",
 };
 
 function migrate(db: DB): void {

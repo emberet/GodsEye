@@ -22,3 +22,12 @@ export const ago = (iso: string | null | undefined) => {
 export const pnlClass = (n: number | null | undefined) => (n === null || n === undefined || n === 0 ? "text-muted-foreground" : n > 0 ? "text-win" : "text-loss");
 export const solscanTx = (sig: string) => `https://solscan.io/tx/${sig}`;
 export const solscanAccount = (a: string) => `https://solscan.io/account/${a}`;
+/** Signed dollars: +$1,234 / −$56.78 (cents shown under $100). */
+export const signedUsd = (n: number | null | undefined) => {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "—";
+  const abs = Math.abs(n);
+  const body = abs.toLocaleString("en-US", { minimumFractionDigits: abs < 100 ? 2 : 0, maximumFractionDigits: abs < 100 ? 2 : 0 });
+  return `${n > 0 ? "+" : n < 0 ? "−" : ""}$${body}`;
+};
+/** Plain dollars: $1,234 / $56.78. */
+export const dollars = (n: number | null | undefined) => (n === null || n === undefined ? "—" : signedUsd(Math.abs(n)).replace(/^[+−]/, ""));

@@ -26,8 +26,8 @@ export const config = {
   grpcToken: envStr("GRPC_TOKEN"),
   /** Programs whose swaps are streamed (default: the memecoin venues + Jupiter). */
   streamPrograms: list("STREAM_PROGRAMS"),
-  /** Promote a live wallet to full analysis once it has realized this much profit on the stream… */
-  streamPromotePnlSol: envNum("STREAM_PROMOTE_PNL_SOL", 1),
+  /** Promote a live wallet to full analysis once it has realized this much profit (USD at settlement) on the stream… */
+  streamPromotePnlUsd: envNum("STREAM_PROMOTE_PNL_USD", 100),
   /** …over at least this many closed trades (with ≥ 50% wins). */
   streamPromoteMinClosed: envNum("STREAM_PROMOTE_MIN_CLOSED", 3),
   /** Most wallets kept in memory at once (idle ones are forgotten first). */
@@ -61,6 +61,14 @@ export const config = {
   /** A buy within this many seconds of the token's first pool counts as "early". */
   earlyBuySeconds: envNum("EARLY_BUY_SECONDS", 600),
   minClosedForProven: envNum("MIN_CLOSED_FOR_PROVEN", 10),
+  /** "Sold before a crash" = the token fell at least this much (%)… */
+  crashDropPct: envNum("CRASH_DROP_PCT", 50),
+  /** …within this many minutes of the sale… */
+  crashWindowMinutes: envNum("CRASH_WINDOW_MINUTES", 60),
+  /** …and it counts as an insider pattern only with this many such exits… */
+  crashMinExits: envNum("CRASH_MIN_EXITS", 3),
+  /** …making up at least this share of the wallet's closed trades in 30 days. */
+  crashMinShare: envNum("CRASH_MIN_SHARE", 0.25),
 
   // ---- Learning loop (see src/learning/weights.ts) ----
   learnCron: envStr("LEARN_CRON", "*/15 * * * *"),

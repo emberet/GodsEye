@@ -15,6 +15,12 @@ export interface Summary {
   realizedPnlSol: number;
   todayPnlSol: number;
   unrealizedPnlSol: number;
+  /** COWBOT's own results in USD at settlement (unrealized at today's SOL price). */
+  realizedPnlUsd: number;
+  todayPnlUsd: number;
+  unrealizedPnlUsd: number | null;
+  /** SOL's USD price now (from the agent). */
+  solUsd: number | null;
   openPositions: number;
   maxPositions: number;
   copiesToday: number;
@@ -47,6 +53,7 @@ export interface LiveWalletRow {
   sells: number;
   volume_sol: number;
   live_pnl_sol: number;
+  live_pnl_usd: number;
   live_closed: number;
   live_wins: number;
   live_kind: WalletKind;
@@ -80,6 +87,9 @@ export interface WalletRow {
   last_analyzed_at: string | null;
   pnl_7d_sol: number | null;
   pnl_30d_sol: number | null;
+  /** Realized P&L in USD, each trade valued when it settled. */
+  pnl_7d_usd: number | null;
+  pnl_30d_usd: number | null;
   win_rate_30d: number | null;
   closed_30d: number | null;
   swaps_30d: number | null;
@@ -115,12 +125,16 @@ export interface WalletStats {
   pnl_7d_sol: number;
   pnl_30d_sol: number;
   pnl_all_sol: number;
+  pnl_7d_usd: number | null;
+  pnl_30d_usd: number | null;
+  pnl_all_usd: number | null;
   closed_7d: number;
   closed_30d: number;
   wins_30d: number;
   win_rate_30d: number | null;
   best_trade_share: number | null;
   avg_buy_sol: number | null;
+  avg_buy_usd: number | null;
   avg_hold_minutes: number | null;
   early_buys: number;
   early_buy_rate: number | null;
@@ -150,6 +164,7 @@ export interface SwapRow {
   price_sol: number;
   quote: string;
   quote_amount: number | null;
+  usd_amount: number | null;
   venue: string | null;
   token_age_sec: number | null;
 }
@@ -198,6 +213,9 @@ export interface Position {
   tokens_bought: number;
   cost_sol: number;
   proceeds_sol: number;
+  cost_usd: number | null;
+  proceeds_usd: number;
+  pnl_usd: number | null;
   entry_price_sol: number;
   last_price_sol: number | null;
   last_price_ts: string | null;
@@ -208,6 +226,7 @@ export interface Position {
   pnl_pct: number | null;
   unrealized_sol?: number;
   unrealized_pct?: number;
+  unrealized_usd?: number | null;
 }
 
 export interface WalletDetail {
@@ -220,6 +239,7 @@ export interface WalletDetail {
   group: WalletRow[];
   copies: CopyTrade[];
   copyPnlSol: number;
+  copyPnlUsd: number;
   copyClosed: number;
 }
 
@@ -233,7 +253,7 @@ export interface WalletGroup {
   fresh: number;
   newest_at: string | null;
   likely_exchange: boolean;
-  members: Pick<WalletRow, "address" | "tier" | "kind" | "ai_score" | "is_fresh" | "pnl_30d_sol" | "chain_created_at">[];
+  members: Pick<WalletRow, "address" | "tier" | "kind" | "ai_score" | "is_fresh" | "pnl_30d_sol" | "pnl_30d_usd" | "chain_created_at">[];
 }
 
 export interface Leader {
@@ -244,9 +264,12 @@ export interface Leader {
   weight_reason: string | null;
   pnl_7d_sol: number | null;
   pnl_30d_sol: number | null;
+  pnl_7d_usd: number | null;
+  pnl_30d_usd: number | null;
   win_rate_30d: number | null;
   closed_30d: number | null;
   copy_pnl_sol: number;
+  copy_pnl_usd: number;
   copy_closed: number;
   last_activity_at: string | null;
 }
@@ -263,8 +286,9 @@ export interface CopiesData {
   trades: CopyTrade[];
 }
 
+/** COWBOT's results in USD (each closed position valued when it settled). */
 export interface Performance {
-  startingCapitalSol: number;
+  startingCapitalUsd: number;
   equity: { ts: string; equity: number; cumPnl: number; drawdownPct: number }[];
   rollingWinRate: { day: string; winRate: number; trades: number }[];
   monthly: { month: string; pnlSol: number; returnPct: number }[];

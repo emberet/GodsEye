@@ -18,7 +18,7 @@ import { snapshotStoreConfigured } from "@godseye/shared/snapshot-store";
 import { config } from "./config";
 import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
-import { runAnalysis } from "./analysis/analyze";
+import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
 import { currentLeaders, runLearning } from "./learning/loop";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
@@ -26,7 +26,7 @@ import { LeaderWatcher } from "./copy/watcher";
 import { loadOrCreateWallet } from "./wallet/wallet";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
-import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice } from "./market/solprice";
+import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 const db = openDb();
 attachLogDb(db);
@@ -76,6 +76,7 @@ const positions = () =>
   job("positions", async () => {
     heartbeat();
     await refreshLiveSolPrice();
+    setMeta(db, "sol_usd_now", solUsdAt(Date.now()) ?? "");
     await engine.managePositions();
   });
 const poll = () => job("leader poll", () => watcher.poll(), false);
@@ -111,6 +112,9 @@ async function main() {
   cron.schedule("7 */3 * * *", () => void refreshHourlySolPrices(db), opts);
   // SOL's price history must be loaded before any USDC/USDT-priced swap can be valued.
   await initSolPrices(db);
+  // After a P&L rule change (e.g. adding USD values), refresh every wallet's stats from stored swaps — no network needed.
+  const missingUsd = (db.prepare("SELECT COUNT(*) n FROM wallet_stats WHERE pnl_30d_usd IS NULL AND swaps_total > 0").get() as { n: number }).n;
+  if (missingUsd) say("info", `Recomputed P&L in USD for ${recomputeAllStats(db)} wallets.`);
   if (live) {
     live.start();
     cron.schedule("17 3 * * *", () => live.prune(), opts);

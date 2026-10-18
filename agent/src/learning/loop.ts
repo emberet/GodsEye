@@ -7,23 +7,26 @@ import { type DB, nowIso, setMeta, type Tier } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
 import { computeWeights, type WeightInput } from "./weights";
+import { solUsdAt } from "../market/solprice";
 
 export function runLearning(db: DB): string[] {
+  const solNow = solUsdAt(Date.now()) ?? 0;
   const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const rows = db
     .prepare(
-      `SELECT w.address, w.tier, w.is_fresh, w.copy_weight, s.pnl_7d_sol, s.pnl_30d_sol, s.closed_30d, s.win_rate_30d,
+      `SELECT w.address, w.tier, w.is_fresh, w.copy_weight, s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.closed_30d, s.win_rate_30d,
               COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?), 0) copy_pnl,
               (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?) copy_closed
          FROM wallets w JOIN wallet_stats s ON s.wallet = w.address`,
     )
     .all(since14, since14) as {
-    address: string; tier: Tier; is_fresh: number; copy_weight: number; pnl_7d_sol: number; pnl_30d_sol: number;
+    address: string; tier: Tier; is_fresh: number; copy_weight: number; pnl_7d_sol: number; pnl_30d_sol: number; pnl_7d_usd: number | null; pnl_30d_usd: number | null;
     closed_30d: number; win_rate_30d: number | null; copy_pnl: number; copy_closed: number;
   }[];
 
   const inputs: WeightInput[] = rows.map((r) => ({
-    address: r.address, tier: r.tier, pnl7: r.pnl_7d_sol, pnl30: r.pnl_30d_sol, closed30: r.closed_30d, winRate30: r.win_rate_30d,
+    // USD at settlement; a wallet with no USD-valued trades falls back to SOL × today's price.
+    address: r.address, tier: r.tier, pnl7: r.pnl_7d_usd ?? r.pnl_7d_sol * solNow, pnl30: r.pnl_30d_usd ?? r.pnl_30d_sol * solNow, closed30: r.closed_30d, winRate30: r.win_rate_30d,
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
   }));
   const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol });

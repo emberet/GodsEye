@@ -79,8 +79,13 @@ export interface ParsedSwap {
   quote: string;
   /** Amount in the quote's own unit (SOL or USD); for a mix, the SOL value. */
   quoteAmount: number;
-  /** SOL/USD used for the conversion (null for pure SOL swaps). */
+  /** SOL's USD price at the time (null if unknown). */
   solUsd: number | null;
+  /**
+   * What the swap was worth in USD when it settled: the dollar amount itself for
+   * USDC/USDT, SOL × SOL's price at the time for SOL. Null if SOL's price is unknown.
+   */
+  usdAmount: number | null;
   venue: string | null;
   jitoTip: boolean;
   feeLamports: number;
@@ -210,6 +215,8 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
     venue: detectVenue(tx), jitoTip: tipLamports > 0, feeLamports: meta.fee,
   };
 
+  const priceNow = opts.solUsdAt?.(tsMs) ?? null;
+
   // Memecoin ↔ memecoin, settled through SOL.
   if (moved.length === 2 && !stables.size && Math.abs(lamports / 1e9) < SOL_NOISE) {
     const [a, b] = moved.map(([m, d]) => ({ mint: m, d, change: d.after - d.before }));
@@ -217,6 +224,7 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
     const routed = routedSolLamports(tx, wallet);
     if (!routed) return [];
     const sol = routed / 1e9;
+    const usdValue = priceNow ? sol * priceNow : null;
     return [a, b]
       .sort((x, y) => x.change - y.change) // the sell first
       .map((t) => ({
@@ -229,7 +237,8 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
         priceSol: sol / Math.abs(t.change),
         quote: "SOL (routed)",
         quoteAmount: sol,
-        solUsd: null,
+        solUsd: priceNow,
+        usdAmount: usdValue,
       }));
   }
 
@@ -240,10 +249,9 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
   const usesSol = Math.abs(sol) >= SOL_NOISE;
   if (!usesSol && stables.size) sol = 0;
 
-  let solUsd: number | null = null;
+  const solUsd = priceNow;
   let value = sol; // signed, in SOL: negative = paid
   if (stables.size) {
-    solUsd = opts.solUsdAt?.(tsMs) ?? null;
     if (!solUsd) return []; // can't value it in SOL without the price at the time
     value += usd / solUsd;
   }
@@ -257,8 +265,10 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
   const labels = [...(usesSol || !stables.size ? ["SOL"] : []), ...stables];
   const quote = labels.join("+");
   const quoteAmount = labels.length === 1 && stables.size ? Math.abs(usd) : solAmount;
+  // USD at settlement: exact for dollar-only payments, SOL × price otherwise.
+  const usdAmount = stables.size && !usesSol ? Math.abs(usd) : solUsd ? solAmount * solUsd : null;
 
-  return [{ ...common, mint, side, tokenAmount, tokenBalanceBefore: d.before, solAmount, priceSol: solAmount / tokenAmount, quote, quoteAmount, solUsd }];
+  return [{ ...common, mint, side, tokenAmount, tokenBalanceBefore: d.before, solAmount, priceSol: solAmount / tokenAmount, quote, quoteAmount, solUsd, usdAmount }];
 }
 
 /**

@@ -58,6 +58,7 @@ export function swap(p: Partial<SwapLite> & Pick<SwapLite, "ts" | "side" | "sol_
     signature: `s${n}`,
     mint: MINT,
     price_sol: p.sol_amount / p.token_amount,
+    usd_amount: p.sol_amount * 100, // tests value SOL at $100 unless they say otherwise
     venue: "jupiter",
     jito_tip: 0,
     token_age_sec: null,

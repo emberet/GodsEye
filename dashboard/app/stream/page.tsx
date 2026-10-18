@@ -7,7 +7,7 @@ import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
 import { cn } from "@/lib/utils";
-import { ago, pnlClass, signedSol } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd } from "@/lib/format";
 import type { LiveWalletRow, Summary } from "@/lib/types";
 
 const SORTS = [
@@ -34,7 +34,7 @@ export default function StreamPage() {
       <div className="mb-3 grid grid-cols-3 gap-px border bg-border lg:grid-cols-6">
         <Stat className="border-0" label="Stream" value={st?.enabled ? st.status ?? "starting" : "off"} sub={st?.lastAt ? `updated ${ago(st.lastAt)}` : ""} valueClass={st?.status === "connected" ? "text-win" : "text-amber"} />
         <Stat className="border-0" label="DEX txs / sec" value={st?.txPerSec ?? "—"} />
-        <Stat className="border-0" label="Swaps / sec" value={st?.swapsPerSec ?? "—"} sub="SOL-priced, parsed" />
+        <Stat className="border-0" label="Swaps / sec" value={st?.swapsPerSec ?? "—"} sub="memecoin swaps, parsed" />
         <Stat className="border-0" label="Wallets in memory" value={st?.walletsInMemory?.toLocaleString("en-US") ?? "—"} />
         <Stat className="border-0" label="Seen last 24h" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} />
         <Stat className="border-0" label="Seen total" value={st?.walletsSeenTotal.toLocaleString("en-US") ?? "—"} sub="kept 30 days" />
@@ -90,7 +90,7 @@ export default function StreamPage() {
                 <TableCell><Addr address={w.address} internal={w.tier !== null} /></TableCell>
                 <TableCell><KindBadge kind={w.live_kind} score={w.live_ai_score} /></TableCell>
                 <TableCell>{w.tier ? <TierBadge tier={w.tier} /> : <span className="text-[11px] text-muted-foreground">{w.promoted ? "queued" : "not analyzed"}</span>}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(w.live_pnl_sol))}>{signedSol(w.live_pnl_sol, 3)}</TableCell>
+                <TableCell className={cn("text-right font-bold", pnlClass(w.live_pnl_usd))} title={`${signedSol(w.live_pnl_sol, 3)} SOL`}>{signedUsd(w.live_pnl_usd)}</TableCell>
                 <TableCell className="text-right">{w.live_closed ? `${w.live_wins}/${w.live_closed}` : "—"}</TableCell>
                 <TableCell className="text-right">{w.swaps}</TableCell>
                 <TableCell className="text-right">{w.volume_sol.toFixed(2)}</TableCell>
@@ -102,7 +102,7 @@ export default function StreamPage() {
         </Table>
         <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
           Live P&amp;L counts only swaps GodsEye has seen on the stream since it started watching the wallet, so a sell of tokens bought earlier isn&apos;t counted. Wallets that
-          make ≥ 1 SOL over ≥ 3 closed trades with ≥ 50% wins are promoted to a full analysis (tier, age, funder, history).
+          make ≥ $100 over ≥ 3 closed trades with ≥ 50% wins are promoted to a full analysis (tier, age, funder, history).
         </p>
       </Window>
     </>

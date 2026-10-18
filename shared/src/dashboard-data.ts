@@ -22,7 +22,7 @@ export const LIKELY_EXCHANGE_GROUP_SIZE = 25;
 const WALLET_ROW_SQL = `
   SELECT w.address, w.tier, w.tier_reason, w.tier_changed_at, w.kind, w.ai_score, w.copy_weight, w.is_fresh, w.funder,
          w.discovered_via, w.first_seen_at, w.chain_created_at, w.age_is_lower_bound, w.last_activity_at, w.last_analyzed_at,
-         s.pnl_7d_sol, s.pnl_30d_sol, s.win_rate_30d, s.closed_30d, s.swaps_30d,
+         s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d, s.swaps_30d,
          CASE WHEN w.funder IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM wallets w2 WHERE w2.funder = w.funder) END AS group_size
     FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address`;
 
@@ -30,21 +30,36 @@ export function isLive(heartbeat: string | null, agentStatus: string | null, now
   return !!heartbeat && agentStatus === "live" && now - new Date(heartbeat).getTime() < HEARTBEAT_STALE_MINUTES * 60_000;
 }
 
-function withUnrealized(p: Position): Position {
+function withUnrealized(p: Position, solUsd: number | null): Position {
   if (p.status !== "open") return p;
   const mark = p.last_price_sol ?? p.entry_price_sol;
-  const value = p.token_amount * mark;
+  const share = p.tokens_bought > 0 ? p.token_amount / p.tokens_bought : 1;
   // Cost of the tokens still held = cost × share of tokens left.
-  const heldCost = p.tokens_bought > 0 ? p.cost_sol * (p.token_amount / p.tokens_bought) : p.cost_sol;
-  const unrealized = value - heldCost;
-  return { ...p, unrealized_sol: unrealized, unrealized_pct: heldCost > 0 ? (unrealized / heldCost) * 100 : 0 };
+  const heldCost = p.cost_sol * share;
+  const unrealized = p.token_amount * mark - heldCost;
+  // In USD: what the tokens are worth now minus what they cost (in dollars) when bought.
+  const unrealizedUsd = solUsd && p.cost_usd !== null ? p.token_amount * mark * solUsd - p.cost_usd * share : null;
+  const heldCostUsd = p.cost_usd !== null ? p.cost_usd * share : null;
+  return {
+    ...p,
+    unrealized_sol: unrealized,
+    unrealized_usd: unrealizedUsd,
+    unrealized_pct: unrealizedUsd !== null && heldCostUsd ? (unrealizedUsd / heldCostUsd) * 100 : heldCost > 0 ? (unrealized / heldCost) * 100 : 0,
+  };
 }
+
+const solUsdNow = (d: DB) => {
+  const v = Number(getMeta(d, "sol_usd_now"));
+  return Number.isFinite(v) && v > 0 ? v : null;
+};
 
 export function getSummary(d: DB): Summary {
   const hb = getMeta(d, "heartbeat");
   const status = getMeta(d, "agent_status");
-  const closed = d.prepare("SELECT pnl_sol, closed_at FROM positions WHERE status='closed'").all() as { pnl_sol: number; closed_at: string }[];
-  const open = (d.prepare("SELECT * FROM positions WHERE status='open'").all() as Position[]).map(withUnrealized);
+  const solUsd = solUsdNow(d);
+  const closed = d.prepare("SELECT pnl_sol, pnl_usd, closed_at FROM positions WHERE status='closed'").all() as { pnl_sol: number; pnl_usd: number | null; closed_at: string }[];
+  const open = (d.prepare("SELECT * FROM positions WHERE status='open'").all() as Position[]).map((p) => withUnrealized(p, solUsd));
+  const usdOf = (t: { pnl_sol: number; pnl_usd: number | null }) => t.pnl_usd ?? t.pnl_sol * (solUsd ?? 0);
   const today = new Date().toISOString().slice(0, 10);
   const tierCounts = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<Tier, number>;
   for (const r of d.prepare("SELECT tier, COUNT(*) n FROM wallets GROUP BY tier").all() as { tier: Tier; n: number }[]) tierCounts[r.tier] = r.n;
@@ -63,12 +78,16 @@ export function getSummary(d: DB): Summary {
       checkedAt: getMeta(d, "wallet_balance_checked_at"),
     },
     closedPositions: closed.length,
-    wins: closed.filter((t) => t.pnl_sol > 0).length,
-    losses: closed.filter((t) => t.pnl_sol <= 0).length,
-    winRate: winRate(closed),
+    wins: closed.filter((t) => usdOf(t) > 0).length,
+    losses: closed.filter((t) => usdOf(t) <= 0).length,
+    winRate: winRate(closed.map((t) => ({ pnl_sol: usdOf(t) }))),
     realizedPnlSol: closed.reduce((s, t) => s + t.pnl_sol, 0),
     todayPnlSol: closed.filter((t) => t.closed_at.startsWith(today)).reduce((s, t) => s + t.pnl_sol, 0),
     unrealizedPnlSol: open.reduce((s, p) => s + (p.unrealized_sol ?? 0), 0),
+    realizedPnlUsd: closed.reduce((s, t) => s + usdOf(t), 0),
+    todayPnlUsd: closed.filter((t) => t.closed_at.startsWith(today)).reduce((s, t) => s + usdOf(t), 0),
+    unrealizedPnlUsd: open.some((p) => p.unrealized_usd === null) ? null : open.reduce((s, p) => s + (p.unrealized_usd ?? 0), 0),
+    solUsd,
     openPositions: open.length,
     maxPositions: num(getMeta(d, "max_positions"), 5),
     copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND created_at >= ?").get(`${today}T00:00:00.000Z`) as { n: number }).n,
@@ -95,7 +114,7 @@ export function getSummary(d: DB): Summary {
 /** Same filter/sort as getLiveWallets, on a published copy (hosted website). */
 export function filterLiveWallets(rows: LiveWalletRow[], q: LiveQuery = {}): LiveWalletRow[] {
   const key: Record<NonNullable<LiveQuery["sort"]>, (r: LiveWalletRow) => number> = {
-    pnl: (r) => r.live_pnl_sol, swaps: (r) => r.swaps, volume: (r) => r.volume_sol, recent: (r) => Date.parse(r.last_seen_at),
+    pnl: (r) => r.live_pnl_usd, swaps: (r) => r.swaps, volume: (r) => r.volume_sol, recent: (r) => Date.parse(r.last_seen_at),
   };
   const k = key[q.sort ?? "pnl"];
   return rows
@@ -104,7 +123,7 @@ export function filterLiveWallets(rows: LiveWalletRow[], q: LiveQuery = {}): Liv
     .slice(0, Math.min(2000, Math.max(1, q.limit ?? 200)));
 }
 
-const LIVE_SORT = { pnl: "a.live_pnl_sol DESC", swaps: "a.swaps DESC", volume: "a.volume_sol DESC", recent: "a.last_seen_at DESC" } as const;
+const LIVE_SORT = { pnl: "a.live_pnl_usd DESC", swaps: "a.swaps DESC", volume: "a.volume_sol DESC", recent: "a.last_seen_at DESC" } as const;
 
 /** Wallets seen on the live stream, with their tier if GodsEye has analyzed them. */
 export function getLiveWallets(d: DB, q: LiveQuery = {}): LiveWalletRow[] {
@@ -134,8 +153,8 @@ export function filterWallets(rows: WalletRow[], q: WalletQuery): WalletList {
       (!q.copied || r.copy_weight > 0),
   );
   const key: Record<NonNullable<WalletQuery["sort"]>, (r: WalletRow) => number> = {
-    pnl_30d: (r) => r.pnl_30d_sol ?? -Infinity,
-    pnl_7d: (r) => r.pnl_7d_sol ?? -Infinity,
+    pnl_30d: (r) => r.pnl_30d_usd ?? -Infinity,
+    pnl_7d: (r) => r.pnl_7d_usd ?? -Infinity,
     weight: (r) => r.copy_weight,
     ai_score: (r) => r.ai_score ?? -Infinity,
     last_activity: (r) => (r.last_activity_at ? Date.parse(r.last_activity_at) : -Infinity),
@@ -159,7 +178,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
   const stats = (d.prepare("SELECT * FROM wallet_stats WHERE wallet = ?").get(address) as WalletStats | undefined) ?? null;
   const evidence = d.prepare("SELECT id, kind, detail, NULLIF(mint, '') mint, NULLIF(signature, '') signature, ts FROM wallet_evidence WHERE wallet = ? ORDER BY ts DESC LIMIT 100").all(address) as Evidence[];
   const swaps = d
-    .prepare(`SELECT s.id, s.signature, s.ts, s.mint, t.symbol, s.side, s.token_amount, s.sol_amount, s.price_sol, s.quote, s.quote_amount, s.venue, s.token_age_sec
+    .prepare(`SELECT s.id, s.signature, s.ts, s.mint, t.symbol, s.side, s.token_amount, s.sol_amount, s.price_sol, s.quote, s.quote_amount, s.usd_amount, s.venue, s.token_age_sec
                 FROM wallet_swaps s LEFT JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? ORDER BY s.ts DESC LIMIT 100`)
     .all(address) as SwapRow[];
   const weightHistory = d.prepare("SELECT * FROM weight_history WHERE wallet = ? ORDER BY ts DESC LIMIT 50").all(address) as WeightChange[];
@@ -167,7 +186,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
     ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
     : [];
   const copies = d.prepare("SELECT * FROM copy_trades WHERE leader = ? ORDER BY created_at DESC LIMIT 50").all(address) as CopyTrade[];
-  const cp = d.prepare("SELECT COALESCE(SUM(pnl_sol),0) s, COUNT(*) n FROM positions WHERE leader = ? AND status='closed'").get(address) as { s: number; n: number };
+  const cp = d.prepare("SELECT COALESCE(SUM(pnl_sol),0) s, COALESCE(SUM(pnl_usd),0) u, COUNT(*) n FROM positions WHERE leader = ? AND status='closed'").get(address) as { s: number; u: number; n: number };
   return {
     wallet,
     stats,
@@ -178,6 +197,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
     group,
     copies,
     copyPnlSol: cp.s,
+    copyPnlUsd: cp.u,
     copyClosed: cp.n,
   };
 }
@@ -197,7 +217,7 @@ export function getWalletGroups(d: DB, limit = 100): WalletGroup[] {
     )
     .all(limit) as Omit<WalletGroup, "members" | "likely_exchange">[];
   const members = d.prepare(
-    `SELECT w.address, w.tier, w.kind, w.ai_score, w.is_fresh, w.chain_created_at, s.pnl_30d_sol
+    `SELECT w.address, w.tier, w.kind, w.ai_score, w.is_fresh, w.chain_created_at, s.pnl_30d_sol, s.pnl_30d_usd
        FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address WHERE w.funder = ? ORDER BY w.chain_created_at DESC LIMIT 30`,
   );
   return groups.map((g) => ({ ...g, likely_exchange: g.size >= LIKELY_EXCHANGE_GROUP_SIZE, members: members.all(g.funder) as WalletGroup["members"] }));
@@ -207,8 +227,9 @@ export function getLeaders(d: DB): LeadersData {
   const leaders = d
     .prepare(
       `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at,
-              s.pnl_7d_sol, s.pnl_30d_sol, s.win_rate_30d, s.closed_30d,
+              s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d,
               COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_sol,
+              COALESCE((SELECT SUM(pnl_usd) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_usd,
               (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed') copy_closed
          FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address
         WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions)
@@ -220,7 +241,8 @@ export function getLeaders(d: DB): LeadersData {
 }
 
 export function getCopies(d: DB): CopiesData {
-  const open = (d.prepare("SELECT * FROM positions WHERE status='open' ORDER BY opened_at DESC").all() as Position[]).map(withUnrealized);
+  const solUsd = solUsdNow(d);
+  const open = (d.prepare("SELECT * FROM positions WHERE status='open' ORDER BY opened_at DESC").all() as Position[]).map((p) => withUnrealized(p, solUsd));
   const closed = d.prepare("SELECT * FROM positions WHERE status='closed' ORDER BY closed_at DESC LIMIT 500").all() as Position[];
   const trades = d
     .prepare(`SELECT c.*, p.hash AS proof_hash FROM copy_trades c LEFT JOIN proof_ledger p ON p.id = c.proof_id ORDER BY c.created_at DESC LIMIT 300`)
@@ -229,8 +251,10 @@ export function getCopies(d: DB): CopiesData {
 }
 
 export function getPerformance(d: DB): Performance {
-  const start = num(getMeta(d, "starting_balance_sol"), num(getMeta(d, "copy_budget_sol"), 0));
-  const trades = (d.prepare("SELECT closed_at AS exit_ts, pnl_sol, pnl_pct FROM positions WHERE status='closed' ORDER BY closed_at").all() as {
+  const solUsd = solUsdNow(d) ?? 0;
+  const start = num(getMeta(d, "starting_balance_usd"), num(getMeta(d, "starting_balance_sol"), num(getMeta(d, "copy_budget_sol"), 0)) * solUsd);
+  // Charts are in USD at settlement; "pnl_sol" here carries the USD figure so the shared stats helpers can be reused.
+  const trades = (d.prepare("SELECT closed_at AS exit_ts, COALESCE(pnl_usd, pnl_sol * ?) AS pnl_sol, pnl_pct FROM positions WHERE status='closed' ORDER BY closed_at").all(solUsd) as {
     exit_ts: string; pnl_sol: number; pnl_pct: number;
   }[]);
   const equity = equityCurve(trades, start);
@@ -239,7 +263,7 @@ export function getPerformance(d: DB): Performance {
   const grossWin = wins.reduce((s, t) => s + t.pnl_sol, 0);
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl_sol, 0));
   return {
-    startingCapitalSol: start,
+    startingCapitalUsd: start,
     equity: [{ ts: trades[0]?.exit_ts ?? new Date().toISOString(), equity: start, cumPnl: 0, drawdownPct: 0 }, ...equity],
     rollingWinRate: rollingWinRate(trades, 30),
     monthly: monthlyReturns(trades, start),
