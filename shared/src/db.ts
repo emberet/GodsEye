@@ -29,12 +29,24 @@ export function openDb(file = dbFilePath()): DB {
 /** Columns added after a table was first created (CREATE TABLE IF NOT EXISTS won't add them). */
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallets: { tx_per_hour: "REAL" },
+  wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL" },
+};
+
+/** Run once, right after a column first appears. */
+const AFTER_ADDING: Record<string, string> = {
+  // USDC/USDT-priced swaps used to be skipped: re-read every wallet's recent history once to pick them up.
+  "wallet_swaps.quote": "UPDATE wallets SET last_signature = NULL",
 };
 
 function migrate(db: DB): void {
   for (const [table, cols] of Object.entries(ADDED_COLUMNS)) {
     const have = new Set((db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name));
-    for (const [col, def] of Object.entries(cols)) if (!have.has(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+    for (const [col, def] of Object.entries(cols)) {
+      if (have.has(col)) continue;
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+      const after = AFTER_ADDING[`${table}.${col}`];
+      if (after) db.exec(after);
+    }
   }
 }
 

@@ -131,3 +131,15 @@ test("classifier: thousands of transactions an hour = AI/bot, even with few SOL 
   assert.equal(c.kind, "ai");
   assert.match(c.reasons[0].reason, /9,000 transactions per hour/);
 });
+
+test("P&L in SOL: bought with USDC, sold for SOL after SOL's price moved", () => {
+  // Bought for $200 when SOL was $100 (= 2 SOL); sold for 2.5 SOL → +0.5 SOL.
+  const r = realize(
+    [
+      swap({ ts: iso(2 * H, NOW), side: "buy", sol_amount: 2, token_amount: 1000 }),
+      swap({ ts: iso(H, NOW), side: "sell", sol_amount: 2.5, token_amount: 1000 }),
+    ],
+    600,
+  );
+  assert.ok(Math.abs(r.closed[0].pnlSol - 0.5) < 1e-9);
+});

@@ -186,6 +186,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
               <TableHead>Side</TableHead>
               <TableHead>Token</TableHead>
               <TableHead className="text-right">SOL</TableHead>
+              <TableHead>Paid with</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
               <TableHead className="text-right">After launch</TableHead>
               <TableHead>Venue</TableHead>
@@ -195,7 +196,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <TableBody>
             {data.swaps.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">No SOL-priced swaps seen yet.</TableCell>
+                <TableCell colSpan={9} className="py-8 text-center text-muted-foreground">No swaps against SOL or USDC/USDT seen yet.</TableCell>
               </TableRow>
             )}
             {data.swaps.map((x) => (
@@ -204,6 +205,9 @@ export default function WalletPage({ params }: { params: { address: string } }) 
                 <TableCell className={x.side === "buy" ? "text-win" : "text-loss"}>{x.side}</TableCell>
                 <TableCell className="font-bold">{x.symbol ?? `${x.mint.slice(0, 4)}…`}</TableCell>
                 <TableCell className="text-right">{x.sol_amount.toFixed(3)}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {x.quote === "SOL" ? "SOL" : x.quote.includes("+") ? x.quote : `$${(x.quote_amount ?? 0).toFixed(2)} ${x.quote}`}
+                </TableCell>
                 <TableCell className="text-right">{x.token_amount.toPrecision(4)}</TableCell>
                 <TableCell className="text-right">{age(x.token_age_sec)}</TableCell>
                 <TableCell className="text-muted-foreground">{x.venue ?? "—"}</TableCell>

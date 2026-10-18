@@ -11,6 +11,7 @@ import { jupiterQuote, jupiterSwapTx, type JupQuote } from "../market/jupiter";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
 import { parseSwap } from "../chain/parse";
+import { solUsdAt } from "../market/solprice";
 import { simulateCheck, staticCheck } from "./verify";
 
 export interface Fill {
@@ -84,7 +85,7 @@ export class RealExecutor implements Executor {
 
     // Record what really happened, not what the quote said.
     const landed = await fetchParsedOne(signature);
-    const parsed = landed ? parseSwap(landed, wallet.toBase58()) : null;
+    const parsed = landed ? parseSwap(landed, wallet.toBase58(), { solUsdAt }) : null;
     if (parsed && parsed.mint === mint) return { signature, solAmount: parsed.solAmount, tokenAmount: parsed.tokenAmount, priceSol: parsed.priceSol };
     return fillFromQuote(side, quote, await decimalsOf(mint), signature);
   }

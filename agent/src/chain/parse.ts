@@ -3,18 +3,36 @@
  *
  * Works from balance changes (before vs after), not from any one DEX's
  * instruction format, so it understands Jupiter, pump.fun, Raydium, trading
- * bots and custom programs alike. Only SOL-priced swaps count (SOL or wrapped
- * SOL on one side, exactly one other token on the other); token-to-token
- * swaps and SOL ↔ USDC/USDT swaps are skipped so every P&L figure is in SOL.
+ * bots and custom programs alike.
+ *
+ * A swap counts when exactly one token (the memecoin) moved and the wallet
+ * paid or received SOL, wrapped SOL, USDC or USDT for it. A memecoin ↔
+ * memecoin swap also counts when its route settled through SOL (the SOL
+ * leaving one pool ≈ the SOL entering the other): it's recorded as a sell
+ * of one token and a buy of the other, both worth that SOL. Dollar amounts are
+ * converted to SOL at SOL's price when the swap happened (market/solprice.ts),
+ * so every P&L figure is in SOL. Skipped: non-memecoins (wrapped BTC/ETH,
+ * staked SOL, big DeFi tokens — see NON_MEMECOIN_MINTS), token ↔ token swaps that didn't go
+ * through SOL, plain SOL ↔ USDC/USDT conversions, and dollar-priced swaps
+ * whose SOL price is unknown.
  */
-import { SOL_MINT, USDC_MINT, USDT_MINT } from "@godseye/shared";
+import { NON_MEMECOIN_MINTS, SOL_MINT, USDC_MINT, USDT_MINT } from "@godseye/shared";
 import { JITO_TIP_ACCOUNTS, PLUMBING, VENUES, VENUE_RANK } from "./programs";
 
 /** Rent locked in a new token account (refunded when it's closed). Not part of the trade. */
 export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280;
 const DUST_TOKENS = 1e-9;
-const STABLECOINS = new Set([USDC_MINT, USDT_MINT]);
+const STABLECOINS: Record<string, "USDC" | "USDT"> = { [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" };
 const MIN_SOL = 0.0001;
+/** SOL left over after fees, tips and rent below this is noise, not part of the price. */
+const SOL_NOISE = 0.0005;
+/** Dollar moves below this are noise. */
+const USD_NOISE = 0.01;
+
+export interface ParseOptions {
+  /** SOL's USD price at a moment (ms). Needed for USDC/USDT-priced swaps; without it they're skipped. */
+  solUsdAt?: (tsMs: number) => number | null;
+}
 
 /** The parts of an RPC "jsonParsed" transaction GodsEye reads (raw JSON: keys and program IDs are strings). */
 export interface TxLike {
@@ -54,8 +72,15 @@ export interface ParsedSwap {
   side: "buy" | "sell";
   tokenAmount: number;
   tokenBalanceBefore: number;
+  /** Always in SOL (dollar-priced swaps converted at the time). */
   solAmount: number;
   priceSol: number;
+  /** What was paid / received: "SOL", "USDC", "USDT", or a mix like "SOL+USDC". */
+  quote: string;
+  /** Amount in the quote's own unit (SOL or USD); for a mix, the SOL value. */
+  quoteAmount: number;
+  /** SOL/USD used for the conversion (null for pure SOL swaps). */
+  solUsd: number | null;
   venue: string | null;
   jitoTip: boolean;
   feeLamports: number;
@@ -79,13 +104,51 @@ export function detectVenue(tx: TxLike): string | null {
   return unknownTop ? `${routed} (via bot)` : routed;
 }
 
-/** The swap `wallet` made in this transaction, or null if it wasn't a simple SOL-priced swap. */
-export function parseSwap(tx: TxLike, wallet: string): ParsedSwap | null {
+/** The first swap `wallet` made in this transaction, or null (see parseSwaps). */
+export function parseSwap(tx: TxLike, wallet: string, opts: ParseOptions = {}): ParsedSwap | null {
+  return parseSwaps(tx, wallet, opts)[0] ?? null;
+}
+
+/** Smallest SOL hop between pools that counts (below this it's rent or fees). */
+const MIN_ROUTED_LAMPORTS = 1_000_000;
+/** The SOL out of one pool and into the next must agree this closely. */
+const ROUTE_MATCH = 0.9;
+
+/**
+ * SOL that moved between pools inside a token ↔ token swap: the biggest
+ * drop and the biggest rise among accounts that aren't the wallet's.
+ * Wrapped SOL is lamports held by its token account, so native balances
+ * already include it. Returns null if there's no clear SOL hop.
+ */
+export function routedSolLamports(tx: TxLike, wallet: string): number | null {
+  const meta = tx.meta!;
+  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toString());
+  const walletAccounts = new Set(
+    [...(meta.preTokenBalances ?? []), ...(meta.postTokenBalances ?? [])].filter((b) => b.owner === wallet).map((b) => b.accountIndex),
+  );
+  let out = 0;
+  let into = 0;
+  keys.forEach((k, i) => {
+    if (k === wallet || walletAccounts.has(i) || JITO_TIP_ACCOUNTS.has(k)) return;
+    const d = meta.postBalances[i] - meta.preBalances[i] + (i === 0 ? meta.fee : 0);
+    if (d <= -MIN_ROUTED_LAMPORTS) out = Math.max(out, -d);
+    if (d >= MIN_ROUTED_LAMPORTS) into = Math.max(into, d);
+  });
+  if (!out || !into || Math.min(out, into) / Math.max(out, into) < ROUTE_MATCH) return null;
+  return out;
+}
+
+/**
+ * The swaps `wallet` made in this transaction: one for a memecoin bought or
+ * sold against SOL / USDC / USDT, two for a memecoin ↔ memecoin swap that
+ * settled through SOL, none otherwise.
+ */
+export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}): ParsedSwap[] {
   const meta = tx.meta;
-  if (!meta || meta.err) return null;
+  if (!meta || meta.err) return [];
   const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toString());
   const idx = keys.indexOf(wallet);
-  if (idx < 0) return null;
+  if (idx < 0) return [];
 
   // SOL change, ignoring the network fee (paid by the fee payer, key 0).
   let lamports = meta.postBalances[idx] - meta.preBalances[idx] + (idx === 0 ? meta.fee : 0);
@@ -125,35 +188,77 @@ export function parseSwap(tx: TxLike, wallet: string): ParsedSwap | null {
     deltas.delete(SOL_MINT);
   }
 
+  // Dollars paid / received count as quote, like SOL.
+  let usd = 0;
+  const stables = new Set<string>();
+  for (const [mint, label] of Object.entries(STABLECOINS)) {
+    const d = deltas.get(mint);
+    if (!d) continue;
+    deltas.delete(mint);
+    const change = d.after - d.before;
+    if (Math.abs(change) >= USD_NOISE) {
+      usd += change;
+      stables.add(label);
+    }
+  }
+
   const moved = [...deltas.entries()].filter(([, d]) => Math.abs(d.after - d.before) > DUST_TOKENS);
-  if (moved.length !== 1) return null;
-  if (STABLECOINS.has(moved[0][0])) return null; // SOL ↔ dollars is not a token trade
+  if (moved.some(([m]) => NON_MEMECOIN_MINTS.has(m))) return []; // not a memecoin trade
+  const tsMs = (tx.blockTime ?? Date.now() / 1000) * 1000;
+  const common = {
+    wallet, signature: tx.transaction.signatures[0], slot: tx.slot, ts: new Date(tsMs).toISOString(),
+    venue: detectVenue(tx), jitoTip: tipLamports > 0, feeLamports: meta.fee,
+  };
+
+  // Memecoin ↔ memecoin, settled through SOL.
+  if (moved.length === 2 && !stables.size && Math.abs(lamports / 1e9) < SOL_NOISE) {
+    const [a, b] = moved.map(([m, d]) => ({ mint: m, d, change: d.after - d.before }));
+    if (Math.sign(a.change) === Math.sign(b.change)) return [];
+    const routed = routedSolLamports(tx, wallet);
+    if (!routed) return [];
+    const sol = routed / 1e9;
+    return [a, b]
+      .sort((x, y) => x.change - y.change) // the sell first
+      .map((t) => ({
+        ...common,
+        mint: t.mint,
+        side: t.change < 0 ? ("sell" as const) : ("buy" as const),
+        tokenAmount: Math.abs(t.change),
+        tokenBalanceBefore: t.d.before,
+        solAmount: sol,
+        priceSol: sol / Math.abs(t.change),
+        quote: "SOL (routed)",
+        quoteAmount: sol,
+        solUsd: null,
+      }));
+  }
+
+  if (moved.length !== 1) return []; // no token (e.g. SOL ↔ USDC), or several
   const [mint, d] = moved[0];
   const tokenDelta = d.after - d.before;
-  const sol = lamports / 1e9;
-  let side: "buy" | "sell";
-  if (tokenDelta > 0 && sol < 0) side = "buy";
-  else if (tokenDelta < 0 && sol > 0) side = "sell";
-  else return null;
-  const solAmount = Math.abs(sol);
-  const tokenAmount = Math.abs(tokenDelta);
-  if (solAmount < MIN_SOL) return null;
+  let sol = lamports / 1e9;
+  const usesSol = Math.abs(sol) >= SOL_NOISE;
+  if (!usesSol && stables.size) sol = 0;
 
-  return {
-    wallet,
-    signature: tx.transaction.signatures[0],
-    slot: tx.slot,
-    ts: new Date((tx.blockTime ?? Date.now() / 1000) * 1000).toISOString(),
-    mint,
-    side,
-    tokenAmount,
-    tokenBalanceBefore: d.before,
-    solAmount,
-    priceSol: solAmount / tokenAmount,
-    venue: detectVenue(tx),
-    jitoTip: tipLamports > 0,
-    feeLamports: meta.fee,
-  };
+  let solUsd: number | null = null;
+  let value = sol; // signed, in SOL: negative = paid
+  if (stables.size) {
+    solUsd = opts.solUsdAt?.(tsMs) ?? null;
+    if (!solUsd) return []; // can't value it in SOL without the price at the time
+    value += usd / solUsd;
+  }
+  let side: "buy" | "sell";
+  if (tokenDelta > 0 && value < 0) side = "buy";
+  else if (tokenDelta < 0 && value > 0) side = "sell";
+  else return [];
+  const solAmount = Math.abs(value);
+  const tokenAmount = Math.abs(tokenDelta);
+  if (solAmount < MIN_SOL) return [];
+  const labels = [...(usesSol || !stables.size ? ["SOL"] : []), ...stables];
+  const quote = labels.join("+");
+  const quoteAmount = labels.length === 1 && stables.size ? Math.abs(usd) : solAmount;
+
+  return [{ ...common, mint, side, tokenAmount, tokenBalanceBefore: d.before, solAmount, priceSol: solAmount / tokenAmount, quote, quoteAmount, solUsd }];
 }
 
 /**

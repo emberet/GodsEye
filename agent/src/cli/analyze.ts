@@ -8,9 +8,11 @@ import { getWalletDetail } from "@godseye/shared/dashboard-data";
 import { attachLogDb } from "../log";
 import { analyzeWallet, runAnalysis } from "../analysis/analyze";
 import { addWallet } from "../discovery/discover";
+import { initSolPrices } from "../market/solprice";
 
 const db = openDb();
 attachLogDb(db);
+await initSolPrices(db);
 const addr = process.argv[2];
 if (addr) {
   try {

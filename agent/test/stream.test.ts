@@ -56,7 +56,7 @@ test("gRPC: votes and failed transactions are skipped", () => {
 
 const sw = (wallet: string, side: "buy" | "sell", sol: number, mint: string, i: number): ParsedSwap => ({
   wallet, signature: `s${i}`, slot: i, ts: new Date(Date.parse("2026-10-19T00:00:00Z") + i * 60_000).toISOString(), mint, side,
-  tokenAmount: 100, tokenBalanceBefore: side === "sell" ? 100 : 0, solAmount: sol, priceSol: sol / 100, venue: "pumpfun", jitoTip: false, feeLamports: 5000,
+  tokenAmount: 100, tokenBalanceBefore: side === "sell" ? 100 : 0, solAmount: sol, priceSol: sol / 100, venue: "pumpfun", jitoTip: false, feeLamports: 5000, quote: "SOL", quoteAmount: sol, solUsd: null,
 });
 
 test("live book: live P&L, promotion of winners, eviction of idle wallets", () => {

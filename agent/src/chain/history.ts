@@ -5,7 +5,8 @@
 import { PublicKey, type ConfirmedSignatureInfo } from "@solana/web3.js";
 import { rpcUrl } from "../config";
 import { connection } from "../rpc";
-import { findFunder, parseSwap, type ParsedSwap, type TxLike } from "./parse";
+import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
+import { solUsdAt } from "../market/solprice";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -121,8 +122,7 @@ export async function readWalletHistory(wallet: string, opts: { sinceSignature: 
   const swaps: ParsedSwap[] = [];
   txs.forEach((tx) => {
     if (!tx) return;
-    const s = parseSwap(tx, wallet);
-    if (s) swaps.push(s);
+    swaps.push(...parseSwaps(tx, wallet, { solUsdAt }));
   });
 
   let reachedOrigin = false;

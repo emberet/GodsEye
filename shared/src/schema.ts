@@ -95,6 +95,11 @@ CREATE TABLE IF NOT EXISTS wallet_swaps (
   fee_lamports INTEGER NOT NULL DEFAULT 0,
   -- seconds since the token's first pool was created, if known
   token_age_sec REAL,
+  -- what the wallet paid / received: SOL, USDC, USDT, or SOL+USDC etc. (sol_amount is always in SOL)
+  quote TEXT NOT NULL DEFAULT 'SOL',
+  quote_amount REAL,
+  -- SOL's USD price used to convert a dollar-priced swap into SOL
+  sol_usd REAL,
   UNIQUE (signature, wallet, mint)
 );
 CREATE INDEX IF NOT EXISTS idx_swaps_wallet_ts ON wallet_swaps(wallet, ts);
@@ -227,4 +232,10 @@ CREATE TABLE IF NOT EXISTS wallet_activity (
 );
 CREATE INDEX IF NOT EXISTS idx_activity_last_seen ON wallet_activity(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_activity_pnl ON wallet_activity(live_pnl_sol);
+
+-- SOL's hourly USD close (for valuing USDC/USDT-priced swaps in SOL)
+CREATE TABLE IF NOT EXISTS sol_price_hourly (
+  hour INTEGER PRIMARY KEY,
+  usd REAL NOT NULL
+);
 `;

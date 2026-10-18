@@ -148,6 +148,8 @@ export interface SwapRow {
   token_amount: number;
   sol_amount: number;
   price_sol: number;
+  quote: string;
+  quote_amount: number | null;
   venue: string | null;
   token_age_sec: number | null;
 }

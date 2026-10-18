@@ -49,6 +49,7 @@ interface GtPool {
 export interface PoolInfo {
   mint: string;
   symbol: string;
+  quoteMint: string;
   quoteSymbol: string;
   poolAddress: string;
   dex: string;
@@ -74,6 +75,7 @@ function toPoolInfo(p: GtPool): PoolInfo {
   return {
     mint: p.relationships.base_token.data.id.replace(/^solana_/, ""),
     symbol: baseSym.trim(),
+    quoteMint: p.relationships.quote_token.data.id.replace(/^solana_/, ""),
     quoteSymbol: quoteSym.trim(),
     poolAddress: a.address,
     dex: p.relationships.dex?.data.id ?? "unknown",
@@ -131,6 +133,7 @@ export async function fetchTokenPools(mints: string[]): Promise<Map<string, Pool
         map.set(t.attributes.address, {
           mint: t.attributes.address,
           symbol: "",
+          quoteMint: "",
           quoteSymbol: "",
           poolAddress: "",
           dex: "",
@@ -183,4 +186,13 @@ export async function fetchTokenLaunch(mint: string): Promise<{ symbol: string |
     if (created && (!earliest || created < earliest)) earliest = created;
   }
   return { symbol, poolCreatedAt: earliest };
+}
+
+/** Hourly USD closes for a pool's base token, newest first: [unix seconds, close][] (up to 1000 hours per call). */
+export async function fetchHourlyCloses(poolAddress: string, beforeTimestamp?: number): Promise<[number, number][]> {
+  const before = beforeTimestamp ? `&before_timestamp=${beforeTimestamp}` : "";
+  const res = await gt<{ data: { attributes: { ohlcv_list: number[][] } } }>(
+    `/networks/solana/pools/${poolAddress}/ohlcv/hour?aggregate=1&limit=1000&currency=usd${before}`,
+  );
+  return res.data.attributes.ohlcv_list.map((c) => [c[0], c[4]] as [number, number]);
 }

@@ -12,7 +12,8 @@ import type { DB } from "@godseye/shared";
 import { connection } from "../rpc";
 import { say, short } from "../log";
 import { fetchParsedOne, fetchSignatures } from "../chain/history";
-import { findNewWalletsFunded, parseSwap, type TxLike } from "../chain/parse";
+import { findNewWalletsFunded, parseSwaps, type TxLike } from "../chain/parse";
+import { solUsdAt } from "../market/solprice";
 import { addWallet } from "../discovery/discover";
 import type { CopyEngine } from "./engine";
 
@@ -90,9 +91,10 @@ export class LeaderWatcher {
     if (this.seen.size > 20_000) this.seen = new Set([...this.seen].slice(-10_000));
     const tx = streamed ?? (await fetchParsedOne(signature));
     if (!tx) return;
-    const swap = parseSwap(tx, leader);
-    if (swap) {
-      await this.engine.onLeaderSwap(swap, seenAt).catch((e: Error) => say("error", `Copy engine error: ${e.message}`));
+    // A memecoin ↔ memecoin swap gives a sell then a buy: GodsEye mirrors both (selling first frees budget).
+    const swaps = parseSwaps(tx, leader, { solUsdAt });
+    if (swaps.length) {
+      for (const swap of swaps) await this.engine.onLeaderSwap(swap, seenAt).catch((e: Error) => say("error", `Copy engine error: ${e.message}`));
       return;
     }
     for (const w of findNewWalletsFunded(tx, leader, ROTATION_MIN_SOL)) {

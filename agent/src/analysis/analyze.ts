@@ -9,7 +9,7 @@
  *   5. gather evidence (creator links, sells right before a crash)
  *   6. assign a tier and an AI / human verdict, with reasons
  */
-import { type DB, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
+import { type DB, NON_MEMECOIN_SYMBOLS, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
 import { readWalletHistory } from "../chain/history";
@@ -40,15 +40,15 @@ const CREATOR_LOOKUPS_PER_WALLET = 5;
 
 export function insertSwaps(db: DB, swaps: ParsedSwap[]): number {
   const ins = db.prepare(
-    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec, quote, quote_amount, sol_usd)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let n = 0;
   db.transaction(() => {
     for (const s of swaps) {
       const launched = cachedTokenInfo(db, s.mint)?.pool_created_at;
       const age = launched ? (Date.parse(s.ts) - Date.parse(launched)) / 1000 : null;
-      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null).changes;
+      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null, s.quote, s.quoteAmount, s.solUsd).changes;
     }
   })();
   return n;
@@ -104,7 +104,12 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   // 3) How early it buys
   await fillTokenAges(db, address, budget);
 
-  // 4) Performance
+  // 4) Performance — memecoins only (drop tokens whose looked-up symbol says otherwise, e.g. EURC)
+  const symbolsNow = db
+    .prepare("SELECT DISTINCT s.mint, t.symbol FROM wallet_swaps s JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? AND t.symbol IS NOT NULL")
+    .all(address) as { mint: string; symbol: string }[];
+  const drop = symbolsNow.filter((r) => NON_MEMECOIN_SYMBOLS.has(r.symbol.toUpperCase())).map((r) => r.mint);
+  if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
   const swaps = db
     .prepare("SELECT signature, ts, mint, side, token_amount, sol_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
     .all(address) as SwapLite[];

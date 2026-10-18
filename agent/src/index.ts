@@ -26,6 +26,7 @@ import { LeaderWatcher } from "./copy/watcher";
 import { loadOrCreateWallet } from "./wallet/wallet";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
+import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice } from "./market/solprice";
 
 const db = openDb();
 attachLogDb(db);
@@ -74,6 +75,7 @@ const learn = () =>
 const positions = () =>
   job("positions", async () => {
     heartbeat();
+    await refreshLiveSolPrice();
     await engine.managePositions();
   });
 const poll = () => job("leader poll", () => watcher.poll(), false);
@@ -106,6 +108,9 @@ async function main() {
   cron.schedule(config.learnCron, learn, opts);
   cron.schedule(config.discoverCron, discover, opts);
   setInterval(poll, Math.max(5, config.pollSeconds) * 1000);
+  cron.schedule("7 */3 * * *", () => void refreshHourlySolPrices(db), opts);
+  // SOL's price history must be loaded before any USDC/USDT-priced swap can be valued.
+  await initSolPrices(db);
   if (live) {
     live.start();
     cron.schedule("17 3 * * *", () => live.prune(), opts);

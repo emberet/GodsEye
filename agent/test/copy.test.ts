@@ -82,7 +82,7 @@ function setup(weight = 0.5) {
 }
 const leaderSwap = (p: Partial<ParsedSwap>): ParsedSwap => ({
   wallet: "LEADER", signature: `sig${Math.random()}`, slot: 1, ts: new Date().toISOString(), mint: MINT, side: "buy",
-  tokenAmount: 1000, tokenBalanceBefore: 0, solAmount: 1, priceSol: 0.001, venue: "jupiter", jitoTip: false, feeLamports: 5000, ...p,
+  tokenAmount: 1000, tokenBalanceBefore: 0, solAmount: 1, priceSol: 0.001, venue: "jupiter", jitoTip: false, feeLamports: 5000, quote: "SOL", quoteAmount: 1, solUsd: null, ...p,
 });
 
 test("engine: copies a leader's buy sized by weight, then mirrors a partial and a full sell", async () => {

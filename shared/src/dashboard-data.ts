@@ -159,7 +159,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
   const stats = (d.prepare("SELECT * FROM wallet_stats WHERE wallet = ?").get(address) as WalletStats | undefined) ?? null;
   const evidence = d.prepare("SELECT id, kind, detail, NULLIF(mint, '') mint, NULLIF(signature, '') signature, ts FROM wallet_evidence WHERE wallet = ? ORDER BY ts DESC LIMIT 100").all(address) as Evidence[];
   const swaps = d
-    .prepare(`SELECT s.id, s.signature, s.ts, s.mint, t.symbol, s.side, s.token_amount, s.sol_amount, s.price_sol, s.venue, s.token_age_sec
+    .prepare(`SELECT s.id, s.signature, s.ts, s.mint, t.symbol, s.side, s.token_amount, s.sol_amount, s.price_sol, s.quote, s.quote_amount, s.venue, s.token_age_sec
                 FROM wallet_swaps s LEFT JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? ORDER BY s.ts DESC LIMIT 100`)
     .all(address) as SwapRow[];
   const weightHistory = d.prepare("SELECT * FROM weight_history WHERE wallet = ? ORDER BY ts DESC LIMIT 50").all(address) as WeightChange[];

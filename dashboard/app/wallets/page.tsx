@@ -170,7 +170,7 @@ function WalletDatabase() {
           </div>
         )}
         <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
-          P&amp;L is realized profit in SOL from swaps GodsEye has seen (SOL-priced only). Labels are automated reads of on-chain behaviour, not accusations.
+          P&amp;L is realized profit in SOL from swaps against SOL, USDC or USDT (dollar amounts converted at SOL&apos;s price at the time). Labels are automated reads of on-chain behaviour, not accusations.
           Each wallet&apos;s page lists the evidence behind its label.
         </p>
       </Window>

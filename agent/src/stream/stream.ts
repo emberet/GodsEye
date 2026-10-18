@@ -14,7 +14,8 @@ import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } 
 import { type DB, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
-import { parseSwap, type ParsedSwap } from "../chain/parse";
+import { parseSwaps, type ParsedSwap } from "../chain/parse";
+import { solUsdAt } from "../market/solprice";
 import { VENUES } from "../chain/programs";
 import { insertSwaps } from "../analysis/analyze";
 import { addWallet } from "../discovery/discover";
@@ -133,12 +134,12 @@ export class LiveStream {
     const conv = convertGrpcTx(t.transaction as unknown as GrpcTxInfo, Number(t.slot), now);
     if (!conv) return;
     for (const signer of conv.signers) {
-      const swap = parseSwap(conv.tx, signer);
-      if (!swap) continue;
-      this.stats.swaps++;
-      this.book.record(swap, now);
+      const swaps = parseSwaps(conv.tx, signer, { solUsdAt });
+      if (!swaps.length) continue;
+      this.stats.swaps += swaps.length;
+      for (const swap of swaps) this.book.record(swap, now);
       if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, conv.tx, now);
-      else if (this.tracked.has(signer)) this.pendingSwaps.push(swap);
+      else if (this.tracked.has(signer)) this.pendingSwaps.push(...swaps);
     }
   }
 
