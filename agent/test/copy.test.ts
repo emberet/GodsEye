@@ -126,3 +126,29 @@ test("engine: the same leader trade is never copied twice", async () => {
   await Promise.all([engine.onLeaderSwap(s), engine.onLeaderSwap(s)]);
   assert.equal(ex.calls.length, 1);
 });
+
+test("engine: never copies non-memecoins (bridged majors etc.), and doesn't fill the copy log with them", async () => {
+  const { db, ex, engine } = setup(0.5);
+  db.prepare("UPDATE token_info SET symbol = 'ZEC' WHERE mint = ?").run(MINT);
+  await engine.onLeaderSwap(leaderSwap({}));
+  await engine.onLeaderSwap(leaderSwap({}));
+  assert.equal(ex.calls.length, 0);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM copy_trades").get() as { n: number }).n, 0);
+  db.prepare("UPDATE token_info SET symbol = 'wNEAR' WHERE mint = ?").run(MINT);
+  await engine.onLeaderSwap(leaderSwap({}));
+  assert.equal(ex.calls.length, 0);
+});
+
+test("engine: an account-wide skip (paused / no SOL) is recorded once per 10 min, not once per leader buy", async () => {
+  const { db, ex, engine } = setup(0.5);
+  db.prepare("INSERT INTO agent_meta (key, value, updated_at) VALUES ('copy_paused', '1', '')").run();
+  for (let i = 0; i < 25; i++) await engine.onLeaderSwap(leaderSwap({}));
+  assert.equal(ex.calls.length, 0);
+  const rows = db.prepare("SELECT reason FROM copy_trades").all() as { reason: string }[];
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].reason, "copying is paused");
+  // per-trade reasons (like arriving too late) are still recorded for every trade
+  db.prepare("DELETE FROM agent_meta WHERE key = 'copy_paused'").run();
+  for (let i = 0; i < 3; i++) await engine.onLeaderSwap(leaderSwap({ ts: new Date(Date.now() - 10 * 60_000).toISOString() }));
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM copy_trades WHERE reason LIKE 'seen %'").get() as { n: number }).n, 3);
+});

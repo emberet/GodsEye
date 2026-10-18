@@ -13,7 +13,7 @@
  *   every 30 min  discover new wallets in the busiest pools      DISCOVER_CRON
  */
 import cron from "node-cron";
-import { nowIso, openDb, setMeta } from "@godseye/shared";
+import { getMeta, nowIso, openDb, setMeta } from "@godseye/shared";
 import { snapshotStoreConfigured } from "@godseye/shared/snapshot-store";
 import { config } from "./config";
 import { attachLogDb, say } from "./log";
@@ -27,6 +27,9 @@ import { loadOrCreateWallet } from "./wallet/wallet";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
+
+/** Bump when the P&L rules change so stored stats are recomputed once at startup. */
+const STATS_VERSION = "usd-1";
 
 const db = openDb();
 attachLogDb(db);
@@ -112,9 +115,11 @@ async function main() {
   cron.schedule("7 */3 * * *", () => void refreshHourlySolPrices(db), opts);
   // SOL's price history must be loaded before any USDC/USDT-priced swap can be valued.
   await initSolPrices(db);
-  // After a P&L rule change (e.g. adding USD values), refresh every wallet's stats from stored swaps — no network needed.
-  const missingUsd = (db.prepare("SELECT COUNT(*) n FROM wallet_stats WHERE pnl_30d_usd IS NULL AND swaps_total > 0").get() as { n: number }).n;
-  if (missingUsd) say("info", `Recomputed P&L in USD for ${recomputeAllStats(db)} wallets.`);
+  // After a P&L rule change, refresh every wallet's stats once from stored swaps — no network needed.
+  if (getMeta(db, "stats_version") !== STATS_VERSION) {
+    say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
+    setMeta(db, "stats_version", STATS_VERSION);
+  }
   if (live) {
     live.start();
     cron.schedule("17 3 * * *", () => live.prune(), opts);

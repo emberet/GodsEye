@@ -47,6 +47,10 @@ export const NON_MEMECOIN_SYMBOLS = new Set([
   "JITOSOL", "MSOL", "BSOL", "JUPSOL", "INF", "BNSOL", "HSOL", "DSOL", "LST", "JLP",
   "ETH", "WETH", "BTC", "WBTC", "CBBTC", "TBTC", "ZBTC",
   "JUP", "JTO", "PYTH", "RAY", "ORCA", "DRIFT", "KMNO", "W", "RENDER", "HNT",
+  // bridged / wrapped majors from other chains
+  "ZEC", "ENA", "STRK", "NEAR", "WNEAR", "SUI", "APT", "BNB", "WBNB", "AVAX", "WAVAX", "LINK", "UNI", "AAVE",
+  "ARB", "OP", "TON", "TRX", "XRP", "ADA", "DOT", "LTC", "BCH", "ETC", "XLM", "HBAR", "ATOM", "TIA", "SEI",
+  "INJ", "FIL", "ICP", "KAS", "HYPE", "WHYPE", "POL", "MATIC", "ONDO", "WLD", "LDO", "CRV", "MKR", "SKY", "ENS", "GRT",
 ]);
 
 /**

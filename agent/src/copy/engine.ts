@@ -9,14 +9,18 @@
  *                (or moves its tokens to another wallet).
  *
  * Safety checks before any buy (any one failing = no buy):
- *   paused (`npm run pause`, or a file named data/PAUSE) · daily loss limit hit ·
- *   max open positions · already holding the token · copy budget used up ·
- *   wallet balance below size + reserve · token fails the rug check ·
- *   the leader's trade was seen too late (price has moved on)
+ *   not a memecoin (bridged majors, staked SOL, stablecoins…) · the leader's
+ *   trade was seen too late (price has moved on) · paused (`npm run pause`, or
+ *   a file named data/PAUSE) · daily loss limit hit · max open positions ·
+ *   already holding the token · copy budget used up · wallet balance below
+ *   size + reserve · token fails the rug check (which also blocks tokens that
+ *   can still be minted — most bridged tokens)
+ * Skips that are about GodsEye's own state (no SOL, paused, limits) repeat for
+ * every leader buy, so they're logged and recorded at most once per 10 minutes.
  * Every decision is written to the proof ledger before it's executed.
  */
 import fs from "node:fs";
-import { commitProof, dataPath, type DB, getMeta, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
+import { commitProof, dataPath, type DB, getMeta, NON_MEMECOIN_MINTS, NON_MEMECOIN_SYMBOLS, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { fmtPct, fmtSol, say, short } from "../log";
 import type { ParsedSwap } from "../chain/parse";
@@ -52,6 +56,10 @@ const usdOf = (sol: number): number | null => {
   return p ? sol * p : null;
 };
 
+/** How long a repeated skip message stays quiet. */
+const SKIP_QUIET_MS = 10 * 60_000;
+const BALANCE_CACHE_MS = 20_000;
+
 export function isPaused(db: DB): boolean {
   return getMeta(db, "copy_paused") === "1" || fs.existsSync(dataPath("PAUSE"));
 }
@@ -59,6 +67,11 @@ export function isPaused(db: DB): boolean {
 export class CopyEngine {
   private locks = new Map<string, Promise<unknown>>();
   private sellFailures = new Map<number, { count: number; until: number }>();
+  /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
+  private quiet = new Map<string, { until: number; held: number }>();
+  private balance: { sol: number; at: number } | null = null;
+  /** Tokens already reported as not-memecoins today. */
+  private notMemeLogged = new Map<string, string>();
 
   constructor(
     private db: DB,
@@ -81,14 +94,45 @@ export class CopyEngine {
     else await this.withLock(swap.mint, () => this.copySell(swap));
   }
 
-  private skip(swap: ParsedSwap, weight: number, reason: string, symbol: string): void {
-    this.db
-      .prepare(
-        `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?)`,
-      )
-      .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, swap.side, this.executor.mode, reason, weight, nowIso());
-    say("info", `Skipped copying ${short(swap.wallet)}'s ${swap.side} of ${symbol}: ${reason}.`);
+  /**
+   * Record and report a skipped copy.
+   *   key     — what kind of skip (e.g. "balance", "late"); repeats within SKIP_QUIET_MS are held back
+   *   account — the reason is GodsEye's own state (no SOL, paused, limits): the copy-log row is throttled too
+   */
+  private skip(swap: ParsedSwap, weight: number, symbol: string, key: string, reason: string, account = false): void {
+    const now = Date.now();
+    const q = this.quiet.get(key);
+    const quiet = !!q && now < q.until;
+    if (!account || !quiet) {
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?)`,
+        )
+        .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, swap.side, this.executor.mode, reason, weight, nowIso());
+    }
+    if (quiet) {
+      q!.held++;
+      return;
+    }
+    const held = q?.held ? ` (+${q.held} similar skips in the last ${SKIP_QUIET_MS / 60_000} min)` : "";
+    this.quiet.set(key, { until: now + SKIP_QUIET_MS, held: 0 });
+    say("info", `Skipped copying ${short(swap.wallet)}'s ${swap.side} of ${symbol}: ${reason}${held}.`);
+  }
+
+  /** Why this token isn't a memecoin, or null if it is one (as far as names and known addresses tell). */
+  private notMemecoin(mint: string, symbol: string): string | null {
+    if (NON_MEMECOIN_MINTS.has(mint)) return `${symbol} isn't a memecoin`;
+    if (NON_MEMECOIN_SYMBOLS.has(symbol.replace(/^\$/, "").toUpperCase())) return `${symbol} isn't a memecoin (bridged major / staked SOL / stablecoin)`;
+    return null;
+  }
+
+  /** Wallet balance, cached briefly (a busy leader can trigger many checks a second). */
+  private async walletSol(): Promise<number> {
+    if (this.balance && Date.now() - this.balance.at < BALANCE_CACHE_MS) return this.balance.sol;
+    const sol = this.wallet ? await walletBalanceSol(this.wallet).catch(() => 0) : 0;
+    this.balance = { sol, at: Date.now() };
+    return sol;
   }
 
   private async copyBuy(swap: ParsedSwap, seenAt: number): Promise<void> {
@@ -99,27 +143,42 @@ export class CopyEngine {
     await tokenInfo(this.db, swap.mint).catch(() => null);
     const symbol = symbolOf(this.db, swap.mint);
 
+    // 1) Memecoins only. Not worth a copy-log row; reported once per token per day.
+    const notMeme = this.notMemecoin(swap.mint, symbol);
+    if (notMeme) {
+      const day = new Date().toISOString().slice(0, 10);
+      if (this.notMemeLogged.get(swap.mint) !== day) {
+        this.notMemeLogged.set(swap.mint, day);
+        say("info", `Not copying ${short(swap.wallet)}'s buy of ${symbol}: ${notMeme}.`);
+      }
+      return;
+    }
+    // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
-    if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, `seen ${Math.round(lateSec)}s after the leader traded`, symbol);
-    if (isPaused(this.db)) return this.skip(swap, weight, "copying is paused", symbol);
+    if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
+    // 3) GodsEye's own state
+    if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true);
     const today = new Date().toISOString().slice(0, 10);
     const lossToday = (this.db.prepare("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND closed_at >= ?").get(`${today}T00:00:00.000Z`) as { s: number }).s;
-    if (lossToday <= -config.dailyLossLimitSol) return this.skip(swap, weight, `daily loss limit reached (${fmtSol(lossToday)})`, symbol);
+    if (lossToday <= -config.dailyLossLimitSol) return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true);
     const open = this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(cost_sol * token_amount / tokens_bought),0) c FROM positions WHERE status='open'").get() as { n: number; c: number };
-    if (open.n >= config.maxPositions) return this.skip(swap, weight, `already at ${config.maxPositions} open positions`, symbol);
+    if (open.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true);
 
     let size = copySize(weight, config);
     if (size <= 0) return;
     size = Math.min(size, config.copyBudgetSol - open.c);
-    if (size < config.copyMinTradeSol) return this.skip(swap, weight, "copy budget fully in use", symbol);
+    if (size < config.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true);
     if (this.executor.mode === "real" && this.wallet) {
-      const balance = await walletBalanceSol(this.wallet).catch(() => 0);
-      if (balance - config.walletReserveSol < size) return this.skip(swap, weight, `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)}`, symbol);
+      const balance = await this.walletSol();
+      if (balance - config.walletReserveSol < size) {
+        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to ${short(this.wallet.toBase58())} to start copying`, true);
+      }
     }
+    // 4) The token itself (also blocks tokens that can still be minted — most bridged tokens)
     if (config.rugCheckEnabled) {
       const v = await rugCheck(this.db, swap.mint, symbol);
-      if (!v) return this.skip(swap, weight, "couldn't verify the token on Solana", symbol);
-      if (v.verdict === "blocked") return this.skip(swap, weight, `rug check: ${v.blocks.join("; ")}`, symbol);
+      if (!v) return this.skip(swap, weight, symbol, "unverified", "couldn't verify the token on Solana");
+      if (v.verdict === "blocked") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${v.blocks.join("; ")}`);
     }
 
     const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
