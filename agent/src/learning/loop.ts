@@ -29,7 +29,7 @@ export function runLearning(db: DB): string[] {
     address: r.address, tier: r.tier, pnl7: r.pnl_7d_usd ?? r.pnl_7d_sol * solNow, pnl30: r.pnl_30d_usd ?? r.pnl_30d_sol * solNow, closed30: r.closed_30d, winRate30: r.win_rate_30d,
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
   }));
-  const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol });
+  const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven });
 
   const update = db.prepare("UPDATE wallets SET copy_weight = ?, weight_reason = ? WHERE address = ?");
   const history = db.prepare("INSERT INTO weight_history (wallet, ts, old_weight, new_weight, reason) VALUES (?, ?, ?, ?, ?)");

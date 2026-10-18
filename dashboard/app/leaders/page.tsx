@@ -18,7 +18,8 @@ export default function LeadersPage() {
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
       <p className="mb-3 text-xs text-muted-foreground">
-        Weight follows each wallet&apos;s profit in USD (valued when each trade settled) over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
+        Only wallets with a track record are copied: Proven, or at least 10 closed trades in 30 days (never a Lucky streak). Weight follows each
+        wallet&apos;s profit in USD (valued when each trade settled) over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
         If copying a wallet loses GodsEye money over 14 days, it stops copying it. Top earners only; weights add up to the copy budget
         {data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""}.
       </p>

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { computeWeights, copySize, type WeightInput } from "../src/learning/weights";
 
 const base: Omit<WeightInput, "address"> = { tier: "proven", pnl7: 2, pnl30: 6, closed30: 20, winRate30: 0.6, isFresh: false, copyPnl14: 0, copyClosed14: 0, oldWeight: 0 };
-const cfg = { maxLeaders: 3, copyLossDropSol: 0.2 };
+const cfg = { maxLeaders: 3, copyLossDropSol: 0.2, minClosed: 10 };
 
 test("weights go to whoever is making money, and add up to 1", () => {
   const w = computeWeights(
@@ -52,4 +52,28 @@ test("copy size follows weight within the min/max", () => {
   assert.equal(copySize(0.05, c), 0.05);
   assert.equal(copySize(0.5, c), 0.1);
   assert.equal(copySize(0.005, c), 0);
+});
+
+test("only wallets with a track record are copied: no lucky streaks, no thin histories", () => {
+  const w = computeWeights(
+    [
+      { ...base, address: "lucky", tier: "lucky_streak", pnl7: 50, closed30: 7 },
+      { ...base, address: "thin", tier: "unrated", pnl7: 30, closed30: 6 },
+      { ...base, address: "busy", tier: "insider", pnl7: 3, closed30: 25 }, // enough trades, not Proven: allowed
+      { ...base, address: "proven", tier: "proven", pnl7: 2, closed30: 8 }, // Proven is always allowed
+    ],
+    cfg,
+  );
+  assert.equal(w.get("lucky")!.weight, 0);
+  assert.match(w.get("lucky")!.reason, /lucky streak/);
+  assert.equal(w.get("thin")!.weight, 0);
+  assert.match(w.get("thin")!.reason, /only 6 closed trades in 30 days \(10 needed/);
+  assert.ok(w.get("busy")!.weight > 0);
+  assert.ok(w.get("proven")!.weight > 0);
+});
+
+test("a copied wallet that becomes a lucky streak is dropped at once", () => {
+  const w = computeWeights([{ ...base, address: "a", tier: "lucky_streak", oldWeight: 1 }, { ...base, address: "b" }], cfg);
+  assert.equal(w.get("a")!.weight, 0);
+  assert.equal(w.get("b")!.weight, 1);
 });

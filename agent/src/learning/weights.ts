@@ -1,7 +1,9 @@
 /**
  * THE LEARNING LOOP — decides whom GodsEye copies, and how much.
  *
- * It always sides with whoever is making money right now:
+ * Only wallets with a track record can be copied: Proven tier, or at least
+ * MIN_CLOSED_FOR_PROVEN (10) closed trades in 30 days — never a Lucky streak
+ * or a Quitter. Among those, it always sides with whoever is making money now:
  *   • A wallet's weight follows its realized profit — in USD, each trade
  *     valued when it settled — over the last 7 days (60%) and 30 days (40%),
  *     scaled by its win rate and by how many trades back that up.
@@ -41,8 +43,12 @@ const sol = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(2)} SOL`;
 const usd = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 
 /** How attractive a wallet is to copy right now (0 = don't copy). */
-export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number }): WeightResult {
+export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number; minClosed: number }): WeightResult {
   if (w.tier === "quitter") return { weight: 0, reason: "stopped trading" };
+  if (w.tier === "lucky_streak") return { weight: 0, reason: "lucky streak: profit rests on too few trades to copy" };
+  if (w.tier !== "proven" && w.closed30 < cfg.minClosed) {
+    return { weight: 0, reason: `only ${w.closed30} closed trades in 30 days (${cfg.minClosed} needed before GodsEye copies a wallet)` };
+  }
   if (w.pnl7 <= 0) return { weight: 0, reason: `not making money this week (${usd(w.pnl7)})` };
   if (w.copyClosed14 >= 3 && w.copyPnl14 <= -cfg.copyLossDropSol) {
     return { weight: 0, reason: `GodsEye's copies of it lost ${sol(w.copyPnl14)} over 14 days, so it can't be copied profitably` };
@@ -64,7 +70,7 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number }): Weig
   return { weight: score, reason: notes.join(", ") };
 }
 
-export function computeWeights(inputs: WeightInput[], cfg: { maxLeaders: number; copyLossDropSol: number }): Map<string, WeightResult> {
+export function computeWeights(inputs: WeightInput[], cfg: { maxLeaders: number; copyLossDropSol: number; minClosed: number }): Map<string, WeightResult> {
   const scored = inputs.map((w) => ({ w, r: rawScore(w, cfg) }));
   const ranked = scored.filter((x) => x.r.weight > 0).sort((a, b) => b.r.weight - a.r.weight);
   const top = new Set(ranked.slice(0, cfg.maxLeaders).map((x) => x.w.address));
