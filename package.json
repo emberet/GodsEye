@@ -1,0 +1,29 @@
+{
+  "name": "godseye",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GodsEye \u2014 sees every Solana wallet, sorts them (insider, lucky streak, needs attention, quitter; AI or human) and copy-trades the ones making money.",
+  "workspaces": [
+    "shared",
+    "agent",
+    "dashboard"
+  ],
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "agent": "npm run agent -w agent",
+    "discover": "npm run discover -w agent",
+    "analyze": "npm run analyze -w agent",
+    "learn": "npm run learn -w agent",
+    "wallet": "npm run wallet -w agent",
+    "status": "npm run status -w agent",
+    "pause": "npm run pause -w agent",
+    "resume": "npm run resume -w agent",
+    "publish-dashboard": "npm run publish-dashboard -w agent",
+    "dashboard": "npm run dev -w dashboard",
+    "test": "npm test -w shared && npm test -w agent",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w agent && npm run typecheck -w dashboard"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@godseye/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Code shared by the agent and dashboard: database, wallet tiers, proof hashing, dashboard data.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./constants": "./src/constants.ts",
+    "./db": "./src/db.ts",
+    "./env": "./src/env.ts",
+    "./proof": "./src/proof.ts",
+    "./stats": "./src/stats.ts",
+    "./dashboard-data": "./src/dashboard-data.ts",
+    "./dashboard-types": "./src/dashboard-types.ts",
+    "./snapshot-store": "./src/snapshot-store.ts"
+  },
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "better-sqlite3": "^12.4.1",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

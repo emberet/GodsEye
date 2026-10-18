@@ -1,0 +1,207 @@
+/**
+ * LIVE STREAM — every DEX swap on Solana, as it confirms, over gRPC.
+ *
+ * Works with any Yellowstone-protocol gRPC (Shyft, Triton, Helius, QuickNode):
+ * set GRPC_URL and GRPC_TOKEN in .env. Each transaction that touches a DEX
+ * program is parsed by the same balance-change parser used for history, then:
+ *   • a leader's swap  → straight to the copy engine (no polling delay)
+ *   • a tracked wallet → stored in wallet_swaps, so its stats stay current
+ *   • every wallet     → the live book: live P&L and AI/human score; wallets
+ *                        making real money get promoted to full analysis
+ * Reconnects on its own with backoff.
+ */
+import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
+import { type DB, nowIso, setMeta } from "@godseye/shared";
+import { config } from "../config";
+import { say, short } from "../log";
+import { parseSwap, type ParsedSwap } from "../chain/parse";
+import { VENUES } from "../chain/programs";
+import { insertSwaps } from "../analysis/analyze";
+import { addWallet } from "../discovery/discover";
+import type { LeaderWatcher } from "../copy/watcher";
+import { convertGrpcTx, type GrpcTxInfo } from "./convert";
+import { LiveBook } from "./live-book";
+
+const PING_MS = 10_000;
+const FLUSH_MS = 15_000;
+
+/** The gRPC client hides the server's reason in `cause` (e.g. "client IP … is not whitelisted"). */
+function describe(e: unknown): string {
+  const err = e as Error & { cause?: unknown };
+  const cause = err.cause ? String(err.cause) : "";
+  const reason = cause.match(/message: "([^"]+)"/)?.[1] ?? cause;
+  const text = reason ? `${err.message}: ${reason}` : err.message;
+  return (config.grpcToken ? text.split(config.grpcToken).join("***") : text).slice(0, 240);
+}
+
+export function streamConfigured(): boolean {
+  return !!config.grpcUrl;
+}
+
+export class LiveStream {
+  readonly book = new LiveBook({ maxWallets: config.streamMaxWallets, idleMs: config.streamIdleHours * 3_600_000, earlyBuySeconds: config.earlyBuySeconds });
+  private tracked = new Set<string>();
+  private pendingSwaps: ParsedSwap[] = [];
+  private stats = { txs: 0, swaps: 0, since: Date.now() };
+  private retryMs = 1_000;
+  private stopped = false;
+  private timers: NodeJS.Timeout[] = [];
+
+  constructor(
+    private db: DB,
+    private watcher: LeaderWatcher,
+  ) {}
+
+  /** Re-read which wallets are in the database (call after discovery / promotion). */
+  refreshTracked(): void {
+    this.tracked = new Set((this.db.prepare("SELECT address FROM wallets").all() as { address: string }[]).map((r) => r.address));
+  }
+
+  start(): void {
+    this.refreshTracked();
+    this.timers.push(setInterval(() => this.flush(), FLUSH_MS));
+    this.timers.push(setInterval(() => this.promote(), 60_000));
+    void this.connect();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    for (const t of this.timers) clearInterval(t);
+    this.flush();
+  }
+
+  private request(): SubscribeRequest {
+    const programs = config.streamPrograms.length ? config.streamPrograms : Object.keys(VENUES);
+    return {
+      accounts: {},
+      slots: {},
+      transactions: { dex: { vote: false, failed: false, accountInclude: programs, accountExclude: [], accountRequired: [] } },
+      transactionsStatus: {},
+      blocks: {},
+      blocksMeta: {},
+      entry: {},
+      blockFooter: {},
+      accountsDataSlice: [],
+      commitment: CommitmentLevel.CONFIRMED,
+    } as SubscribeRequest;
+  }
+
+  private async connect(): Promise<void> {
+    if (this.stopped) return;
+    let ping: NodeJS.Timeout | undefined;
+    try {
+      const client = new Client(config.grpcUrl, config.grpcToken || undefined, {
+        grpcMaxDecodingMessageSize: 64 * 1024 * 1024,
+        grpcHttp2KeepAliveInterval: 15_000,
+        grpcKeepAliveTimeout: 10_000,
+        grpcKeepAliveWhileIdle: true,
+      });
+      await client.connect();
+      const stream = await client.subscribe(this.request());
+      say("info", `Live stream connected (${new URL(config.grpcUrl).host}): watching every DEX swap on Solana.`);
+      setMeta(this.db, "stream_status", "connected");
+      this.retryMs = 1_000;
+      let id = 0;
+      ping = setInterval(() => {
+        // Keeps the connection alive through load balancers that drop idle streams. The full filter is
+        // re-sent with the ping because every write replaces the subscription.
+        stream.write({ ...this.request(), ping: { id: ++id } } as SubscribeRequest, () => undefined);
+      }, PING_MS);
+      await new Promise<void>((resolve, reject) => {
+        stream.on("data", (u: SubscribeUpdate) => this.onUpdate(u));
+        stream.on("error", reject);
+        stream.on("end", resolve);
+        stream.on("close", resolve);
+      });
+      say("warn", "Live stream ended; reconnecting.");
+    } catch (e) {
+      say("warn", `Live stream error: ${describe(e)}. Reconnecting in ${Math.round(this.retryMs / 1000)}s.`);
+    } finally {
+      if (ping) clearInterval(ping);
+      setMeta(this.db, "stream_status", "reconnecting");
+    }
+    await new Promise((r) => setTimeout(r, this.retryMs));
+    this.retryMs = Math.min(60_000, this.retryMs * 2);
+    void this.connect();
+  }
+
+  private onUpdate(u: SubscribeUpdate): void {
+    const t = u.transaction;
+    if (!t?.transaction) return;
+    this.stats.txs++;
+    const now = Date.now();
+    const conv = convertGrpcTx(t.transaction as unknown as GrpcTxInfo, Number(t.slot), now);
+    if (!conv) return;
+    for (const signer of conv.signers) {
+      const swap = parseSwap(conv.tx, signer);
+      if (!swap) continue;
+      this.stats.swaps++;
+      this.book.record(swap, now);
+      if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, conv.tx, now);
+      else if (this.tracked.has(signer)) this.pendingSwaps.push(swap);
+    }
+  }
+
+  /** Writes stored swaps for tracked wallets and running totals for everyone. */
+  flush(): void {
+    try {
+      if (this.pendingSwaps.length) {
+        const batch = this.pendingSwaps.splice(0);
+        insertSwaps(this.db, batch);
+        const touch = this.db.prepare("UPDATE wallets SET last_activity_at = MAX(COALESCE(last_activity_at, ''), ?) WHERE address = ?");
+        this.db.transaction(() => batch.forEach((s) => touch.run(s.ts, s.wallet)))();
+      }
+      this.book.rescore();
+      const dirty = this.book.takeDirty();
+      const up = this.db.prepare(
+        `INSERT INTO wallet_activity (address, first_seen_at, last_seen_at, swaps, buys, sells, volume_sol, live_pnl_sol, live_closed, live_wins, live_kind, live_ai_score, promoted)
+         VALUES (@address, @first, @last, @swaps, @buys, @sells, @volume, @pnl, @closed, @wins, @kind, @ai, @promoted)
+         ON CONFLICT(address) DO UPDATE SET last_seen_at=excluded.last_seen_at, swaps=excluded.swaps, buys=excluded.buys, sells=excluded.sells,
+           volume_sol=excluded.volume_sol, live_pnl_sol=excluded.live_pnl_sol, live_closed=excluded.live_closed, live_wins=excluded.live_wins,
+           live_kind=excluded.live_kind, live_ai_score=excluded.live_ai_score, promoted=MAX(promoted, excluded.promoted)`,
+      );
+      this.db.transaction(() => {
+        for (const w of dirty) {
+          up.run({
+            address: w.address, first: new Date(w.firstSeen).toISOString(), last: new Date(w.lastSeen).toISOString(), swaps: w.swaps, buys: w.buys, sells: w.sells,
+            volume: w.volumeSol, pnl: w.pnlSol, closed: w.closed, wins: w.wins, kind: w.kind, ai: w.aiScore, promoted: w.promoted || this.tracked.has(w.address) ? 1 : 0,
+          });
+        }
+      })();
+      this.book.evict();
+      const secs = (Date.now() - this.stats.since) / 1000;
+      setMeta(this.db, "stream_last_at", nowIso());
+      setMeta(this.db, "stream_tx_per_sec", (this.stats.txs / secs).toFixed(1));
+      setMeta(this.db, "stream_swaps_per_sec", (this.stats.swaps / secs).toFixed(1));
+      setMeta(this.db, "stream_wallets_in_memory", this.book.size);
+      this.stats = { txs: 0, swaps: 0, since: Date.now() };
+    } catch (e) {
+      say("error", `Live stream flush failed: ${(e as Error).message}`);
+    }
+  }
+
+  /** Daily housekeeping: drop activity rows for wallets not seen in ACTIVITY_RETENTION_DAYS. */
+  prune(): void {
+    const before = new Date(Date.now() - config.activityRetentionDays * 86_400_000).toISOString();
+    this.db.prepare("DELETE FROM wallet_activity WHERE last_seen_at < ? AND promoted = 0").run(before);
+  }
+
+  /** Wallets making real money on the stream get a full analysis. */
+  private promote(): void {
+    const list = this.book.promotable(config.streamPromotePnlSol, config.streamPromoteMinClosed);
+    let n = 0;
+    for (const w of list) {
+      w.promoted = true;
+      w.dirty = true;
+      const detail = `${w.pnlSol >= 0 ? "+" : ""}${w.pnlSol.toFixed(2)} SOL realized over ${w.closed} closed trades seen live (${w.wins} wins)`;
+      if (addWallet(this.db, w.address, "live_stream", detail)) {
+        n++;
+        if (n <= 5) say("wallet", `Live stream: ${short(w.address)} is making money (${detail}) — queued for full analysis.`);
+      }
+    }
+    if (n) {
+      this.refreshTracked();
+      if (n > 5) say("wallet", `Live stream: ${n} profitable wallets queued for full analysis.`);
+    }
+  }
+}

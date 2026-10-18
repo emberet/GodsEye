@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.local
+# Local database + wallet keys: NEVER commit these
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+# Build output
+.next/
+dist/
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+.claude/

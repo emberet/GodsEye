@@ -1,0 +1,121 @@
+/**
+ * All of GodsEye's settings, read from the .env file in the project root.
+ * Every setting has a default, so the agent starts even with an empty .env.
+ */
+import { envBool, envNum, envStr, loadEnv, HARD_MAX_COPY_TRADE_SOL } from "@godseye/shared";
+
+loadEnv();
+
+const list = (name: string) => envStr(name).split(",").map((s) => s.trim()).filter(Boolean);
+
+export const config = {
+  // ---- Mode ----
+  /** "real" (default) = copy trades spend real SOL from GodsEye's wallet. "paper" = simulate fills with Jupiter quotes. */
+  copyMode: (envStr("COPY_MODE", "real").toLowerCase() === "paper" ? "paper" : "real") as "real" | "paper",
+
+  // ---- API keys ----
+  heliusApiKey: envStr("HELIUS_API_KEY"),
+  solanaRpcUrl: envStr("SOLANA_RPC_URL"),
+  solanaWsUrl: envStr("SOLANA_WS_URL"),
+  birdeyeApiKey: envStr("BIRDEYE_API_KEY"),
+  jupiterApiKey: envStr("JUPITER_API_KEY"),
+
+  // ---- Live gRPC stream (Shyft, Triton, Helius, QuickNode — Yellowstone protocol) ----
+  /** e.g. https://grpc.ny.shyft.to — empty = no stream, GodsEye samples pools and polls instead. */
+  grpcUrl: envStr("GRPC_URL"),
+  grpcToken: envStr("GRPC_TOKEN"),
+  /** Programs whose swaps are streamed (default: the memecoin venues + Jupiter). */
+  streamPrograms: list("STREAM_PROGRAMS"),
+  /** Promote a live wallet to full analysis once it has realized this much profit on the stream… */
+  streamPromotePnlSol: envNum("STREAM_PROMOTE_PNL_SOL", 1),
+  /** …over at least this many closed trades (with ≥ 50% wins). */
+  streamPromoteMinClosed: envNum("STREAM_PROMOTE_MIN_CLOSED", 3),
+  /** Most wallets kept in memory at once (idle ones are forgotten first). */
+  streamMaxWallets: envNum("STREAM_MAX_WALLETS", 300_000),
+  /** Forget a wallet's in-memory swaps after this long without trading. */
+  streamIdleHours: envNum("STREAM_IDLE_HOURS", 6),
+  /** Keep wallet_activity rows for wallets seen in the last this-many days. */
+  activityRetentionDays: envNum("ACTIVITY_RETENTION_DAYS", 30),
+
+  // ---- Discovery: finding wallets worth watching ----
+  discoverCron: envStr("DISCOVER_CRON", "*/30 * * * *"),
+  /** How many of Solana's busiest pools to read recent trades from. */
+  discoverPools: envNum("DISCOVER_POOLS", 12),
+  /** Only count trades at least this big (USD) when looking for traders. */
+  discoverMinTradeUsd: envNum("DISCOVER_MIN_TRADE_USD", 300),
+  /** Cap on brand-new wallets added per discovery run (keeps RPC usage sane). */
+  discoverMaxNewPerRun: envNum("DISCOVER_MAX_NEW_PER_RUN", 25),
+
+  // ---- Analysis: reading each wallet's history ----
+  analyzeCron: envStr("ANALYZE_CRON", "*/10 * * * *"),
+  analyzePerRun: envNum("ANALYZE_PER_RUN", 15),
+  /** How many past transactions to read the first time a wallet is analyzed. */
+  historyTxLimit: envNum("HISTORY_TX_LIMIT", 300),
+  /** Wallets younger than this many days count as "fresh". */
+  freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
+  /** Re-analyze a wallet at most this often (leaders are also updated live). */
+  reanalyzeMinutes: envNum("REANALYZE_MINUTES", 60),
+
+  // ---- Tiers (see src/analysis/tiers.ts) ----
+  quitAfterDays: envNum("QUIT_AFTER_DAYS", 7),
+  /** A buy within this many seconds of the token's first pool counts as "early". */
+  earlyBuySeconds: envNum("EARLY_BUY_SECONDS", 600),
+  minClosedForProven: envNum("MIN_CLOSED_FOR_PROVEN", 10),
+
+  // ---- Learning loop (see src/learning/weights.ts) ----
+  learnCron: envStr("LEARN_CRON", "*/15 * * * *"),
+  /** Copy at most this many wallets at once (the top earners). */
+  maxLeaders: envNum("COPY_MAX_LEADERS", 10),
+  /** Our own copies of a leader must not lose more than this (SOL) over the last 14 days, or the leader is dropped. */
+  copyLossDropSol: envNum("COPY_LOSS_DROP_SOL", 0.2),
+
+  // ---- Copy trading (real money by default) ----
+  /** Total SOL GodsEye may have in copy positions at once, shared out by weight. */
+  copyBudgetSol: envNum("COPY_BUDGET_SOL", 1),
+  copyMinTradeSol: envNum("COPY_MIN_TRADE_SOL", 0.01),
+  copyMaxTradeSol: Math.min(HARD_MAX_COPY_TRADE_SOL, envNum("COPY_MAX_TRADE_SOL", 0.1)),
+  maxPositions: envNum("COPY_MAX_POSITIONS", 5),
+  /** Stop copying for the rest of the UTC day once realized losses hit this. */
+  dailyLossLimitSol: envNum("COPY_DAILY_LOSS_LIMIT_SOL", 0.5),
+  /** Always keep this much SOL for fees. */
+  walletReserveSol: envNum("WALLET_RESERVE_SOL", 0.05),
+  /** Our own safety exits, even if the leader never sells. */
+  stopLossPct: envNum("COPY_STOP_LOSS_PCT", 35),
+  takeProfitPct: envNum("COPY_TAKE_PROFIT_PCT", 300),
+  maxHoldHours: envNum("COPY_MAX_HOLD_HOURS", 48),
+  /** Ignore a leader's trade if GodsEye sees it later than this (price has moved on). */
+  maxCopyDelaySeconds: envNum("COPY_MAX_DELAY_SECONDS", 60),
+  /** Don't copy buys that are smaller than this (SOL) — dust or tests. */
+  minLeaderBuySol: envNum("MIN_LEADER_BUY_SOL", 0.2),
+  slippageBps: envNum("COPY_SLIPPAGE_BPS", 300),
+  priorityFeeMaxLamports: envNum("PRIORITY_FEE_MAX_LAMPORTS", 1_000_000),
+  positionCron: envStr("POSITION_CRON", "* * * * *"),
+  /** Safety net for missed live events: re-read leaders' newest transactions this often. */
+  pollSeconds: envNum("LEADER_POLL_SECONDS", 30),
+
+  // ---- Rug checks (see src/market/rugcheck.ts) ----
+  rugCheckEnabled: envBool("RUG_CHECK_ENABLED", true),
+  rugBlockMintAuthority: envBool("RUG_BLOCK_MINT_AUTHORITY", true),
+  rugMaxRiskScore: envNum("RUG_MAX_RISK_SCORE", 75),
+  rugAllowlist: list("RUG_ALLOWLIST"),
+  rugCheckCacheHours: envNum("RUG_CHECK_CACHE_HOURS", 6),
+
+  // ---- Misc ----
+  /** Never track these wallets (exchanges, your own wallets…). */
+  ignoreWallets: list("IGNORE_WALLETS"),
+};
+
+export type Config = typeof config;
+
+/** Which Solana RPC to use: your own URL > Helius (free key) > public RPC. */
+export function rpcUrl(): string {
+  if (config.solanaRpcUrl) return config.solanaRpcUrl;
+  if (config.heliusApiKey) return `https://mainnet.helius-rpc.com/?api-key=${config.heliusApiKey}`;
+  return "https://api.mainnet-beta.solana.com";
+}
+
+export function wsUrl(): string | undefined {
+  if (config.solanaWsUrl) return config.solanaWsUrl;
+  if (!config.solanaRpcUrl && config.heliusApiKey) return `wss://mainnet.helius-rpc.com/?api-key=${config.heliusApiKey}`;
+  return undefined; // web3.js derives it from the RPC URL
+}

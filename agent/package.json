@@ -1,0 +1,33 @@
+{
+  "name": "@godseye/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "GodsEye — finds profitable Solana wallets, tiers them, tells AI from human, and copy-trades the winners.",
+  "scripts": {
+    "agent": "tsx src/index.ts",
+    "discover": "tsx src/cli/discover.ts",
+    "analyze": "tsx src/cli/analyze.ts",
+    "learn": "tsx src/cli/learn.ts",
+    "wallet": "tsx src/wallet/cli.ts",
+    "status": "tsx src/cli/status.ts",
+    "pause": "tsx src/cli/pause.ts pause",
+    "resume": "tsx src/cli/pause.ts resume",
+    "publish-dashboard": "tsx src/publish/cli.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@godseye/shared": "*",
+    "@solana/web3.js": "^1.98.0",
+    "@triton-one/yellowstone-grpc": "8.0.0",
+    "bs58": "^6.0.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
