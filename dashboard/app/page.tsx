@@ -8,7 +8,7 @@ import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
 import { TIER_STYLE, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pct, pnlClass, shortAddr, signedUsd } from "@/lib/format";
+import { ago, pct, pnlClass, shortAddr, signedUsd, weekLabel } from "@/lib/format";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -106,7 +106,7 @@ export default function Home() {
               </div>
               <p className={cn("text-lg font-extrabold num", pnlClass(l.pnl_7d_usd))}>
                 {signedUsd(l.pnl_7d_usd)}
-                <span className="unit">7d</span>
+                <span className="unit">{weekLabel(l.history_from)}</span>
               </p>
             </Link>
           ))}

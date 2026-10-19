@@ -9,13 +9,13 @@ import { SubNav, WALLET_LINKS } from "@/components/nav";
 import { Empty } from "@/components/window";
 import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { pnlClass, shortAddr, signedSol, signedUsd } from "@/lib/format";
+import { pnlClass, shortAddr, signedSol, signedUsd, spanLabel } from "@/lib/format";
 import type { Summary, WalletList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SORTS = [
-  { v: "pnl_30d", label: "Biggest profit, 30 days" },
-  { v: "pnl_7d", label: "Biggest profit, 7 days" },
+  { v: "pnl_30d", label: "Biggest profit" },
+  { v: "pnl_7d", label: "Biggest profit this week" },
   { v: "weight", label: "Copied most" },
   { v: "ai_score", label: "Most bot-like" },
   { v: "last_activity", label: "Active most recently" },
@@ -157,10 +157,13 @@ function WalletDatabase() {
             <div className="ml-auto flex items-center gap-6 sm:gap-8">
               <div className="text-right">
                 <p className="k">Wins</p>
-                <p className="text-[22px] font-extrabold num">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</p>
+                <p className="text-[22px] font-extrabold num" title={`${w.closed_30d ?? 0} closed trades`}>
+                  {w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}
+                  <span className="unit">{w.closed_30d ? `of ${w.closed_30d}` : "none closed"}</span>
+                </p>
               </div>
-              <div className="w-[110px] text-right" title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>
-                <p className="k">30 days</p>
+              <div className="w-[120px] text-right" title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>
+                <p className="k" title={w.history_from ? `GodsEye has this wallet's trades since ${w.history_from.slice(0, 16).replace("T", " ")} UTC` : undefined}>{spanLabel(w.history_from)}</p>
                 <p className={cn("text-[26px] font-extrabold num", pnlClass(w.pnl_30d_usd))}>{signedUsd(w.pnl_30d_usd)}</p>
               </div>
               <span className="dot hidden bg-cream transition-colors group-hover:bg-lilac sm:inline-flex" aria-hidden>
@@ -180,7 +183,7 @@ function WalletDatabase() {
       )}
 
       <p className="px-1 text-xs text-muted-foreground">
-        Profit is in dollars, valued when each trade settled, from memecoin trades paid in SOL, USDC or USDT. Labels are automated reads of on-chain behaviour, not accusations;
+        Profit is realized profit in dollars, valued when each trade settled, from memecoin trades paid in SOL, USDC or USDT. It covers the trades GodsEye has read for each wallet, shown above each figure: for busy wallets that can be only a day or two, not 30 days. Labels are automated reads of on-chain behaviour, not accusations;
         each wallet&apos;s page shows the evidence.
       </p>
     </>

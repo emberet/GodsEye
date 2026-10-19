@@ -9,7 +9,7 @@ import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { Addr, KindBadge, TierBadge, WalletDot, kindLabel } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, dt, pnlClass, shortAddr, signedSol, signedUsd, solscanAccount, solscanTx } from "@/lib/format";
+import { ago, dollars, dt, hasWeek, pnlClass, shortAddr, signedSol, signedUsd, solscanAccount, solscanTx, spanLabel } from "@/lib/format";
 import type { WalletDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -92,7 +92,12 @@ export default function WalletPage({ params }: { params: { address: string } }) 
 
       <section className="grid gap-5 sm:grid-cols-3">
         <div className="card">
-          <Stat label="Profit, 30 days" value={signedUsd(s?.pnl_30d_usd)} valueClass={pnlClass(s?.pnl_30d_usd)} sub={`${signedSol(s?.pnl_30d_sol, 2)} SOL · 7 days ${signedUsd(s?.pnl_7d_usd)}`} />
+          <Stat
+            label={`Profit, ${spanLabel(w.history_from)}`}
+            value={signedUsd(s?.pnl_30d_usd)}
+            valueClass={pnlClass(s?.pnl_30d_usd)}
+            sub={`${signedSol(s?.pnl_30d_sol, 2)} SOL · ${hasWeek(w.history_from) ? `7 days ${signedUsd(s?.pnl_7d_usd)}` : "realized, not counting coins still held"}`}
+          />
         </div>
         <div className="card">
           <Stat label="Trades won" value={pctOf(s?.win_rate_30d)} unit={s?.win_rate_30d == null ? undefined : "%"} sub={s ? `${s.wins_30d} of ${s.closed_30d} closed trades` : "No closed trades yet"} />
@@ -243,6 +248,10 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <div>
             <p className="k">Found</p>
             <p className="mt-0.5 text-sm">{dt(w.first_seen_at)} · {w.discovered_via.replaceAll("_", " ")}</p>
+          </div>
+          <div>
+            <p className="k">Trades read since</p>
+            <p className="mt-0.5 text-sm">{w.history_from ? `${dt(w.history_from)}${s ? ` · ${s.swaps_total} swaps` : ""}` : "Not read yet"}</p>
           </div>
           <div>
             <p className="k">Last checked</p>

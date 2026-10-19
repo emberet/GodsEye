@@ -124,11 +124,11 @@ export function assignTier(i: TierInput): TierResult {
   if (p30 > 0 && s.closed_30d >= 1) {
     const best = i.closed.filter((c) => c.closedAt >= d30).sort((a, b) => posValue(b) - posValue(a))[0];
     if (s.best_trade_share !== null && s.best_trade_share >= 0.7 && s.closed_30d >= 2) {
-      const reason = `One trade made ${Math.round(s.best_trade_share * 100)}% of the 30-day profit (${posMoney(best)} on ${sym(best.mint)})`;
+      const reason = `One trade made ${Math.round(s.best_trade_share * 100)}% of its profit (${posMoney(best)} on ${sym(best.mint)})`;
       return { tier: "lucky_streak", reason, evidence: [{ kind: "concentrated_profit", detail: reason, mint: best.mint, signature: best.lastSellSignature, ts: best.closedAt }] };
     }
     if (s.closed_30d < i.cfg.minClosedForProven) {
-      const reason = `Up ${m30} but only ${s.closed_30d} closed trades in 30 days (${i.cfg.minClosedForProven} needed to call it skill)`;
+      const reason = `Up ${m30} but only ${s.closed_30d} closed trades seen so far (${i.cfg.minClosedForProven} needed to call it skill)`;
       return { tier: "lucky_streak", reason, evidence: [{ kind: "small_sample", detail: reason, ts: nowIso }] };
     }
   }
@@ -146,13 +146,13 @@ export function assignTier(i: TierInput): TierResult {
   if (p30 > 0 && p7 >= 0 && s.closed_30d >= i.cfg.minClosedForProven && (s.win_rate_30d ?? 0) >= 0.5 && (s.best_trade_share ?? 1) < 0.5) {
     return {
       tier: "proven",
-      reason: `${m30} over ${s.closed_30d} closed trades in 30 days, ${Math.round((s.win_rate_30d ?? 0) * 100)}% wins`,
+      reason: `${m30} over ${s.closed_30d} closed trades, ${Math.round((s.win_rate_30d ?? 0) * 100)}% wins`,
       evidence: [],
     };
   }
 
   // 6) Unrated
-  if (s.closed_30d < 3) return { tier: "unrated", reason: `Only ${s.closed_30d} closed trades in 30 days`, evidence: [] };
-  if (p30 <= 0) return { tier: "unrated", reason: `Not profitable: ${m30} over 30 days`, evidence: [] };
+  if (s.closed_30d < 3) return { tier: "unrated", reason: `Only ${s.closed_30d} closed trades seen so far`, evidence: [] };
+  if (p30 <= 0) return { tier: "unrated", reason: `Not profitable: ${m30} so far`, evidence: [] };
   return { tier: "unrated", reason: `Profitable (${m30}) but under 50% wins or uneven profit`, evidence: [] };
 }

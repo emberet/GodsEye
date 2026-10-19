@@ -22,7 +22,7 @@ export const LIKELY_EXCHANGE_GROUP_SIZE = 25;
 
 const WALLET_ROW_SQL = `
   SELECT w.address, w.tier, w.tier_reason, w.tier_changed_at, w.kind, w.ai_score, w.copy_weight, w.is_fresh, w.funder,
-         w.discovered_via, w.first_seen_at, w.chain_created_at, w.age_is_lower_bound, w.last_activity_at, w.last_analyzed_at,
+         w.discovered_via, w.first_seen_at, w.chain_created_at, w.age_is_lower_bound, w.last_activity_at, w.last_analyzed_at, w.history_from,
          s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d, s.swaps_30d,
          CASE WHEN w.funder IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM wallets w2 WHERE w2.funder = w.funder) END AS group_size,
          COALESCE((SELECT active FROM smart_wallets sw WHERE sw.address = w.address), 0) AS is_smart
@@ -232,7 +232,7 @@ const followBar = (d: DB): LearnedParam | null =>
 export function getLeaders(d: DB): LeadersData {
   const leaders = d
     .prepare(
-      `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at,
+      `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at, w.history_from,
               s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d,
               COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_sol,
               COALESCE((SELECT SUM(pnl_usd) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_usd,

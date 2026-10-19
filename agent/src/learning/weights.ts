@@ -52,7 +52,7 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number; minClos
   if (w.tier === "quitter") return { weight: 0, reason: "stopped trading" };
   if (w.tier === "lucky_streak") return { weight: 0, reason: "lucky streak: profit rests on too few trades to copy" };
   if (w.tier !== "proven" && w.closed30 < cfg.minClosed) {
-    return { weight: 0, reason: `only ${w.closed30} closed trades in 30 days (${cfg.minClosed} needed before GodsEye copies a wallet)` };
+    return { weight: 0, reason: `only ${w.closed30} closed trades seen so far (${cfg.minClosed} needed before GodsEye copies a wallet)` };
   }
   // The win-rate bar is learned from how following worked out (adaptive.ts), not fixed.
   if ((w.winRate30 ?? 0) < cfg.minWinRate) {

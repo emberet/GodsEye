@@ -9,7 +9,7 @@ import { Stat, Stats } from "@/components/stat";
 import { RugChecks } from "@/components/rug-checks";
 import { TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, pct, pnlClass, shortAddr, signedSol, signedUsd, solscanTx } from "@/lib/format";
+import { ago, dollars, pct, pnlClass, shortAddr, signedSol, signedUsd, solscanTx, weekLabel } from "@/lib/format";
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -76,7 +76,7 @@ export default function CopiesPage() {
                   <span className="font-mono">{shortAddr(l.address)}</span>
                   <TierBadge tier={l.tier} />
                 </p>
-                <p className="k mt-0.5">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`} · {signedUsd(l.pnl_7d_usd)} this week</p>
+                <p className="k mt-0.5">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`} · {signedUsd(l.pnl_7d_usd)} {weekLabel(l.history_from) === "7d" ? "this week" : weekLabel(l.history_from)}</p>
               </div>
               <div className="w-28 sm:w-40">
                 <div className="flex justify-between text-xs">

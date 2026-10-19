@@ -31,3 +31,19 @@ export const signedUsd = (n: number | null | undefined) => {
 };
 /** Plain dollars: $1,234 / $56.78. */
 export const dollars = (n: number | null | undefined) => (n === null || n === undefined ? "—" : signedUsd(Math.abs(n)).replace(/^[+−]/, ""));
+/**
+ * How much history a wallet's numbers really cover. GodsEye reads a wallet's latest transactions (then
+ * everything newer), so a busy trader's "30-day" figures may only reach back a day or two.
+ *   "30 days" · "since 17 Oct" · "last 6h"
+ */
+export const spanLabel = (from: string | null | undefined, now = Date.now()) => {
+  if (!from) return "30 days";
+  const ms = now - Date.parse(from);
+  if (ms >= 30 * 86_400_000) return "30 days";
+  if (ms >= 86_400_000) return `since ${new Date(from).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" })}`;
+  return `last ${Math.max(1, Math.round(ms / 3_600_000))}h`;
+};
+/** True when a wallet's history reaches back a full week, so its 7-day figure means 7 days. */
+export const hasWeek = (from: string | null | undefined, now = Date.now()) => !from || now - Date.parse(from) >= 7 * 86_400_000;
+/** Label for a wallet's 7-day profit: "7d", or the shorter span it actually covers. */
+export const weekLabel = (from: string | null | undefined, now = Date.now()) => (hasWeek(from, now) ? "7d" : spanLabel(from, now));

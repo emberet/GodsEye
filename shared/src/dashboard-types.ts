@@ -84,6 +84,8 @@ export interface WalletRow {
   chain_created_at: string | null;
   age_is_lower_bound: number;
   last_activity_at: string | null;
+  /** Where this wallet's stats start: the oldest transaction GodsEye read. Stats labelled "30 days" only cover from here. */
+  history_from: string | null;
   last_analyzed_at: string | null;
   pnl_7d_sol: number | null;
   pnl_30d_sol: number | null;
@@ -276,6 +278,8 @@ export interface Leader {
   copy_pnl_usd: number;
   copy_closed: number;
   last_activity_at: string | null;
+  /** Where this wallet's stats start: the oldest transaction GodsEye read. Stats labelled "30 days" only cover from here. */
+  history_from: string | null;
 }
 
 /** A threshold GodsEye learns from outcomes instead of having it fixed. */

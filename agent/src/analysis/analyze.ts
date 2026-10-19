@@ -191,10 +191,11 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
     db.prepare(
       `UPDATE wallets SET tier=?, tier_reason=?, tier_changed_at=CASE WHEN tier != ? THEN ? ELSE tier_changed_at END,
           kind=?, ai_score=?, kind_reasons=?, tx_per_hour=?, funder=?, chain_created_at=?, age_is_lower_bound=CASE WHEN ? THEN ? ELSE age_is_lower_bound END,
-          is_fresh=?, last_analyzed_at=?, last_activity_at=COALESCE(?, last_activity_at), last_signature=?, analyze_errors=0
+          is_fresh=?, last_analyzed_at=?, last_activity_at=COALESCE(?, last_activity_at), last_signature=?, analyze_errors=0,
+          history_from=CASE WHEN ? THEN ? ELSE COALESCE(history_from, ?) END
         WHERE address=?`,
     ).run(t.tier, t.reason, t.tier, nowIso(), c.kind, c.score, JSON.stringify(c.reasons), txPerHour, funder, createdAt, firstLook ? 1 : 0, lowerBound,
-      isFresh, nowIso(), stats.last_trade_at ?? h.activityAt, h.newestSignature, address);
+      isFresh, nowIso(), stats.last_trade_at ?? h.activityAt, h.newestSignature, firstLook ? 1 : 0, h.historyFrom ?? stats.first_trade_at, stats.first_trade_at, address);
     // "State" evidence (e.g. inactive, slipping) describes now, so it's replaced; event evidence (a specific trade) is kept.
     db.prepare(`DELETE FROM wallet_evidence WHERE wallet = ? AND kind IN (${STATE_EVIDENCE.map(() => "?").join(",")})`).run(address, ...STATE_EVIDENCE);
     const ev = db.prepare(

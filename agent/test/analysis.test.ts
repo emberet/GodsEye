@@ -235,3 +235,10 @@ test("tiers judge profit in USD and show dollars", () => {
   assert.equal(t.tier, "proven");
   assert.match(t.reason, /^\+\$\d/);
 });
+
+test("tier reasons don't claim 30 days: stats only cover the trades GodsEye has read", () => {
+  for (const t of [tierOf(trades(4, () => 0.5)), tierOf(trades(1, () => 0.5)), tierOf(trades(12, (i) => (i === 0 ? 10 : i % 2 ? -0.1 : 0.05))), tierOf(trades(14, (i) => (i % 4 === 0 ? -0.1 : 0.3)))]) {
+    assert.doesNotMatch(t.reason, /30 days|30-day/, t.reason);
+  }
+  assert.match(tierOf(trades(4, () => 0.5)).reason, /closed trades seen so far/);
+});

@@ -109,6 +109,8 @@ export interface WalletHistory {
   activityAt: string | null;
   /** How many signatures GodsEye read (swaps or not) between oldestSeenAt and now. */
   signaturesSeen: number;
+  /** Time of the oldest transaction whose swaps were read: the start of what this wallet's stats can cover. */
+  historyFrom: string | null;
 }
 
 /**
@@ -153,5 +155,6 @@ export async function readWalletHistory(wallet: string, opts: { sinceSignature: 
     funder,
     activityAt: t(sigs[0]),
     signaturesSeen: seen,
+    historyFrom: t(sigs.at(-1)),
   };
 }

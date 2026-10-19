@@ -5,7 +5,7 @@ import { COPYING_LINKS, SubNav } from "@/components/nav";
 import { Empty, Window } from "@/components/window";
 import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, shortAddr, signedSol, signedUsd } from "@/lib/format";
+import { ago, pnlClass, shortAddr, signedSol, signedUsd, weekLabel } from "@/lib/format";
 import type { LeadersData, SmartMoneyData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -106,7 +106,7 @@ export default function LeadersPage() {
 
       <Window title="Every wallet it considered" right={<span className="text-muted-foreground">{leaders.filter((l) => l.copy_weight > 0).length} copied</span>}>
         <p className="text-sm text-muted-foreground">
-          Its share of the copy budget{data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""} follows its profit in dollars over 7 and 30 days, scaled by how often it wins. A losing week drops it to zero at once;
+          Its share of the copy budget{data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""} follows its profit in dollars over 7 and 30 days (or as far back as GodsEye has its trades), scaled by how often it wins. A losing week drops it to zero at once;
           if copying it loses GodsEye money over 14 days, it&apos;s dropped.
         </p>
         <div className="mt-2">
@@ -128,7 +128,7 @@ export default function LeadersPage() {
                   <p className="text-lg font-extrabold num">{pc(l.win_rate_30d)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="k">Its week</p>
+                  <p className="k">{weekLabel(l.history_from) === "7d" ? "Its week" : `Its profit, ${weekLabel(l.history_from)}`}</p>
                   <p className={cn("text-lg font-extrabold num", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</p>
                 </div>
                 <div className="text-right" title={`${signedSol(l.copy_pnl_sol, 3)} SOL over ${l.copy_closed} copies`}>

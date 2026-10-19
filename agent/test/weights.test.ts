@@ -67,7 +67,7 @@ test("only wallets with a track record are copied: no lucky streaks, no thin his
   assert.equal(w.get("lucky")!.weight, 0);
   assert.match(w.get("lucky")!.reason, /lucky streak/);
   assert.equal(w.get("thin")!.weight, 0);
-  assert.match(w.get("thin")!.reason, /only 6 closed trades in 30 days \(10 needed/);
+  assert.match(w.get("thin")!.reason, /only 6 closed trades seen so far \(10 needed/);
   assert.ok(w.get("busy")!.weight > 0);
   assert.ok(w.get("proven")!.weight > 0);
 });
