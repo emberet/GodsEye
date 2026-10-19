@@ -47,7 +47,7 @@ export default function ProofPage() {
                 <span className="text-muted-foreground num">#{e.id}</span>
                 <Badge variant="outline">{e.kind.replace("_", " ")}</Badge>
                 <span className="text-muted-foreground">{dt(e.committed_at)}</span>
-                <code className="min-w-0 flex-1 truncate font-mono text-xs text-violet-deep">{e.hash}</code>
+                <code className="min-w-0 flex-1 truncate font-mono text-xs text-accent">{e.hash}</code>
                 <button
                   className="btn min-h-[36px] px-4"
                   onClick={(ev) => {
@@ -63,7 +63,7 @@ export default function ProofPage() {
                 <p className="text-muted-foreground">
                   prev_hash: <code className="break-all">{e.prev_hash}</code>
                 </p>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-2xl bg-panel p-3 font-mono text-ink">{e.payload}</pre>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-[12px] border-2 border-ink bg-panel p-3 font-mono text-foreground">{e.payload}</pre>
               </div>
             </details>
           ))}

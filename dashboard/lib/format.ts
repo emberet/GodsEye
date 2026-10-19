@@ -19,7 +19,7 @@ export const ago = (iso: string | null | undefined) => {
   if (s < 86400) return `${Math.round(s / 3600)}h ago`;
   return `${Math.round(s / 86400)}d ago`;
 };
-export const pnlClass = (n: number | null | undefined) => (n === null || n === undefined || n === 0 ? "text-muted-foreground" : n > 0 ? "text-ink" : "text-loss");
+export const pnlClass = (n: number | null | undefined) => (n === null || n === undefined || n === 0 ? "text-muted-foreground" : n > 0 ? "text-lime" : "text-loss");
 export const solscanTx = (sig: string) => `https://solscan.io/tx/${sig}`;
 export const solscanAccount = (a: string) => `https://solscan.io/account/${a}`;
 /** Signed dollars: +$1,234 / −$56.78 (cents shown under $100). */

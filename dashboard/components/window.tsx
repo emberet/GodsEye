@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 
-/** A card with a title row: the one container every page is built from. */
+/** An outlined card with a title row: the one container every page is built from. */
 export function Window({
   title,
   icon,
@@ -19,7 +19,7 @@ export function Window({
   return (
     <section className={cn("card flex min-w-0 flex-col", className)}>
       <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2">
-        <h2 className="flex min-w-0 items-center gap-2 text-[22px] font-medium tracking-[-0.02em]">
+        <h2 className="flex min-w-0 items-center gap-2.5 text-xl font-extrabold tracking-[-0.02em]">
           {icon && <span aria-hidden>{icon}</span>}
           <span className="min-w-0">{title}</span>
         </h2>
@@ -36,10 +36,10 @@ export function Empty({ img, title, children, className }: { img?: "radar" | "wa
     <div className={cn("flex items-center gap-3 py-2", className)}>
       {img && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={`/img/${img}.png`} alt="" width={112} height={112} className="h-24 w-24 shrink-0 object-contain sm:h-28 sm:w-28" />
+        <img src={`/img/${img}.png`} alt="" width={96} height={96} className="h-20 w-20 shrink-0 object-contain sm:h-24 sm:w-24" />
       )}
       <div className="min-w-0">
-        {title && <p className="text-2xl font-light tracking-[-0.03em] sm:text-[28px]">{title}</p>}
+        {title && <p className="text-xl font-extrabold tracking-[-0.02em] sm:text-2xl">{title}</p>}
         <p className="mt-1 max-w-md text-sm text-muted-foreground">{children}</p>
       </div>
     </div>

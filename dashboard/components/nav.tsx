@@ -4,12 +4,12 @@ import { usePathname } from "next/navigation";
 import { Activity, Copy, House, WalletCards } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/** Four sections; each one's sub-pages are linked from inside it. */
+/** Four sections, each with its own tile colour; sub-pages are linked from inside each. */
 export const NAV = [
-  { href: "/", label: "Home", icon: House, match: ["/"] },
-  { href: "/wallets", label: "Wallets", icon: WalletCards, match: ["/wallets", "/groups"] },
-  { href: "/copies", label: "Copying", icon: Copy, match: ["/copies", "/leaders", "/performance", "/proof"] },
-  { href: "/stream", label: "Live", icon: Activity, match: ["/stream"] },
+  { href: "/", label: "Home", icon: House, tile: "bg-sun", match: ["/"] },
+  { href: "/wallets", label: "Wallets", icon: WalletCards, tile: "bg-lime", match: ["/wallets", "/groups"] },
+  { href: "/copies", label: "Copying", icon: Copy, tile: "bg-lilac", match: ["/copies", "/leaders", "/performance", "/proof"] },
+  { href: "/stream", label: "Live", icon: Activity, tile: "bg-coral", match: ["/stream"] },
 ];
 
 function useActive() {
@@ -17,18 +17,20 @@ function useActive() {
   return (n: (typeof NAV)[number]) => (n.href === "/" ? path === "/" : n.match.some((m) => path.startsWith(m)));
 }
 
-/** Pill tabs, top right (tablet and up). */
+/** Tile tabs, top right (tablet and up). */
 export function Nav() {
   const isActive = useActive();
   return (
     <nav aria-label="Main" className="ml-auto hidden sm:block">
-      <ul className="flex gap-2">
+      <ul className="flex gap-2.5">
         {NAV.map((n) => {
           const on = isActive(n);
           return (
             <li key={n.href}>
-              <Link href={n.href} aria-current={on ? "page" : undefined} className={cn("pill min-h-[44px] bg-tab px-[18px]", on && "pill-on")}>
-                <n.icon size={16} strokeWidth={1.8} aria-hidden />
+              <Link href={n.href} aria-current={on ? "page" : undefined} className={cn("pill min-h-[48px] gap-2.5 pl-1.5 pr-4", on && "pill-on")}>
+                <span className={cn("dot h-9 w-9 rounded-[10px] border-2", n.tile)} aria-hidden>
+                  <n.icon size={17} strokeWidth={2.4} />
+                </span>
                 {n.label}
               </Link>
             </li>
@@ -39,23 +41,28 @@ export function Nav() {
   );
 }
 
-/** Dark pill bar pinned to the bottom on phones. */
+/** Phone tab bar: coloured icon tiles; the current one opens up with its name. */
 export function BottomNav() {
   const isActive = useActive();
   return (
     <nav aria-label="Main" className="fixed inset-x-3 bottom-3 z-40 sm:hidden">
-      <ul className="grid grid-cols-4 gap-1 rounded-full bg-frame p-1.5 shadow-lg">
+      <ul className="flex items-stretch gap-2 rounded-[20px] border-[3px] border-ink bg-card p-2 shadow-hard">
         {NAV.map((n) => {
           const on = isActive(n);
           return (
-            <li key={n.href}>
+            <li key={n.href} className={cn(on ? "flex-[1.6]" : "flex-1")}>
               <Link
                 href={n.href}
                 aria-current={on ? "page" : undefined}
-                className={cn("flex min-h-[48px] flex-col items-center justify-center gap-0.5 rounded-full text-[11px] font-medium", on ? "bg-white text-ink" : "text-[#F6F5F2]")}
+                className={cn(
+                  "flex h-[52px] items-center justify-center gap-2 rounded-[14px] border-[2.5px] border-ink text-ink shadow-hard-sm",
+                  n.tile,
+                  on ? "px-3" : "",
+                )}
+                aria-label={n.label}
               >
-                <n.icon size={17} strokeWidth={1.8} aria-hidden />
-                {n.label}
+                <n.icon size={20} strokeWidth={2.4} aria-hidden />
+                {on && <span className="text-sm font-extrabold">{n.label}</span>}
               </Link>
             </li>
           );
@@ -65,11 +72,11 @@ export function BottomNav() {
   );
 }
 
-/** Pill links between a section's pages. */
+/** Links between a section's pages. */
 export function SubNav({ links }: { links: { href: string; label: string }[] }) {
   const path = usePathname();
   return (
-    <nav aria-label="Section" className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+    <nav aria-label="Section" className="-mx-1 flex gap-2.5 overflow-x-auto px-1 pb-2 pt-0.5">
       {links.map((l) => (
         <Link key={l.href} href={l.href} aria-current={path === l.href ? "page" : undefined} className={cn("pill shrink-0", path === l.href && "pill-on")}>
           {l.label}

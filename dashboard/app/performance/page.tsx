@@ -52,11 +52,11 @@ export default function PerformancePage() {
               <span>worst {data!.drawdown.maxDrawdownPct.toFixed(1)}%</span>
               <span>−20%</span>
             </div>
-            <div className="relative mt-2 h-3 overflow-hidden rounded-full bg-chip" role="meter" aria-valuemin={-20} aria-valuemax={0} aria-valuenow={data!.currentDrawdownPct} aria-label="Current drop from the high">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-lilac" style={{ width: `${Math.min(100, (Math.abs(data!.drawdown.maxDrawdownPct) / 20) * 100)}%` }} />
-              <div className="absolute inset-y-0 left-0 rounded-full bg-violet" style={{ width: `${Math.min(100, (Math.abs(data!.currentDrawdownPct) / 20) * 100)}%` }} />
+            <div className="relative mt-2 h-3 overflow-hidden rounded-[6px] border-2 border-ink bg-chip" role="meter" aria-valuemin={-20} aria-valuemax={0} aria-valuenow={data!.currentDrawdownPct} aria-label="Current drop from the high">
+              <div className="absolute inset-y-0 left-0 bg-coral/50" style={{ width: `${Math.min(100, (Math.abs(data!.drawdown.maxDrawdownPct) / 20) * 100)}%` }} />
+              <div className="absolute inset-y-0 left-0 bg-coral" style={{ width: `${Math.min(100, (Math.abs(data!.currentDrawdownPct) / 20) * 100)}%` }} />
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">Dark purple is today&apos;s drop from the highest point; light purple is the worst it has been.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Bright is today&apos;s drop from the highest point; faded is the worst it has been.</p>
           </Window>
         </>
       )}

@@ -77,7 +77,7 @@ function WalletDatabase() {
       </PageHeader>
 
       <section className="flex flex-wrap items-center gap-x-7 gap-y-4">
-        <label className="flex min-h-[56px] flex-1 basis-[320px] items-center gap-2.5 rounded-full bg-white pl-5 pr-2 focus-within:ring-2 focus-within:ring-violet-deep">
+        <label className="flex min-h-[58px] flex-1 basis-[320px] items-center gap-2.5 rounded-[16px] border-[3px] border-ink bg-card pl-4 pr-2 shadow-hard focus-within:outline focus-within:outline-[3px] focus-within:outline-lime">
           <Search size={20} strokeWidth={1.8} className="shrink-0 text-muted-foreground" aria-hidden />
           <span className="sr-only">Search wallets</span>
           <input
@@ -91,11 +91,11 @@ function WalletDatabase() {
         <div className="flex gap-7 px-1">
           <div>
             <p className="k">Studied</p>
-            <p className="mt-0.5 text-[34px] font-light leading-none num">{s?.walletsTracked.toLocaleString("en-US") ?? "—"}</p>
+            <p className="mt-0.5 text-[34px] font-extrabold leading-none num">{s?.walletsTracked.toLocaleString("en-US") ?? "—"}</p>
           </div>
           <div>
             <p className="k">Seen live today</p>
-            <p className="mt-0.5 text-[34px] font-light leading-none num">{s?.stream.walletsSeen24h.toLocaleString("en-US") ?? "—"}</p>
+            <p className="mt-0.5 text-[34px] font-extrabold leading-none num">{s?.stream.walletsSeen24h.toLocaleString("en-US") ?? "—"}</p>
           </div>
         </div>
       </section>
@@ -106,7 +106,7 @@ function WalletDatabase() {
         </button>
         {TIERS.map((t) => (
           <button key={t} type="button" title={TIER_DESCRIPTIONS[t]} onClick={() => set({ tier: tier === t ? null : t })} aria-pressed={tier === t} className={cn("pill", tier === t && "pill-on")}>
-            {t === "proven" && <span className="h-2 w-2 rounded-full bg-violet" aria-hidden />}
+            {t === "proven" && <span className="h-2.5 w-2.5 rounded-full border-2 border-ink bg-lime" aria-hidden />}
             {TIER_LABELS[t]}
             {s && <span className="text-muted-foreground num">{s.tierCounts[t]}</span>}
           </button>
@@ -141,29 +141,29 @@ function WalletDatabase() {
           </div>
         )}
         {rows.map((w) => (
-          <Link key={w.address} href={`/wallets/${w.address}`} className="group flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[24px] bg-card px-4 py-4 transition-colors hover:bg-white sm:px-5">
+          <Link key={w.address} href={`/wallets/${w.address}`} className="group flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[18px] border-[3px] border-ink bg-card px-4 py-4 shadow-hard transition-transform hover:-translate-y-0.5 sm:px-5">
             <WalletDot address={w.address} tier={w.tier} />
             <div className="min-w-0 flex-1 basis-[260px]">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-[15px]" title={w.address}>{shortAddr(w.address)}</span>
                 <TierBadge tier={w.tier} />
                 {w.kind !== "unknown" && <KindBadge kind={w.kind} score={null} />}
-                {w.is_fresh === 1 && <span className="tag bg-lilac">New wallet</span>}
-                {w.is_smart === 1 && <span className="tag bg-white ring-1 ring-inset ring-lilac" title="GodsEye counts this wallet as smart money">Smart money</span>}
-                {w.copy_weight > 0 && <span className="tag bg-frame text-white">Copied</span>}
+                {w.is_fresh === 1 && <span className="tag bg-coral text-ink">New wallet</span>}
+                {w.is_smart === 1 && <span className="tag bg-sun text-ink" title="GodsEye counts this wallet as smart money">Smart money</span>}
+                {w.copy_weight > 0 && <span className="tag bg-cream text-ink">Copied</span>}
               </div>
               <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{w.last_analyzed_at ? w.tier_reason : "Queued for a full look."}</p>
             </div>
             <div className="ml-auto flex items-center gap-6 sm:gap-8">
               <div className="text-right">
                 <p className="k">Wins</p>
-                <p className="text-[22px] font-light num">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</p>
+                <p className="text-[22px] font-extrabold num">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</p>
               </div>
               <div className="w-[110px] text-right" title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>
                 <p className="k">30 days</p>
-                <p className={cn("text-[26px] font-light num", pnlClass(w.pnl_30d_usd))}>{signedUsd(w.pnl_30d_usd)}</p>
+                <p className={cn("text-[26px] font-extrabold num", pnlClass(w.pnl_30d_usd))}>{signedUsd(w.pnl_30d_usd)}</p>
               </div>
-              <span className="dot hidden bg-white transition-colors group-hover:bg-lilac sm:inline-flex" aria-hidden>
+              <span className="dot hidden bg-cream transition-colors group-hover:bg-lilac sm:inline-flex" aria-hidden>
                 <ChevronRight size={16} strokeWidth={1.8} />
               </span>
             </div>

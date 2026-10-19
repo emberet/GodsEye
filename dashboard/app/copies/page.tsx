@@ -13,7 +13,7 @@ import { ago, dollars, pct, pnlClass, shortAddr, signedSol, signedUsd, solscanTx
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<string, string> = { filled: "bg-lilac", failed: "bg-[#F1DCE3] text-loss", pending: "bg-frame text-white", skipped: "" };
+const STATUS: Record<string, string> = { filled: "bg-lime text-ink", failed: "bg-coral text-ink", pending: "bg-sun text-ink", skipped: "" };
 const STATUS_LABEL: Record<string, string> = { filled: "Done", failed: "Failed", pending: "Sending", skipped: "Skipped" };
 
 export default function CopiesPage() {
@@ -34,10 +34,10 @@ export default function CopiesPage() {
       </PageHeader>
 
       <Stats>
-        <Stat label="Profit from copying" value={signedUsd(s?.realizedPnlUsd ?? null)} valueClass={pnlClass(s?.realizedPnlUsd)} sub={s ? `${s.wins} won · ${s.losses} lost · today ${signedUsd(s.todayPnlUsd)}` : undefined} />
-        <Stat label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} not yet sold` : undefined} />
-        <Stat label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : undefined} />
-        <Stat label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub="Moves on its own as copies win or lose" />
+        <Stat tile="bg-lime" label="Profit from copying" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${s.wins} won · ${s.losses} lost · today ${signedUsd(s.todayPnlUsd)}` : undefined} />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} not yet sold` : undefined} />
+        <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : undefined} />
+        <Stat tile="bg-lilac" label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub="Moves on its own as copies win or lose" />
       </Stats>
 
       <TopAlert s={s} />
@@ -51,7 +51,7 @@ export default function CopiesPage() {
           )}
           {open.map((p) => (
             <div key={p.id} className="line">
-              <span className="dot bg-lilac font-semibold" aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
+              <span className="dot bg-lilac font-black" aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
                 <p className="k">
@@ -59,7 +59,7 @@ export default function CopiesPage() {
                 </p>
               </div>
               <div className="text-right">
-                <p className={cn("text-2xl font-light num", pnlClass(p.unrealized_pct))}>{pct(p.unrealized_pct ?? null, 1)}</p>
+                <p className={cn("text-2xl font-extrabold num", pnlClass(p.unrealized_pct))}>{pct(p.unrealized_pct ?? null, 1)}</p>
                 <p className="k num">{p.unrealized_usd != null ? signedUsd(p.unrealized_usd) : `${signedSol(p.unrealized_sol ?? null, 3)} SOL`}</p>
               </div>
             </div>
@@ -69,7 +69,7 @@ export default function CopiesPage() {
         <Window title="Who it copies" right={<Link href="/leaders" className="pill">Details</Link>}>
           {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
           {copying.slice(0, 6).map((l) => (
-            <Link key={l.address} href={`/wallets/${l.address}`} className="line transition-colors hover:text-violet-deep">
+            <Link key={l.address} href={`/wallets/${l.address}`} className="line transition-colors hover:text-accent">
               <WalletDot address={l.address} tier={l.tier} />
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2">
@@ -83,8 +83,8 @@ export default function CopiesPage() {
                   <span className="text-muted-foreground">Budget</span>
                   <span className="font-semibold num">{(l.copy_weight * 100).toFixed(0)}%</span>
                 </div>
-                <div className="mt-1.5 h-2 rounded-full bg-chip" aria-hidden>
-                  <div className="h-2 rounded-full bg-violet" style={{ width: `${Math.min(100, l.copy_weight * 100)}%` }} />
+                <div className="mt-1.5 h-3 overflow-hidden rounded-[6px] border-2 border-ink bg-chip" aria-hidden>
+                  <div className="h-full bg-lime" style={{ width: `${Math.min(100, l.copy_weight * 100)}%` }} />
                 </div>
               </div>
             </Link>
@@ -110,7 +110,7 @@ export default function CopiesPage() {
                 </span>
               </p>
               {c.signature ? (
-                <a href={solscanTx(c.signature)} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-violet-deep underline underline-offset-2">{ago(c.created_at)}</a>
+                <a href={solscanTx(c.signature)} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-accent underline underline-offset-2">{ago(c.created_at)}</a>
               ) : (
                 <span className="shrink-0 text-xs text-muted-foreground">{ago(c.created_at)}</span>
               )}
@@ -123,7 +123,7 @@ export default function CopiesPage() {
         {closed.length === 0 && <p className="py-3 text-sm text-muted-foreground">Nothing closed yet.</p>}
         {closed.slice(0, 12).map((p) => (
           <div key={p.id} className="line">
-            <span className={cn("dot font-semibold", (p.pnl_usd ?? p.pnl_sol ?? 0) >= 0 ? "bg-lilac" : "bg-chip")} aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
+            <span className={cn("dot font-semibold", (p.pnl_usd ?? p.pnl_sol ?? 0) >= 0 ? "bg-lime" : "bg-coral")} aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
             <div className="min-w-0 flex-1">
               <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
               <p className="k">
@@ -131,7 +131,7 @@ export default function CopiesPage() {
               </p>
             </div>
             <div className="text-right" title={`${signedSol(p.pnl_sol)} SOL`}>
-              <p className={cn("text-2xl font-light num", pnlClass(p.pnl_usd ?? p.pnl_sol))}>{p.pnl_usd != null ? signedUsd(p.pnl_usd) : `${signedSol(p.pnl_sol, 3)} SOL`}</p>
+              <p className={cn("text-2xl font-extrabold num", pnlClass(p.pnl_usd ?? p.pnl_sol))}>{p.pnl_usd != null ? signedUsd(p.pnl_usd) : `${signedSol(p.pnl_sol, 3)} SOL`}</p>
               <p className="k num">{pct(p.pnl_pct, 1)}</p>
             </div>
           </div>

@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
-import { AlertCircle, Check } from "lucide-react";
+import { AlertTriangle, Check, Copy } from "lucide-react";
 import type { Summary } from "@/lib/types";
 
-/** The single most important thing to know right now, as a dark pill. Nothing shows when all is well. */
+/** The single most important thing to know right now, as a yellow block. Nothing shows when all is well. */
 export function TopAlert({ s }: { s: Summary | null }) {
   const [copied, setCopied] = useState(false);
   if (!s) return null;
@@ -23,20 +23,15 @@ export function TopAlert({ s }: { s: Summary | null }) {
     setTimeout(() => setCopied(false), 1800);
   };
   return (
-    <section role="status" className="flex flex-wrap items-center gap-3 rounded-[28px] bg-frame py-2 pl-4 pr-2 text-[#F6F5F2] sm:rounded-full sm:pl-5">
-      <span className="dot h-[34px] w-[34px] bg-lilac text-ink" aria-hidden>
-        <AlertCircle size={16} strokeWidth={2} />
+    <section role="status" className="flex flex-wrap items-center gap-3 rounded-[18px] border-[3px] border-ink bg-sun py-2.5 pl-3 pr-2.5 text-ink shadow-hard">
+      <span className="dot h-10 w-10 bg-cream" aria-hidden>
+        <AlertTriangle size={18} strokeWidth={2.6} />
       </span>
-      <p className="min-w-0 flex-1 basis-60 py-1 text-[15px]">{msg}</p>
+      <p className="min-w-0 flex-1 basis-60 py-1 text-[15px] font-bold">{msg}</p>
       {empty && s.wallet.pubkey && (
-        <button type="button" onClick={copy} className="btn min-h-[44px]" title={s.wallet.pubkey}>
-          {copied ? (
-            <>
-              <Check size={16} aria-hidden /> Copied
-            </>
-          ) : (
-            "Copy wallet address"
-          )}
+        <button type="button" onClick={copy} className="btn" title={s.wallet.pubkey}>
+          {copied ? <Check size={16} strokeWidth={2.6} aria-hidden /> : <Copy size={16} strokeWidth={2.6} aria-hidden />}
+          {copied ? "Copied" : "Copy wallet address"}
         </button>
       )}
     </section>

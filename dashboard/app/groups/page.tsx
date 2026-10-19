@@ -33,20 +33,20 @@ export default function GroupsPage() {
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <Addr address={g.funder} />
               {g.funder_tier && <TierBadge tier={g.funder_tier} />}
-              {g.likely_exchange && <span className="tag bg-frame text-white">Probably an exchange</span>}
+              {g.likely_exchange && <span className="tag bg-sun text-ink">Probably an exchange</span>}
               <span className="tag">{g.ai} bots</span>
               <span className="tag">{g.human} humans</span>
               {g.unknown > 0 && <span className="tag text-muted-foreground">{g.unknown} undecided</span>}
-              {g.fresh > 0 && <span className="tag bg-lilac">{g.fresh} new</span>}
+              {g.fresh > 0 && <span className="tag bg-coral text-ink">{g.fresh} new</span>}
             </div>
             <div className="mt-2">
               {g.members.map((m) => (
-                <Link key={m.address} href={`/wallets/${m.address}`} className="line flex-wrap transition-colors hover:text-violet-deep">
+                <Link key={m.address} href={`/wallets/${m.address}`} className="line flex-wrap transition-colors hover:text-accent">
                   <WalletDot address={m.address} tier={m.tier} className="h-9 w-9 text-xs" />
                   <span className="font-mono">{shortAddr(m.address)}</span>
                   <TierBadge tier={m.tier} />
                   <KindBadge kind={m.kind} score={null} />
-                  <span className={cn("ml-auto text-lg font-light num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)}</span>
+                  <span className={cn("ml-auto text-lg font-extrabold num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)}</span>
                 </Link>
               ))}
             </div>

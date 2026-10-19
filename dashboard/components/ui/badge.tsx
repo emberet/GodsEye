@@ -6,9 +6,9 @@ const badgeVariants = cva("tag", {
   variants: {
     variant: {
       default: "",
-      win: "bg-lilac text-ink",
-      loss: "bg-[#F1DCE3] text-loss",
-      amber: "bg-frame text-white",
+      win: "bg-lime text-ink",
+      loss: "bg-coral text-ink",
+      amber: "bg-sun text-ink",
       outline: "bg-transparent text-muted-foreground ring-1 ring-inset ring-chip",
     },
   },

@@ -41,7 +41,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         <div className="card">
           <Empty img="radar" title="Not studied yet">
             {error}{" "}
-            <a className="text-violet-deep underline underline-offset-2" href={solscanAccount(params.address)} target="_blank" rel="noreferrer">
+            <a className="text-accent underline underline-offset-2" href={solscanAccount(params.address)} target="_blank" rel="noreferrer">
               View it on Solscan
             </a>
           </Empty>
@@ -58,7 +58,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
   return (
     <>
       <section className="flex flex-wrap items-center gap-4">
-        <Link href="/wallets" className="dot bg-white hover:bg-lilac" aria-label="All wallets">
+        <Link href="/wallets" className="dot bg-cream shadow-hard-sm" aria-label="All wallets">
           <ChevronLeft size={18} strokeWidth={1.8} aria-hidden />
         </Link>
         <WalletDot address={w.address} tier={w.tier} className="h-16 w-16 text-xl sm:h-[72px] sm:w-[72px]" />
@@ -67,8 +67,8 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <div className="mt-2 flex flex-wrap gap-2">
             <TierBadge tier={w.tier} />
             <KindBadge kind={w.kind} score={null} />
-            {w.is_fresh === 1 && <span className="tag bg-lilac">New wallet</span>}
-            {w.is_smart === 1 && <span className="tag bg-frame text-white">Smart money</span>}
+            {w.is_fresh === 1 && <span className="tag bg-coral text-ink">New wallet</span>}
+            {w.is_smart === 1 && <span className="tag bg-sun text-ink">Smart money</span>}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -79,15 +79,15 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3 rounded-[28px] bg-frame py-2 pl-4 pr-2 text-[#F6F5F2] sm:rounded-full sm:pl-5">
-        <span className={cn("dot h-[34px] w-[34px] text-ink", copied ? "bg-lilac" : "bg-[#F6F5F2]")} aria-hidden>
+      <section className={cn("flex flex-wrap items-center gap-3 rounded-[18px] border-[3px] border-ink py-2.5 pl-3 pr-2.5 text-ink shadow-hard", copied ? "bg-lime" : "bg-card text-foreground")}>
+        <span className="dot h-10 w-10 bg-cream" aria-hidden>
           {copied ? <Check size={15} strokeWidth={2.4} /> : <Minus size={15} strokeWidth={2.4} />}
         </span>
-        <p className="min-w-0 flex-1 basis-60 py-1.5 text-[15px]">
+        <p className="min-w-0 flex-1 basis-60 py-1.5 text-[15px] font-bold">
           {copied ? "GodsEye copies this wallet. " : "GodsEye doesn't copy this wallet. "}
           {w.tier_reason ?? "It's queued for a full look."}
         </p>
-        {copied && <span className="tag min-h-[44px] bg-white px-5 text-sm">{(w.copy_weight * 100).toFixed(0)}% of copy budget</span>}
+        {copied && <span className="tag min-h-[44px] bg-cream px-4 text-sm text-ink shadow-hard-sm">{(w.copy_weight * 100).toFixed(0)}% of copy budget</span>}
       </section>
 
       <section className="grid gap-5 sm:grid-cols-3">
@@ -123,7 +123,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
                     {e.signature && (
                       <>
                         {" · "}
-                        <a href={solscanTx(e.signature)} target="_blank" rel="noreferrer" className="text-violet-deep underline underline-offset-2">see the trade</a>
+                        <a href={solscanTx(e.signature)} target="_blank" rel="noreferrer" className="text-accent underline underline-offset-2">see the trade</a>
                       </>
                     )}
                   </span>
@@ -140,7 +140,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <div className="mt-2">
             {data.kindReasons.map((r, i) => (
               <div key={i} className="line">
-                <span className={cn("dot h-8 w-8 text-ink", r.points > 0 ? "bg-lilac" : r.points < 0 ? "bg-white" : "bg-chip")} aria-hidden>
+                <span className={cn("dot h-8 w-8 text-ink", r.points > 0 ? "bg-lilac" : r.points < 0 ? "bg-cream" : "bg-chip text-foreground")} aria-hidden>
                   {r.points > 0 ? <Plus size={14} strokeWidth={2.4} /> : r.points < 0 ? <Minus size={14} strokeWidth={2.4} /> : "·"}
                 </span>
                 <p className="min-w-0 flex-1 text-sm">{r.reason}</p>
@@ -158,7 +158,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         {data.swaps.length === 0 && <p className="py-3 text-sm text-muted-foreground">No memecoin trades paid in SOL, USDC or USDT seen yet.</p>}
         {swaps.map((x) => (
           <div key={x.id} className="line flex-wrap sm:flex-nowrap">
-            <span className={cn("tag w-[70px] justify-center", x.side === "buy" ? "bg-lilac" : "")}>{x.side === "buy" ? "Bought" : "Sold"}</span>
+            <span className={cn("tag w-[70px] justify-center", x.side === "buy" ? "bg-lime text-ink" : "bg-coral text-ink")}>{x.side === "buy" ? "Bought" : "Sold"}</span>
             <p className="min-w-0 flex-1 font-semibold">
               {x.symbol ?? shortAddr(x.mint)}
               <span className="ml-2 text-xs font-normal text-muted-foreground">
@@ -167,8 +167,8 @@ export default function WalletPage({ params }: { params: { address: string } }) 
                 {x.venue && <> · {x.venue}</>}
               </span>
             </p>
-            <p className="text-xl font-light num">{dollars(x.usd_amount)}</p>
-            <a href={solscanTx(x.signature)} target="_blank" rel="noreferrer" className="w-16 text-right text-xs text-muted-foreground hover:text-violet-deep" title={dt(x.ts)}>
+            <p className="text-xl font-extrabold num">{dollars(x.usd_amount)}</p>
+            <a href={solscanTx(x.signature)} target="_blank" rel="noreferrer" className="w-16 text-right text-xs text-muted-foreground hover:text-accent" title={dt(x.ts)}>
               {ago(x.ts)}
             </a>
           </div>
@@ -176,7 +176,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
       </Window>
 
       {(copied || data.weightHistory.length > 0 || data.copies.length > 0) && (
-        <Window title="GodsEye and this wallet" right={<span className={cn("text-xl font-light num", pnlClass(data.copyPnlUsd))}>{signedUsd(data.copyPnlUsd)}</span>}>
+        <Window title="GodsEye and this wallet" right={<span className={cn("text-xl font-extrabold num", pnlClass(data.copyPnlUsd))}>{signedUsd(data.copyPnlUsd)}</span>}>
           <p className="text-sm text-muted-foreground">
             Result of copying it: {signedUsd(data.copyPnlUsd)} ({signedSol(data.copyPnlSol, 3)} SOL) over {data.copyClosed} closed trade{data.copyClosed === 1 ? "" : "s"}.
           </p>
@@ -187,7 +187,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
               {data.weightHistory.slice(0, 8).map((h) => (
                 <div key={h.id} className="line text-sm">
                   <span className="num">
-                    {(h.old_weight * 100).toFixed(0)}% → <b className={h.new_weight > h.old_weight ? "text-violet-deep" : "text-loss"}>{(h.new_weight * 100).toFixed(0)}%</b>
+                    {(h.old_weight * 100).toFixed(0)}% → <b className={h.new_weight > h.old_weight ? "text-accent" : "text-loss"}>{(h.new_weight * 100).toFixed(0)}%</b>
                   </span>
                   <span className="min-w-0 flex-1 truncate text-muted-foreground" title={h.reason}>{h.reason}</span>
                   <span className="shrink-0 text-xs text-muted-foreground">{ago(h.ts)}</span>
@@ -199,7 +199,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
               {data.copies.length === 0 && <p className="py-2 text-sm text-muted-foreground">None yet.</p>}
               {data.copies.slice(0, 8).map((c) => (
                 <div key={c.id} className="line text-sm">
-                  <span className={cn("tag", c.status === "filled" ? "bg-lilac" : c.status === "failed" ? "bg-[#F1DCE3] text-loss" : "")}>{c.status}</span>
+                  <span className={cn("tag", c.status === "filled" ? "bg-lime text-ink" : c.status === "failed" ? "bg-coral text-ink" : "")}>{c.status}</span>
                   <span className="min-w-0 flex-1 truncate">
                     {c.side} {c.symbol}
                     {c.reason && <span className="text-muted-foreground"> · {c.reason}</span>}
@@ -216,7 +216,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         <Window title="Wallets with the same funder" right={<span className="text-muted-foreground">{data.group.length + 1} wallets</span>}>
           <div className="flex flex-wrap gap-2">
             {data.group.map((g) => (
-              <Link key={g.address} href={`/wallets/${g.address}`} className="pill gap-2 bg-white pl-1.5 hover:bg-lilac">
+              <Link key={g.address} href={`/wallets/${g.address}`} className="pill gap-2 pl-1.5">
                 <WalletDot address={g.address} tier={g.tier} className="h-8 w-8 text-[11px]" />
                 <span className="font-mono">{shortAddr(g.address)}</span>
                 <TierBadge tier={g.tier} />

@@ -2,26 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/* GodsEye — soft grey panels inside a dark frame, on lilac, with one purple accent */
+/* GodsEye — dark neo-brutalism: chunky outlined tiles with hard offset shadows */
 @layer base {
   :root {
-    --background: 40 11% 91%; /* panel #ECEAE5 */
-    --foreground: 240 5% 12%; /* ink #1E1E21 */
-    --card: 45 12% 96%; /* #F6F5F2 */
-    --muted: 42 10% 86%; /* chip #E2DFD8 */
-    --muted-foreground: 250 3% 43%; /* #6B6A70 */
-    --border: 42 10% 86%;
-    --primary: 255 100% 69%; /* violet #8B63FF */
-    --primary-foreground: 0 0% 100%;
-    color-scheme: light;
+    --background: 240 8% 10%; /* panel #17171B */
+    --foreground: 48 60% 94%; /* cream-white text */
+    --card: 240 8% 15%; /* #24242B */
+    --muted: 240 8% 22%; /* chip #34343D */
+    --muted-foreground: 250 8% 70%;
+    --border: 240 4% 4%;
+    --primary: 68 100% 46%; /* lime */
+    --primary-foreground: 240 4% 4%;
+    color-scheme: dark;
   }
   * {
     @apply border-border;
   }
   html,
   body {
-    @apply font-sans text-foreground;
-    background: #c9b8ff;
+    @apply bg-panel font-sans text-foreground;
+  }
+  body {
+    background-image: radial-gradient(#2a2a31 1px, transparent 1px);
+    background-size: 22px 22px;
   }
   .num,
   td,
@@ -29,8 +32,8 @@
     font-variant-numeric: tabular-nums;
   }
   ::selection {
-    background: #c9b8ff;
-    color: #1e1e21;
+    background: #d4ec00;
+    color: #0b0b0c;
   }
   a,
   button,
@@ -40,60 +43,67 @@
     -webkit-tap-highlight-color: transparent;
   }
   :focus-visible {
-    outline: 2px solid #6a3ff5;
+    outline: 3px solid #d4ec00;
     outline-offset: 2px;
+  }
+  select option {
+    background: #24242b;
+    color: #fffbe6;
   }
 }
 
 @layer components {
-  /* A content card: pale, no border, big radius. */
+  /* A card: outlined, hard shadow. */
   .card {
-    @apply rounded-[28px] bg-card p-5 sm:p-6;
+    @apply rounded-[22px] border-[3px] border-ink bg-card p-5 shadow-hard sm:p-6;
   }
-  /* Small label above a number. */
   .k {
-    @apply text-xs font-medium text-muted-foreground;
+    @apply text-xs font-semibold text-muted-foreground;
   }
-  /* Big light number, with an optional small unit beside it. */
   .big {
-    @apply text-[34px] font-light leading-none tracking-[-0.03em] sm:text-[40px];
+    @apply text-[32px] font-extrabold leading-none tracking-[-0.03em] sm:text-[38px];
   }
   .unit {
-    @apply ml-1 text-sm font-medium tracking-normal text-muted-foreground;
+    @apply ml-1 text-sm font-bold tracking-normal opacity-70;
   }
+  /* Buttons and filter chips: pressable outlined blocks. */
   .pill {
-    @apply inline-flex min-h-[40px] items-center gap-2 rounded-full bg-chip px-4 text-sm font-medium text-[#3A3A40] transition-colors hover:bg-white;
+    @apply inline-flex min-h-[42px] items-center gap-2 rounded-[14px] border-[2.5px] border-ink bg-chip px-4 text-sm font-bold text-foreground shadow-hard-sm transition-[transform,box-shadow,background-color] hover:-translate-y-px active:translate-x-[2px] active:translate-y-[2px] active:shadow-none;
   }
   .pill-on {
-    @apply bg-white text-ink;
+    @apply bg-cream text-ink;
   }
   .tag {
-    @apply inline-flex min-h-[24px] items-center gap-1 whitespace-nowrap rounded-full bg-chip px-2.5 text-xs font-semibold text-[#2E2E33];
+    @apply inline-flex min-h-[24px] items-center gap-1 whitespace-nowrap rounded-[9px] border-2 border-ink bg-chip px-2 text-xs font-bold text-foreground;
   }
   .btn {
-    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-ink transition-colors hover:bg-lilac disabled:pointer-events-none disabled:opacity-40;
+    @apply inline-flex min-h-[46px] items-center justify-center gap-2 rounded-[14px] border-[3px] border-ink bg-cream px-5 text-sm font-extrabold text-ink shadow-[4px_4px_0_#0B0B0C] transition-[transform,box-shadow] hover:-translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none disabled:pointer-events-none disabled:opacity-40;
   }
   .btn-dark {
-    @apply bg-frame text-white hover:bg-ink;
+    @apply bg-lime;
   }
   .field {
-    @apply min-h-[44px] rounded-full border-0 bg-white px-4 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-violet-deep;
+    @apply min-h-[46px] rounded-[14px] border-[3px] border-ink bg-card px-4 text-sm text-foreground outline-none placeholder:text-muted-foreground;
   }
+  /* Small square tile: avatars and icon buttons. */
   .dot {
-    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full;
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] border-[2.5px] border-ink text-ink;
   }
-  /* A soft row inside a card. */
+  /* A coloured stat tile. */
+  .tile {
+    @apply rounded-[18px] border-[3px] border-ink p-4 text-ink shadow-hard sm:p-5;
+  }
   .line {
-    @apply flex items-center gap-3 border-t border-chip py-3 first:border-t-0;
+    @apply flex items-center gap-3 border-t-2 border-ink/70 py-3 first:border-t-0;
   }
 }
 
-/* Recharts on the light theme */
+/* Recharts on the dark theme */
 .recharts-cartesian-grid line {
-  stroke: #e2dfd8;
+  stroke: #34343d;
 }
 .recharts-text {
-  fill: #6b6a70;
+  fill: #b3afc0;
   font-family: var(--font-sans);
   font-size: 11px;
 }

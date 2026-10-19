@@ -34,35 +34,32 @@ export default function StreamPage() {
   return (
     <>
       <header>
-        <h1 className="text-3xl font-medium tracking-[-0.03em] sm:text-[34px]">Live</h1>
+        <h1 className="text-3xl font-black tracking-[-0.03em] sm:text-[38px]">Live</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Every memecoin trade on Solana, read as it happens.</p>
       </header>
 
-      <div
-        aria-hidden
-        className="-mx-4 -my-2 h-[120px] bg-[url(/img/waves.jpg)] bg-cover bg-[center_46%] bg-no-repeat mix-blend-multiply [mask-image:linear-gradient(to_bottom,transparent,#000_22%,#000_78%,transparent)] sm:-mx-7 sm:h-[170px]"
-      />
 
       {st && !st.enabled && (
-        <section role="status" className="rounded-[28px] bg-frame px-5 py-4 text-sm text-[#F6F5F2]">
+        <section role="status" className="rounded-[18px] border-[3px] border-ink bg-sun px-5 py-4 text-sm font-bold text-ink shadow-hard">
           The live stream is off. Add GRPC_URL and GRPC_TOKEN to .env and restart GodsEye. Until then it checks the busiest pools every 30 minutes.
         </section>
       )}
 
-      <section className="grid grid-cols-2 gap-x-4 gap-y-5 px-1 lg:grid-cols-3">
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         <Stat
+          tile="bg-lime"
           label="Stream"
           value={
             <span className="flex items-center gap-3">
-              <span className={cn("h-3 w-3 shrink-0 rounded-full", connected ? "animate-pulsedot bg-violet shadow-[0_0_0_6px_rgba(139,99,255,.2)]" : "bg-loss")} aria-hidden />
+              <span className={cn("h-4 w-4 shrink-0 rounded-full border-[3px] border-ink", connected ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
               {st?.enabled ? (connected ? "Connected" : st.status ?? "Starting") : "Off"}
             </span>
           }
           sub={st?.lastAt ? `last trade ${ago(st.lastAt)}` : undefined}
           className="col-span-2 lg:col-span-1"
         />
-        <Stat label="Memecoin trades" value={st?.swapsPerSec ?? "—"} unit="per second" sub={st?.txPerSec != null ? `${st.txPerSec} exchange transactions a second` : undefined} />
-        <Stat label="Wallets seen today" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub={st ? `${st.walletsSeenTotal.toLocaleString("en-US")} in the last 30 days` : undefined} />
+        <Stat tile="bg-lilac" label="Memecoin trades" value={st?.swapsPerSec ?? "—"} unit="per second" sub={st?.txPerSec != null ? `${st.txPerSec} exchange transactions a second` : undefined} />
+        <Stat tile="bg-sun" label="Wallets seen today" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub={st ? `${st.walletsSeenTotal.toLocaleString("en-US")} in the last 30 days` : undefined} />
       </section>
 
       <Window
@@ -71,7 +68,7 @@ export default function StreamPage() {
           <>
             <div className="flex gap-1.5" role="group" aria-label="Who">
               {KINDS.map((k) => (
-                <button key={k.v} type="button" onClick={() => setKind(k.v)} aria-pressed={kind === k.v} className={cn("pill", kind === k.v ? "bg-frame text-white hover:bg-frame" : "")}>
+                <button key={k.v} type="button" onClick={() => setKind(k.v)} aria-pressed={kind === k.v} className={cn("pill", kind === k.v && "pill-on")}>
                   {k.label}
                 </button>
               ))}
@@ -95,7 +92,7 @@ export default function StreamPage() {
             const status = w.tier ? null : w.promoted ? "Checking now" : "Not checked";
             const row = (
               <>
-                <span className="w-7 shrink-0 text-xl font-light text-muted-foreground num">{i + 1}</span>
+                <span className="w-7 shrink-0 text-xl font-extrabold text-muted-foreground num">{i + 1}</span>
                 <div className="min-w-0 flex-1">
                   <span className="font-mono" title={w.address}>{shortAddr(w.address)}</span>
                   <p className="k mt-0.5">
@@ -103,11 +100,11 @@ export default function StreamPage() {
                   </p>
                 </div>
                 {w.tier ? <TierBadge tier={w.tier} /> : <span className={cn("tag", w.promoted && "bg-lilac")}>{status}</span>}
-                <p className={cn("w-[110px] text-right text-2xl font-light num", pnlClass(w.live_pnl_usd))} title={`${signedSol(w.live_pnl_sol, 3)} SOL`}>{signedUsd(w.live_pnl_usd)}</p>
+                <p className={cn("w-[110px] text-right text-2xl font-extrabold num", pnlClass(w.live_pnl_usd))} title={`${signedSol(w.live_pnl_sol, 3)} SOL`}>{signedUsd(w.live_pnl_usd)}</p>
               </>
             );
             return w.tier ? (
-              <Link key={w.address} href={`/wallets/${w.address}`} className="line transition-colors hover:text-violet-deep">{row}</Link>
+              <Link key={w.address} href={`/wallets/${w.address}`} className="line transition-colors hover:text-accent">{row}</Link>
             ) : (
               <div key={w.address} className="line">{row}</div>
             );
