@@ -6,11 +6,14 @@ import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePoll } from "@/lib/use-poll";
 import { ago, dt, pnlClass, signedSol, signedUsd } from "@/lib/format";
-import type { LeadersData } from "@/lib/types";
+import type { LeadersData, SmartMoneyData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function LeadersPage() {
   const { data } = usePoll<LeadersData>("/api/leaders", 30_000);
+  const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 30_000);
+  const score = (kind: "accumulate" | "exit", h: "1h" | "6h" | "24h") => smart?.scorecard.find((x) => x.kind === kind && x.horizon === h);
+  const measuredWallets = (smart?.wallets ?? []).filter((w) => w.lead_n > 0).slice(0, 12);
   const leaders = data?.leaders ?? [];
   return (
     <>
@@ -47,6 +50,56 @@ export default function LeadersPage() {
             {(data?.followBarHistory ?? []).slice(0, 6).map((h) => (
               <p key={h.id} className="text-muted-foreground">
                 <span className="num">{dt(h.ts)}</span> {Math.round(h.old_value * 100)}% → <span className={h.new_value > h.old_value ? "text-amber" : "text-win"}>{Math.round(h.new_value * 100)}%</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      </Window>
+
+      <Window title="What GodsEye has learned from smart money" className="mb-3">
+        <div className="grid gap-px bg-border sm:grid-cols-2">
+          <div className="bg-card p-3 text-xs">
+            <p className="mb-2 text-muted-foreground">
+              When 3+ smart wallets buy (or dump) the same token within an hour, did the price follow? ({smart?.activeWallets ?? "—"} smart wallets followed
+              {smart?.droppedWallets ? `, ${smart.droppedWallets} dropped for buying tops` : ""})
+            </p>
+            <table className="w-full num">
+              <thead>
+                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <th className="font-normal">Signal</th>
+                  <th className="text-right font-normal">1h</th>
+                  <th className="text-right font-normal">6h</th>
+                  <th className="text-right font-normal">24h</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(["accumulate", "exit"] as const).map((k) => (
+                  <tr key={k}>
+                    <td className={k === "accumulate" ? "text-win" : "text-loss"}>{k === "accumulate" ? "Buying → went up" : "Dumping → went down"}</td>
+                    {(["1h", "6h", "24h"] as const).map((h) => {
+                      const sc = score(k, h);
+                      return (
+                        <td key={h} className="text-right" title={sc ? `${sc.measured}/${sc.signals} measured, median ${sc.median_ret?.toFixed(0) ?? "—"}%` : ""}>
+                          {sc?.hit_rate == null ? "—" : `${Math.round(sc.hit_rate * 100)}%`} <span className="text-muted-foreground">({sc?.measured ?? 0})</span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="bg-card p-3 text-xs">
+            <p className="mb-2 text-muted-foreground">Smart wallets: did the price go up after they bought? (lead score; scales how much GodsEye copies them)</p>
+            {measuredWallets.length === 0 && <p className="text-muted-foreground">No buys measured yet (each is checked 1, 6 and 24 hours later).</p>}
+            {measuredWallets.map((w) => (
+              <p key={w.address} className={cn("flex items-center justify-between gap-2", !w.active && "opacity-50")}>
+                <Addr address={w.address} internal={w.tier !== null} />
+                <span className="num">
+                  {w.lead_hit_rate == null ? "—" : `${Math.round(w.lead_hit_rate * 100)}% up`} ·{" "}
+                  <span className={pnlClass(w.lead_median_6h)}>median {w.lead_median_6h == null ? "—" : `${w.lead_median_6h >= 0 ? "+" : ""}${Math.round(w.lead_median_6h)}%`}</span>{" "}
+                  <span className="text-muted-foreground">({w.lead_n})</span>
+                </span>
               </p>
             ))}
           </div>

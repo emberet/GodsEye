@@ -13,13 +13,13 @@
  * SOL to a wallet GodsEye has never seen, that wallet is added too
  * ("funded_by_tracked") — the classic move of a trader starting fresh.
  */
-import { type DB, NON_MEMECOIN_SYMBOLS, nowIso, setMeta } from "@godseye/shared";
+import { type DB, isNonMemecoinSymbol, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say } from "../log";
 import { fetchPoolTrades, fetchTopPools, fetchTrendingPools, type PoolInfo } from "../market/geckoterminal";
 
 const SOL_MINT = "So11111111111111111111111111111111111111112";
-const isMajor = (symbol: string) => NON_MEMECOIN_SYMBOLS.has(symbol.toUpperCase());
+const isMajor = (symbol: string) => isNonMemecoinSymbol(symbol);
 
 /** "sol" for memecoin/SOL, "meme" for memecoin/memecoin, null for anything else. */
 export function memecoinPoolKind(p: Pick<PoolInfo, "symbol" | "quoteSymbol" | "quoteMint">): "sol" | "meme" | null {

@@ -61,12 +61,25 @@ export default function WalletPage({ params }: { params: { address: string } }) 
             <TierBadge tier={w.tier} className="text-sm" />
             <KindBadge kind={w.kind} score={w.ai_score} className="text-sm" />
             {w.is_fresh === 1 && <span className="border border-win/40 px-1.5 py-0.5 text-[11px] font-bold uppercase text-win">fresh wallet</span>}
+            {w.is_smart === 1 && <span className="border border-amber/60 bg-amber/10 px-1.5 py-0.5 text-[11px] font-bold uppercase text-amber">smart money</span>}
             {w.copy_weight > 0 && <span className="border border-win/60 bg-win/10 px-1.5 py-0.5 text-[11px] font-bold uppercase text-win">GodsEye copies this · {(w.copy_weight * 100).toFixed(0)}%</span>}
             <a href={solscanAccount(w.address)} target="_blank" rel="noreferrer" className="ml-auto text-xs text-muted-foreground underline">
               Solscan ↗
             </a>
           </div>
           <p className="text-sm">{w.tier_reason ?? "Queued for analysis."}</p>
+          {data.smart && (
+            <p className={cn("text-xs", data.smart.active ? "text-amber" : "text-muted-foreground")}>
+              {data.smart.active ? "Smart money: " : "Not smart money: "}
+              {data.smart.reason}
+              {data.smart.lead_n > 0 && (
+                <span className="text-muted-foreground">
+                  {" "}· its buys were up 6h later {data.smart.lead_hit_rate == null ? "—" : `${Math.round(data.smart.lead_hit_rate * 100)}%`} of the time (median{" "}
+                  {data.smart.lead_median_6h == null ? "—" : `${data.smart.lead_median_6h >= 0 ? "+" : ""}${Math.round(data.smart.lead_median_6h)}%`}, {data.smart.lead_n} measured)
+                </span>
+              )}
+            </p>
+          )}
           <p className="text-[11px] text-muted-foreground">{TIER_DESCRIPTIONS[w.tier]}</p>
           <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
             <span>

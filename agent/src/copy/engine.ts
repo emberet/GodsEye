@@ -20,7 +20,7 @@
  * Every decision is written to the proof ledger before it's executed.
  */
 import fs from "node:fs";
-import { commitProof, dataPath, type DB, getMeta, NON_MEMECOIN_MINTS, NON_MEMECOIN_SYMBOLS, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
+import { commitProof, dataPath, type DB, getMeta, isNonMemecoinSymbol, NON_MEMECOIN_MINTS, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { fmtPct, fmtSol, say, short } from "../log";
 import type { ParsedSwap } from "../chain/parse";
@@ -123,7 +123,7 @@ export class CopyEngine {
   /** Why this token isn't a memecoin, or null if it is one (as far as names and known addresses tell). */
   private notMemecoin(mint: string, symbol: string): string | null {
     if (NON_MEMECOIN_MINTS.has(mint)) return `${symbol} isn't a memecoin`;
-    if (NON_MEMECOIN_SYMBOLS.has(symbol.replace(/^\$/, "").toUpperCase())) return `${symbol} isn't a memecoin (bridged major / staked SOL / stablecoin)`;
+    if (isNonMemecoinSymbol(symbol)) return `${symbol} isn't a memecoin (bridged major / tokenized stock / staked SOL / stablecoin)`;
     return null;
   }
 

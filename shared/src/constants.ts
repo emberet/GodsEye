@@ -41,6 +41,15 @@ export const NON_MEMECOIN_MINTS = new Set([
   "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4", // JLP
 ]);
 
+/**
+ * True if a token's symbol says it isn't a memecoin: listed majors/stablecoins/bridged tokens,
+ * or a tokenized stock (xStocks style: COINx, SPYx, NVDAx…).
+ */
+export function isNonMemecoinSymbol(symbol: string): boolean {
+  const s = symbol.replace(/^\$/, "");
+  return NON_MEMECOIN_SYMBOLS.has(s.toUpperCase()) || /^[A-Z]{1,5}x$/.test(s);
+}
+
 /** Symbols of non-memecoins: a safety net for tokens missing from NON_MEMECOIN_MINTS (also used to pick discovery pools). */
 export const NON_MEMECOIN_SYMBOLS = new Set([
   "SOL", "WSOL", "USDC", "USDT", "USDS", "USD1", "PYUSD", "USDG", "FDUSD", "EURC", "USDE", "SUSDE",
@@ -50,7 +59,7 @@ export const NON_MEMECOIN_SYMBOLS = new Set([
   // bridged / wrapped majors from other chains
   "ZEC", "ENA", "STRK", "NEAR", "WNEAR", "SUI", "APT", "BNB", "WBNB", "AVAX", "WAVAX", "LINK", "UNI", "AAVE",
   "ARB", "OP", "TON", "TRX", "XRP", "ADA", "DOT", "LTC", "BCH", "ETC", "XLM", "HBAR", "ATOM", "TIA", "SEI",
-  "INJ", "FIL", "ICP", "KAS", "HYPE", "WHYPE", "POL", "MATIC", "ONDO", "WLD", "LDO", "CRV", "MKR", "SKY", "ENS", "GRT",
+  "INJ", "FIL", "ICP", "KAS", "HYPE", "WHYPE", "POL", "MATIC", "ONDO", "WLD", "LDO", "CRV", "MKR", "SKY", "ENS", "GRT", "XMR", "WXMR",
 ]);
 
 /**

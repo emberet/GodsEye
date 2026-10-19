@@ -6,7 +6,7 @@
  *     (see agent/src/publish/snapshot.ts); the website reads those copies.
  */
 import { type DB, getMeta } from "./db";
-import { HEARTBEAT_STALE_MINUTES, TIERS, WALLET_KINDS, type Tier, type WalletKind } from "./constants";
+import { HEARTBEAT_STALE_MINUTES, isNonMemecoinSymbol, TIERS, WALLET_KINDS, type Tier, type WalletKind } from "./constants";
 import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
@@ -24,7 +24,8 @@ const WALLET_ROW_SQL = `
   SELECT w.address, w.tier, w.tier_reason, w.tier_changed_at, w.kind, w.ai_score, w.copy_weight, w.is_fresh, w.funder,
          w.discovered_via, w.first_seen_at, w.chain_created_at, w.age_is_lower_bound, w.last_activity_at, w.last_analyzed_at,
          s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d, s.swaps_30d,
-         CASE WHEN w.funder IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM wallets w2 WHERE w2.funder = w.funder) END AS group_size
+         CASE WHEN w.funder IS NULL THEN 1 ELSE (SELECT COUNT(*) FROM wallets w2 WHERE w2.funder = w.funder) END AS group_size,
+         COALESCE((SELECT active FROM smart_wallets sw WHERE sw.address = w.address), 0) AS is_smart
     FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address`;
 
 export function isLive(heartbeat: string | null, agentStatus: string | null, now = Date.now()): boolean {
@@ -200,6 +201,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
     copyPnlSol: cp.s,
     copyPnlUsd: cp.u,
     copyClosed: cp.n,
+    smart: (d.prepare("SELECT sw.*, w.tier, w.kind FROM smart_wallets sw LEFT JOIN wallets w ON w.address = sw.address WHERE sw.address = ?").get(address) as SmartWalletRow | undefined) ?? null,
   };
 }
 
@@ -357,8 +359,10 @@ export function getSmartMoney(d: DB): SmartMoneyData {
     followBar: followBar(d),
     activeWallets: counts.a ?? 0,
     droppedWallets: counts.dr ?? 0,
-    flows: flows.map(({ first_price, now_price, ...f }) => ({ ...f, change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null })),
-    signals,
+    flows: flows
+      .filter((f) => !f.symbol || !isNonMemecoinSymbol(f.symbol))
+      .map(({ first_price, now_price, ...f }) => ({ ...f, change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null })),
+    signals: signals.filter((g) => !g.symbol || !isNonMemecoinSymbol(g.symbol)),
     scorecard,
     wallets,
     trades24h: (d.prepare("SELECT COUNT(*) n FROM smart_flows WHERE ts >= ?").get(h24) as { n: number }).n,

@@ -135,6 +135,7 @@ function WalletDatabase() {
                 <TableCell>
                   <Addr address={w.address} />
                   {w.is_fresh === 1 && <span className="ml-1.5 border border-win/40 px-1 text-[10px] uppercase text-win">fresh</span>}
+                  {w.is_smart === 1 && <span className="ml-1.5 border border-amber/50 px-1 text-[10px] uppercase text-amber" title="GodsEye counts this wallet as smart money">smart</span>}
                 </TableCell>
                 <TableCell>
                   <TierBadge tier={w.tier} />

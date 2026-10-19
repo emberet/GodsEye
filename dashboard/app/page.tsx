@@ -8,13 +8,16 @@ import { TerminalFeed } from "@/components/terminal-feed";
 import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
 import { ago, pct, pnlClass, signedSol, signedUsd } from "@/lib/format";
-import type { CopiesData, LeadersData, Summary } from "@/lib/types";
+import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export default function Home() {
   const { data: s, error } = usePoll<Summary>("/api/summary", 10_000);
   const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
   const { data: copies } = usePoll<CopiesData>("/api/copies", 10_000);
+  const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 15_000);
+  const flows = (smart?.flows ?? []).slice(0, 8);
+  const signals = (smart?.signals ?? []).slice(0, 6);
   const copying = (leaders?.leaders ?? []).filter((l) => l.copy_weight > 0);
   const wr = s?.winRate ?? null;
   const st = s?.stream;
@@ -55,6 +58,51 @@ export default function Home() {
         <Link href="/wallets?kind=human" className="flex items-center gap-1.5 border px-2 py-1 text-[11px] uppercase hover:bg-muted/50">
           🧑 Human <span className="text-sm font-bold text-sky-100 num">{s?.kindCounts.human ?? "—"}</span>
         </Link>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Window
+          title={`Where smart money is moving · ${smart?.activeWallets ?? "—"} smart wallets`}
+          className="lg:col-span-2"
+          right={smart ? <span className="text-muted-foreground">{smart.trades24h.toLocaleString("en-US")} smart trades in 24h</span> : null}
+        >
+          <div className="divide-y">
+            {flows.length === 0 && <p className="p-3 text-xs text-muted-foreground">No smart-money trades yet. They show up as the live stream sees smart wallets trade.</p>}
+            {flows.map((f) => {
+              const net1 = f.buy_usd_1h - f.sell_usd_1h;
+              const net24 = f.buy_usd_24h - f.sell_usd_24h;
+              return (
+                <div key={f.mint} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                  <a href={`https://dexscreener.com/solana/${f.mint}`} target="_blank" rel="noreferrer" className="min-w-0 truncate font-bold hover:text-win">
+                    {f.symbol ?? `${f.mint.slice(0, 4)}…`} ↗
+                  </a>
+                  <div className="flex items-center gap-3 num">
+                    <span className="text-muted-foreground">{f.buyers_24h} buying · {f.sellers_24h} selling</span>
+                    <span className={pnlClass(net1)} title="net smart money, last hour">{signedUsd(net1)} 1h</span>
+                    <span className={cn("w-20 text-right font-bold", pnlClass(net24))} title="net smart money, last 24h">{signedUsd(net24)}</span>
+                    <span className={cn("w-12 text-right", pnlClass(f.change_since_first_buy))} title="price change since the first smart buy">{pct(f.change_since_first_buy, 0)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Window>
+        <Window title="Smart money signals">
+          <div className="divide-y">
+            {signals.length === 0 && <p className="p-3 text-xs text-muted-foreground">None yet. A signal fires when 3+ smart wallets buy (or dump) the same token within an hour.</p>}
+            {signals.map((g) => (
+              <div key={g.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
+                <span className="min-w-0 truncate">
+                  <span className={g.kind === "accumulate" ? "text-win" : "text-loss"}>{g.kind === "accumulate" ? "▲" : "▼"}</span> <span className="font-bold">{g.symbol ?? `${g.mint.slice(0, 4)}…`}</span>{" "}
+                  <span className="text-muted-foreground">· {g.wallet_count} wallets · {ago(g.ts)}</span>
+                </span>
+                <span className={cn("num", pnlClass(g.ret_6h ?? g.ret_1h))} title="price move after the signal (6h, or 1h so far)">
+                  {g.ret_6h !== null ? `${pct(g.ret_6h, 0)} 6h` : g.ret_1h !== null ? `${pct(g.ret_1h, 0)} 1h` : "pending"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Window>
       </div>
 
       <div className="grid gap-3 lg:grid-cols-3">

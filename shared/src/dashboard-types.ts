@@ -95,6 +95,8 @@ export interface WalletRow {
   swaps_30d: number | null;
   /** How many tracked wallets share this wallet's funder (including itself). */
   group_size: number;
+  /** 1 if GodsEye currently counts it as smart money. */
+  is_smart: number;
 }
 
 export interface WalletQuery {
@@ -241,6 +243,8 @@ export interface WalletDetail {
   copyPnlSol: number;
   copyPnlUsd: number;
   copyClosed: number;
+  /** Smart-money status and what its buys did next (null if never considered). */
+  smart: SmartWalletRow | null;
 }
 
 export interface WalletGroup {

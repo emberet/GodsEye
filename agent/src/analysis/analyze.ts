@@ -9,7 +9,7 @@
  *   5. gather evidence (creator links, sales right before a crash — see crash.ts)
  *   6. assign a tier and an AI / human verdict, with reasons
  */
-import { type DB, NON_MEMECOIN_SYMBOLS, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
+import { type DB, isNonMemecoinSymbol, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
 import { readWalletHistory } from "../chain/history";
@@ -85,7 +85,7 @@ export function recomputeStats(db: DB, address: string, now = Date.now()) {
   const symbolsNow = db
     .prepare("SELECT DISTINCT s.mint, t.symbol FROM wallet_swaps s JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? AND t.symbol IS NOT NULL")
     .all(address) as { mint: string; symbol: string }[];
-  const drop = symbolsNow.filter((x) => NON_MEMECOIN_SYMBOLS.has(x.symbol.toUpperCase())).map((x) => x.mint);
+  const drop = symbolsNow.filter((x) => isNonMemecoinSymbol(x.symbol)).map((x) => x.mint);
   if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
   const swaps = db
     .prepare("SELECT signature, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
