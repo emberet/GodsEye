@@ -16,6 +16,7 @@ import cron from "node-cron";
 import { getMeta, nowIso, openDb, setMeta } from "@godseye/shared";
 import { snapshotStoreConfigured } from "@godseye/shared/snapshot-store";
 import { config } from "./config";
+import { rpcUsage } from "./chain/rpc-budget";
 import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
@@ -120,6 +121,11 @@ async function main() {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
     setMeta(db, "stats_version", STATS_VERSION);
   }
+  // Once an hour: what reading wallet history actually cost in RPC requests.
+  cron.schedule("0 * * * *", () => {
+    const u = rpcUsage(60);
+    if (u.calls) say("info", `RPC for wallet history, last hour: ${u.calls.toLocaleString("en-US")} requests, ${u.avgPerSec.toFixed(1)}/sec on average, busiest minute ${u.peakPerSec.toFixed(1)}/sec (cap ${config.rpcMaxRps}/sec).`);
+  });
   if (live) {
     // Smart money: who counts (every 5 min) and what their trades did next (every 5 min).
     live.smart.refresh();

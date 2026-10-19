@@ -28,7 +28,7 @@ export function openDb(file = dbFilePath()): DB {
 
 /** Columns added after a table was first created (CREATE TABLE IF NOT EXISTS won't add them). */
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
-  wallets: { tx_per_hour: "REAL", history_from: "TEXT" },
+  wallets: { tx_per_hour: "REAL", history_from: "TEXT", history_oldest_sig: "TEXT", history_tx_read: "INTEGER NOT NULL DEFAULT 0", history_done: "INTEGER NOT NULL DEFAULT 0" },
   wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL" },
   token_info: { pool_address: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL" },
@@ -53,6 +53,8 @@ const AFTER_ADDING: Record<string, string> = {
   "wallets.history_from": `UPDATE wallets SET history_from = (SELECT MIN(ts) FROM wallet_swaps s WHERE s.wallet = wallets.address) WHERE last_analyzed_at IS NOT NULL;
     UPDATE wallets SET tier_reason = REPLACE(REPLACE(REPLACE(tier_reason, ' closed trades in 30 days', ' closed trades seen so far'), 'of the 30-day profit', 'of its profit'), ' over 30 days', ' so far') WHERE tier_reason IS NOT NULL;
     UPDATE wallets SET weight_reason = REPLACE(weight_reason, ' closed trades in 30 days', ' closed trades seen so far') WHERE weight_reason IS NOT NULL`,
+  // Wallets studied before history was read by days had at most 300 transactions read: deepen them from there.
+  "wallets.history_done": "UPDATE wallets SET history_tx_read = 300 WHERE last_analyzed_at IS NOT NULL",
   "token_info.pool_address":
     "DELETE FROM wallet_evidence WHERE kind = 'sold_before_crash'; UPDATE wallets SET last_analyzed_at = '2000-01-01T00:00:00.000Z' WHERE tier = 'insider'",
 };

@@ -13,6 +13,7 @@ import { type DB, isNonMemecoinSymbol, nowIso, SOL_MINT, type Tier } from "@gods
 import { config } from "../config";
 import { say, short } from "../log";
 import { readWalletHistory } from "../chain/history";
+import { rpcCallsSoFar } from "../chain/rpc-budget";
 import type { ParsedSwap } from "../chain/parse";
 import { cachedTokenInfo, tokenInfo } from "../market/tokens";
 import { getPrices } from "../market/prices";
@@ -126,6 +127,8 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
     sinceSignature: row.last_signature,
     limit: firstLook ? config.historyTxLimit : 1000,
     findOrigin: firstLook,
+    // First look: the last HISTORY_DAYS days, capped at HISTORY_TX_LIMIT transactions.
+    sinceMs: firstLook ? now - config.historyDays * 86_400_000 : undefined,
   });
   insertSwaps(db, h.swaps);
   let { funder, chain_created_at: createdAt, is_fresh: isFresh } = row;
@@ -192,10 +195,14 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
       `UPDATE wallets SET tier=?, tier_reason=?, tier_changed_at=CASE WHEN tier != ? THEN ? ELSE tier_changed_at END,
           kind=?, ai_score=?, kind_reasons=?, tx_per_hour=?, funder=?, chain_created_at=?, age_is_lower_bound=CASE WHEN ? THEN ? ELSE age_is_lower_bound END,
           is_fresh=?, last_analyzed_at=?, last_activity_at=COALESCE(?, last_activity_at), last_signature=?, analyze_errors=0,
-          history_from=CASE WHEN ? THEN ? ELSE COALESCE(history_from, ?) END
+          history_from=CASE WHEN ? THEN ? ELSE COALESCE(history_from, ?) END,
+          history_oldest_sig=CASE WHEN ? THEN ? ELSE history_oldest_sig END,
+          history_tx_read=history_tx_read + CASE WHEN ? THEN ? ELSE 0 END,
+          history_done=CASE WHEN ? THEN ? ELSE history_done END
         WHERE address=?`,
     ).run(t.tier, t.reason, t.tier, nowIso(), c.kind, c.score, JSON.stringify(c.reasons), txPerHour, funder, createdAt, firstLook ? 1 : 0, lowerBound,
-      isFresh, nowIso(), stats.last_trade_at ?? h.activityAt, h.newestSignature, firstLook ? 1 : 0, h.historyFrom ?? stats.first_trade_at, stats.first_trade_at, address);
+      isFresh, nowIso(), stats.last_trade_at ?? h.activityAt, h.newestSignature, firstLook ? 1 : 0, h.historyFrom ?? stats.first_trade_at, stats.first_trade_at,
+      firstLook ? 1 : 0, h.oldestSignature, firstLook ? 1 : 0, h.read, firstLook ? 1 : 0, h.historyDone ? 1 : 0, address);
     // "State" evidence (e.g. inactive, slipping) describes now, so it's replaced; event evidence (a specific trade) is kept.
     db.prepare(`DELETE FROM wallet_evidence WHERE wallet = ? AND kind IN (${STATE_EVIDENCE.map(() => "?").join(",")})`).run(address, ...STATE_EVIDENCE);
     const ev = db.prepare(
@@ -212,8 +219,38 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   if (firstLook && isFresh) say("wallet", `Fresh wallet ${short(address)} (created ${createdAt?.slice(0, 16).replace("T", " ")} UTC${funder ? `, funded by ${short(funder)}` : ""}) — grouped and classified ${c.kind === "ai" ? "AI/bot" : c.kind}.`);
 }
 
+/**
+ * Read further back in a wallet's history: from the oldest transaction read so far, back to HISTORY_DAYS
+ * days or until HISTORY_TX_LIMIT transactions have been read in all. Returns transactions read.
+ */
+export async function deepenHistory(db: DB, address: string, now = Date.now()): Promise<number> {
+  const row = db.prepare("SELECT history_oldest_sig, history_tx_read FROM wallets WHERE address = ?").get(address) as
+    | { history_oldest_sig: string | null; history_tx_read: number }
+    | undefined;
+  if (!row) return 0;
+  const before = row.history_oldest_sig ?? (db.prepare("SELECT signature FROM wallet_swaps WHERE wallet = ? ORDER BY ts LIMIT 1").get(address) as { signature: string } | undefined)?.signature;
+  const left = config.historyTxLimit - row.history_tx_read;
+  if (!before || left <= 0) {
+    db.prepare("UPDATE wallets SET history_done = 1 WHERE address = ?").run(address);
+    return 0;
+  }
+  const h = await readWalletHistory(address, { sinceSignature: null, before, limit: left, findOrigin: false, sinceMs: now - config.historyDays * 86_400_000 });
+  insertSwaps(db, h.swaps);
+  db.prepare(
+    `UPDATE wallets SET
+        history_from = CASE WHEN ? IS NOT NULL AND (history_from IS NULL OR ? < history_from) THEN ? ELSE history_from END,
+        history_oldest_sig = COALESCE(?, history_oldest_sig),
+        history_tx_read = history_tx_read + ?,
+        history_done = ?
+      WHERE address = ?`,
+  ).run(h.historyFrom, h.historyFrom, h.historyFrom, h.oldestSignature, h.read, h.historyDone || h.read === 0 ? 1 : 0, address);
+  return h.read;
+}
+
 /** Analyze the wallets most in need of it: never-analyzed first, then the stalest. Leaders always get a turn. */
 export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise<number> {
+  const callsBefore = rpcCallsSoFar();
+  const startedAt = Date.now();
   const staleBefore = new Date(Date.now() - config.reanalyzeMinutes * 60_000).toISOString();
   const rows = db
     .prepare(
@@ -235,6 +272,36 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
       say("warn", `Couldn't analyze ${short(address)}: ${(e as Error).message.slice(0, 140)}`);
     }
   }
-  if (done) say("info", `Analyzed ${done} wallet${done === 1 ? "" : "s"}.`);
+  // Wallets studied before history was read by days: read further back, copied wallets first.
+  let deepened = 0;
+  let deepTx = 0;
+  const deepen = db
+    .prepare(
+      `SELECT address FROM wallets
+        WHERE last_analyzed_at IS NOT NULL AND history_done = 0 AND analyze_errors < 5
+        ORDER BY copy_weight > 0 DESC, tier IN ('proven','needs_attention','insider','lucky_streak') DESC, last_analyzed_at DESC
+        LIMIT ?`,
+    )
+    .all(config.historyDeepenPerRun) as { address: string }[];
+  for (const { address } of deepen) {
+    try {
+      deepTx += await deepenHistory(db, address);
+      await analyzeWallet(db, address, budget, crashBudget); // re-score with the longer history
+      deepened++;
+    } catch (e) {
+      // e.g. the RPC can't find the stored cursor transaction: keep the history it has and stop retrying,
+      // or this wallet would take a deepening slot every run.
+      db.prepare("UPDATE wallets SET history_done = 1 WHERE address = ?").run(address);
+      say("warn", `Couldn't read further back for ${short(address)}, keeping the history it has: ${(e as Error).message.slice(0, 200)}`);
+    }
+  }
+  if (done || deepened) {
+    const calls = rpcCallsSoFar() - callsBefore;
+    const secs = Math.max(1, (Date.now() - startedAt) / 1000);
+    say(
+      "info",
+      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec).`,
+    );
+  }
   return done;
 }

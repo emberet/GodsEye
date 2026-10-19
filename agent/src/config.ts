@@ -74,8 +74,14 @@ export const config = {
   // ---- Analysis: reading each wallet's history ----
   analyzeCron: envStr("ANALYZE_CRON", "*/10 * * * *"),
   analyzePerRun: envNum("ANALYZE_PER_RUN", 15),
-  /** How many past transactions to read the first time a wallet is analyzed. */
-  historyTxLimit: envNum("HISTORY_TX_LIMIT", 300),
+  /** First look at a wallet: read back this many days of its transactions… */
+  historyDays: envNum("HISTORY_DAYS", 7),
+  /** …but at most this many transactions (busy bots trade thousands a day). Also caps later deepening. */
+  historyTxLimit: envNum("HISTORY_TX_LIMIT", 2000),
+  /** Wallets studied before deeper history existed: how many to read further back per analysis run. */
+  historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 2),
+  /** Steady cap on history RPC requests per second (each transaction in a batch counts). Keep well under your plan's limit. */
+  rpcMaxRps: envNum("RPC_MAX_RPS", 40),
   /** Wallets younger than this many days count as "fresh". */
   freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
   /** Re-analyze a wallet at most this often (leaders are also updated live). */

@@ -7,6 +7,7 @@ import { rpcUrl } from "../config";
 import { connection } from "../rpc";
 import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
 import { solUsdAt } from "../market/solprice";
+import { takeRpc } from "./rpc-budget";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -20,12 +21,13 @@ const MAX_TX_VERSION = 1;
 
 type RpcReply = { id: number; result?: TxLike | null; error?: { message: string } };
 
-async function rpcCall(signatures: string[]): Promise<RpcReply[]> {
+async function rpcCall(signatures: string[], metered: boolean): Promise<RpcReply[]> {
   const body = signatures.map((sig, id) => ({
     jsonrpc: "2.0", id, method: "getTransaction",
     params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: MAX_TX_VERSION, commitment: "confirmed" }],
   }));
   for (let attempt = 0; ; attempt++) {
+    if (metered) await takeRpc(body.length);
     const res = await fetch(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
     if (res.status === 429 && attempt < 4) {
       await sleep(1500 * 2 ** attempt); // rate-limited: back off and try again
@@ -38,13 +40,13 @@ async function rpcCall(signatures: string[]): Promise<RpcReply[]> {
 }
 
 /** getTransaction for several signatures in one request; entries refused (e.g. per-method rate limits) are retried with backoff. */
-async function rpcBatch(signatures: string[]): Promise<(TxLike | null)[]> {
+async function rpcBatch(signatures: string[], metered = false): Promise<(TxLike | null)[]> {
   const out: (TxLike | null)[] = new Array(signatures.length).fill(null);
   let pending = signatures.map((_, i) => i);
   let lastError = "";
   for (let attempt = 0; pending.length && attempt < 5; attempt++) {
     if (attempt) await sleep(1500 * 2 ** (attempt - 1));
-    const replies = await rpcCall(pending.map((i) => signatures[i]));
+    const replies = await rpcCall(pending.map((i) => signatures[i]), metered);
     const failed: number[] = [];
     for (const r of replies) {
       if (r.error) {
@@ -58,30 +60,44 @@ async function rpcBatch(signatures: string[]): Promise<(TxLike | null)[]> {
   return out;
 }
 
-/** Newest-first signatures, stopping at `until` (exclusive) or after `limit`. */
+/** Newest-first signatures, stopping at `until` (exclusive) or after `limit`. Not metered: used by the copy watcher. */
 export async function fetchSignatures(wallet: string, opts: { until?: string | null; limit: number; before?: string }): Promise<ConfirmedSignatureInfo[]> {
+  return (await pageSignatures(wallet, { ...opts, metered: false })).sigs;
+}
+
+/**
+ * Newest-first signatures, stopping at `until`, after `limit`, or once older than `sinceMs`.
+ * `exhausted`: paging ran out (the wallet has nothing older); `reachedTime`: stopped at `sinceMs`.
+ */
+async function pageSignatures(
+  wallet: string,
+  opts: { until?: string | null; limit: number; before?: string; sinceMs?: number; metered: boolean },
+): Promise<{ sigs: ConfirmedSignatureInfo[]; exhausted: boolean; reachedTime: boolean }> {
   const out: ConfirmedSignatureInfo[] = [];
   let before = opts.before;
   while (out.length < opts.limit) {
     const want = Math.min(1000, opts.limit - out.length);
+    if (opts.metered) await takeRpc(1);
     const page = await connection().getSignaturesForAddress(new PublicKey(wallet), { before, until: opts.until ?? undefined, limit: want });
-    out.push(...page);
-    if (page.length < want) break;
+    const inTime = opts.sinceMs === undefined ? page : page.filter((s) => !s.blockTime || s.blockTime * 1000 >= opts.sinceMs!);
+    out.push(...inTime);
+    if (inTime.length < page.length) return { sigs: out, exhausted: false, reachedTime: true };
+    if (page.length < want) return { sigs: out, exhausted: true, reachedTime: false };
     before = page[page.length - 1].signature;
   }
-  return out;
+  return { sigs: out, exhausted: false, reachedTime: false };
 }
 
-/** Fetch parsed transactions in small batches (falls back to one at a time if the RPC refuses batches). */
+/** Fetch parsed transactions in small batches (falls back to one at a time if the RPC refuses batches). Metered. */
 export async function fetchParsed(signatures: string[]): Promise<(TxLike | null)[]> {
   const out: (TxLike | null)[] = [];
   for (let i = 0; i < signatures.length; i += 20) {
     const chunk = signatures.slice(i, i + 20);
     try {
-      out.push(...(await rpcBatch(chunk)));
+      out.push(...(await rpcBatch(chunk, true)));
     } catch {
       for (const sig of chunk) {
-        out.push(await rpcBatch([sig]).then((r) => r[0]).catch(() => null));
+        out.push(await rpcBatch([sig], true).then((r) => r[0]).catch(() => null));
         await sleep(150);
       }
     }
@@ -111,14 +127,24 @@ export interface WalletHistory {
   signaturesSeen: number;
   /** Time of the oldest transaction whose swaps were read: the start of what this wallet's stats can cover. */
   historyFrom: string | null;
+  /** Signature of that oldest transaction (where reading further back would continue). */
+  oldestSignature: string | null;
+  /** Transactions read this time. */
+  read: number;
+  /** True if nothing more needs reading back: the wallet's first transaction, the day target, or the cap was reached. */
+  historyDone: boolean;
 }
 
 /**
  * Reads new swaps since `sinceSignature` (or the last `limit` transactions on first look).
  * On first look it also tries to find the wallet's first transaction (age + who funded it).
  */
-export async function readWalletHistory(wallet: string, opts: { sinceSignature: string | null; limit: number; findOrigin: boolean }): Promise<WalletHistory> {
-  const sigs = await fetchSignatures(wallet, { until: opts.sinceSignature, limit: opts.limit });
+export async function readWalletHistory(
+  wallet: string,
+  opts: { sinceSignature: string | null; limit: number; findOrigin: boolean; sinceMs?: number; before?: string },
+): Promise<WalletHistory> {
+  const page = await pageSignatures(wallet, { until: opts.sinceSignature, limit: opts.limit, before: opts.before, sinceMs: opts.sinceMs, metered: true });
+  const sigs = page.sigs;
   const ok = sigs.filter((s) => !s.err);
   const txs = await fetchParsed(ok.map((s) => s.signature));
   const swaps: ParsedSwap[] = [];
@@ -132,11 +158,11 @@ export async function readWalletHistory(wallet: string, opts: { sinceSignature: 
   let seen = sigs.length;
   let funder: string | null = null;
   if (opts.findOrigin) {
-    if (sigs.length < opts.limit) {
+    if (page.exhausted) {
       reachedOrigin = true;
     } else if (oldest) {
       // Page further back (signatures only — cheap) looking for the first transaction.
-      const older = await fetchSignatures(wallet, { limit: 3000, before: oldest.signature }).catch(() => []);
+      const older = await pageSignatures(wallet, { limit: 3000, before: oldest.signature, metered: true }).then((p) => p.sigs).catch(() => []);
       if (older.length) oldest = older.at(-1)!;
       seen += older.length;
       reachedOrigin = older.length < 3000;
@@ -156,5 +182,8 @@ export async function readWalletHistory(wallet: string, opts: { sinceSignature: 
     activityAt: t(sigs[0]),
     signaturesSeen: seen,
     historyFrom: t(sigs.at(-1)),
+    oldestSignature: sigs.at(-1)?.signature ?? null,
+    read: sigs.length,
+    historyDone: page.exhausted || page.reachedTime || sigs.length >= opts.limit,
   };
 }
