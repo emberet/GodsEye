@@ -194,10 +194,10 @@ export class CopyEngine {
       const fill = await this.executor.buy(swap.mint, size);
       const pos = this.db
         .prepare(
-          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, entry_price_sol, last_price_sol, last_price_ts, opened_at)
-           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate)
+           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?))`,
         )
-        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.priceSol, fill.priceSol, nowIso(), nowIso());
+        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.priceSol, fill.priceSol, nowIso(), nowIso(), swap.wallet);
       this.db
         .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
         .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);

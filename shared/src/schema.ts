@@ -225,6 +225,8 @@ CREATE TABLE IF NOT EXISTS positions (
   cost_usd REAL,
   proceeds_usd REAL NOT NULL DEFAULT 0,
   pnl_usd REAL,
+  -- the leader's win rate when GodsEye copied it (what the follow bar is learned from)
+  leader_win_rate REAL,
   entry_price_sol REAL NOT NULL,
   last_price_sol REAL,
   last_price_ts TEXT,
@@ -292,6 +294,8 @@ CREATE TABLE IF NOT EXISTS smart_flows (
   side TEXT NOT NULL CHECK (side IN ('buy','sell')),
   usd REAL,
   price_usd REAL,
+  -- the wallet's win rate when it made this trade (what the follow bar is learned from)
+  wallet_win_rate REAL,
   ret_1h REAL,
   ret_6h REAL,
   ret_24h REAL,
@@ -326,5 +330,25 @@ CREATE TABLE IF NOT EXISTS token_prices (
   price_usd REAL NOT NULL,
   ts TEXT NOT NULL,
   first_seen_at TEXT NOT NULL
+);
+
+-- SELF-ADJUSTING THRESHOLDS (agent/src/learning/adaptive.ts): current learned values…
+CREATE TABLE IF NOT EXISTS learning_params (
+  key TEXT PRIMARY KEY,
+  value REAL NOT NULL,
+  -- where the evidence points (the value moves toward it a step at a time)
+  target REAL,
+  samples INTEGER NOT NULL DEFAULT 0,
+  reason TEXT,
+  updated_at TEXT NOT NULL
+);
+-- …and every change, with why
+CREATE TABLE IF NOT EXISTS param_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  old_value REAL NOT NULL,
+  new_value REAL NOT NULL,
+  reason TEXT NOT NULL
 );
 `;

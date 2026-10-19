@@ -8,9 +8,12 @@ import { config } from "../config";
 import { say, short } from "../log";
 import { computeWeights, type WeightInput } from "./weights";
 import { solUsdAt } from "../market/solprice";
+import { adaptThresholds } from "./adaptive";
 
 export function runLearning(db: DB): string[] {
   const solNow = solUsdAt(Date.now()) ?? 0;
+  // First learn the follow bar from outcomes, then weigh wallets against it.
+  const minWinRate = adaptThresholds(db);
   const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const rows = db
     .prepare(
@@ -31,7 +34,7 @@ export function runLearning(db: DB): string[] {
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
     leadN: r.lead_n ?? 0, leadMedian6h: r.lead_median_6h,
   }));
-  const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven });
+  const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate });
 
   const update = db.prepare("UPDATE wallets SET copy_weight = ?, weight_reason = ? WHERE address = ?");
   const history = db.prepare("INSERT INTO weight_history (wallet, ts, old_weight, new_weight, reason) VALUES (?, ?, ?, ?, ?)");

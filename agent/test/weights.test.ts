@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { computeWeights, copySize, type WeightInput } from "../src/learning/weights";
 
 const base: Omit<WeightInput, "address"> = { tier: "proven", pnl7: 2, pnl30: 6, closed30: 20, winRate30: 0.6, isFresh: false, copyPnl14: 0, copyClosed14: 0, oldWeight: 0 };
-const cfg = { maxLeaders: 3, copyLossDropSol: 0.2, minClosed: 10 };
+const cfg = { maxLeaders: 3, copyLossDropSol: 0.2, minClosed: 10, minWinRate: 0.5 };
 
 test("weights go to whoever is making money, and add up to 1", () => {
   const w = computeWeights(
@@ -90,4 +90,11 @@ test("learned lead score scales copy weight: wallets whose buys lead price get m
   assert.ok(w.get("leads")!.weight > w.get("plain")!.weight);
   assert.ok(w.get("plain")!.weight > w.get("tops")!.weight);
   assert.match(w.get("leads")!.reason, /its buys move \+40% in 6h/);
+});
+
+test("the follow bar applies: below the learned win rate, no weight", () => {
+  const w = computeWeights([{ ...base, address: "a", winRate30: 0.58 }, { ...base, address: "b", winRate30: 0.7 }], { ...cfg, minWinRate: 0.65 });
+  assert.equal(w.get("a")!.weight, 0);
+  assert.match(w.get("a")!.reason, /wins 58% of trades; GodsEye currently follows ≥ 65% \(learned\)/);
+  assert.equal(w.get("b")!.weight, 1);
 });

@@ -10,7 +10,7 @@ import { HEARTBEAT_STALE_MINUTES, TIERS, WALLET_KINDS, type Tier, type WalletKin
 import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
-  SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
+  LearnedParam, ParamChange, SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
   Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
 } from "./dashboard-types";
@@ -224,6 +224,9 @@ export function getWalletGroups(d: DB, limit = 100): WalletGroup[] {
   return groups.map((g) => ({ ...g, likely_exchange: g.size >= LIKELY_EXCHANGE_GROUP_SIZE, members: members.all(g.funder) as WalletGroup["members"] }));
 }
 
+const followBar = (d: DB): LearnedParam | null =>
+  (d.prepare("SELECT * FROM learning_params WHERE key = 'follow_min_win_rate'").get() as LearnedParam | undefined) ?? null;
+
 export function getLeaders(d: DB): LeadersData {
   const leaders = d
     .prepare(
@@ -238,7 +241,11 @@ export function getLeaders(d: DB): LeadersData {
     )
     .all() as Leader[];
   const changes = d.prepare("SELECT * FROM weight_history ORDER BY ts DESC LIMIT 100").all() as WeightChange[];
-  return { leaders, changes, budgetSol: num(getMeta(d, "copy_budget_sol"), 0) };
+  return {
+    leaders, changes, budgetSol: num(getMeta(d, "copy_budget_sol"), 0),
+    followBar: followBar(d),
+    followBarHistory: d.prepare("SELECT * FROM param_history WHERE key = 'follow_min_win_rate' ORDER BY ts DESC LIMIT 50").all() as ParamChange[],
+  };
 }
 
 export function getCopies(d: DB): CopiesData {
@@ -347,6 +354,7 @@ export function getSmartMoney(d: DB): SmartMoneyData {
     .all() as SmartWalletRow[];
   const counts = d.prepare("SELECT SUM(active = 1) a, SUM(active = 0 AND reason LIKE 'its buys%') dr FROM smart_wallets").get() as { a: number | null; dr: number | null };
   return {
+    followBar: followBar(d),
     activeWallets: counts.a ?? 0,
     droppedWallets: counts.dr ?? 0,
     flows: flows.map(({ first_price, now_price, ...f }) => ({ ...f, change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null })),

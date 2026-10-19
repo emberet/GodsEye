@@ -3,9 +3,10 @@
  *
  *   1. Who counts as smart money (refreshed every 5 min):
  *        • analyzed wallets with a track record: ≥ MIN_CLOSED_FOR_PROVEN closed trades in
- *          30 days, profitable in USD, ≥ 50% wins, not a Lucky streak or Quitter
+ *          30 days, profitable in USD, a win rate at or above the learned follow bar
+ *          (learning/adaptive.ts), not a Lucky streak or Quitter
  *        • wallets winning big on the live stream right now: ≥ SMART_LIVE_MIN_PNL_USD realized
- *          over ≥ SMART_LIVE_MIN_CLOSED closed trades, ≥ 55% wins
+ *          over ≥ SMART_LIVE_MIN_CLOSED closed trades, win rate ≥ the follow bar + 5 points
  *      …minus wallets whose buys tend to go down afterwards (learned, see 3).
  *   2. Every memecoin trade a smart wallet makes on the live stream is recorded (smart_flows).
  *      When SMART_SIGNAL_WALLETS (3) smart wallets buy the same token within
@@ -24,6 +25,7 @@ import { say } from "../log";
 import type { ParsedSwap } from "../chain/parse";
 import type { LiveBook } from "../stream/live-book";
 import { symbolOf, tokenInfo } from "../market/tokens";
+import { FOLLOW_MIN_WIN_RATE, getParam } from "../learning/adaptive";
 
 export const HORIZONS = [
   { col: "ret_1h", bit: 1, ms: 3_600_000 },
@@ -78,13 +80,13 @@ export function leadStats(rets: number[]): { n: number; hitRate: number | null; 
 type Price = { usd: number; ts: number; firstSeen: number };
 
 export class SmartMoney {
-  private smart = new Map<string, "analyzed" | "live">();
+  private smart = new Map<string, { source: "analyzed" | "live"; winRate: number }>();
   private prices = new Map<string, Price>();
   /** Mints smart money has touched in the last ~26 h: their prices are saved for measuring returns. */
   private watched = new Map<string, number>();
   private recent = new Map<string, FlowEvent[]>();
   private lastSignal = new Map<string, number>();
-  private pending: { s: ParsedSwap; priceUsd: number | null }[] = [];
+  private pending: { s: ParsedSwap; priceUsd: number | null; winRate: number }[] = [];
 
   constructor(
     private db: DB,
@@ -112,7 +114,7 @@ export class SmartMoney {
     }
     if (!this.smart.has(s.wallet)) return;
     this.watched.set(s.mint, now);
-    this.pending.push({ s, priceUsd });
+    this.pending.push({ s, priceUsd, winRate: this.smart.get(s.wallet)!.winRate });
     if (s.usdAmount === null) return;
     const list = (this.recent.get(s.mint) ?? []).filter((e) => now - e.ts <= config.smartSignalWindowMinutes * 60_000);
     list.push({ ts: now, wallet: s.wallet, side: s.side, usd: s.usdAmount });
@@ -135,13 +137,13 @@ export class SmartMoney {
   /** Save recorded smart trades and the prices needed to measure them. */
   flush(now = Date.now()): void {
     const batch = this.pending.splice(0);
-    const ins = this.db.prepare("INSERT OR IGNORE INTO smart_flows (signature, ts, wallet, mint, side, usd, price_usd) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    const ins = this.db.prepare("INSERT OR IGNORE INTO smart_flows (signature, ts, wallet, mint, side, usd, price_usd, wallet_win_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const px = this.db.prepare(
       `INSERT INTO token_prices (mint, price_usd, ts, first_seen_at) VALUES (?, ?, ?, ?)
        ON CONFLICT(mint) DO UPDATE SET price_usd = excluded.price_usd, ts = excluded.ts`,
     );
     this.db.transaction(() => {
-      for (const { s, priceUsd } of batch) ins.run(s.signature, s.ts, s.wallet, s.mint, s.side, s.usdAmount, priceUsd);
+      for (const { s, priceUsd, winRate } of batch) ins.run(s.signature, s.ts, s.wallet, s.mint, s.side, s.usdAmount, priceUsd, winRate);
       for (const [mint, at] of this.watched) {
         if (now - at > 26 * 3_600_000) {
           this.watched.delete(mint);
@@ -187,6 +189,8 @@ export class SmartMoney {
   /** Recompute who counts as smart money, with each wallet's learned lead score. */
   refresh(): { active: number; dropped: number } {
     const ts = nowIso();
+    // The win-rate bar is learned (learning/adaptive.ts), not fixed.
+    const bar = getParam(this.db, FOLLOW_MIN_WIN_RATE, config.followWinRateStart);
     const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
     const lead = new Map<string, number[]>();
     for (const r of this.db.prepare("SELECT wallet, ret_6h FROM smart_flows WHERE side = 'buy' AND ret_6h IS NOT NULL AND ts >= ?").all(since14) as { wallet: string; ret_6h: number }[]) {
@@ -196,14 +200,15 @@ export class SmartMoney {
     const analyzed = this.db
       .prepare(
         `SELECT w.address, s.pnl_30d_usd pnl, s.closed_30d closed, s.win_rate_30d win FROM wallets w JOIN wallet_stats s ON s.wallet = w.address
-          WHERE s.closed_30d >= ? AND s.pnl_30d_usd > 0 AND s.win_rate_30d >= 0.5 AND w.tier NOT IN ('quitter', 'lucky_streak')`,
+          WHERE s.closed_30d >= ? AND s.pnl_30d_usd > 0 AND s.win_rate_30d >= ? AND w.tier NOT IN ('quitter', 'lucky_streak')`,
       )
-      .all(config.minClosedForProven) as { address: string; pnl: number; closed: number; win: number }[];
+      .all(config.minClosedForProven, bar) as { address: string; pnl: number; closed: number; win: number }[];
     for (const a of analyzed) candidates.set(a.address, { source: "analyzed", pnl: a.pnl, closed: a.closed, win: a.win });
-    for (const w of this.book?.smartCandidates(config.smartLiveMinPnlUsd, config.smartLiveMinClosed, 0.55) ?? []) {
+    // Wallets judged on live trades alone need a bit more (less evidence than a full analysis).
+    for (const w of this.book?.smartCandidates(config.smartLiveMinPnlUsd, config.smartLiveMinClosed, Math.min(1, bar + 0.05)) ?? []) {
       if (!candidates.has(w.address)) candidates.set(w.address, { source: "live", pnl: w.pnlUsd, closed: w.closed, win: w.wins / w.closed });
     }
-    const next = new Map<string, "analyzed" | "live">();
+    const next = new Map<string, { source: "analyzed" | "live"; winRate: number }>();
     let dropped = 0;
     const up = this.db.prepare(
       `INSERT INTO smart_wallets (address, source, pnl_usd, closed, win_rate, lead_n, lead_hit_rate, lead_median_6h, active, reason, updated_at)
@@ -220,7 +225,7 @@ export class SmartMoney {
           ? `its buys are down a median ${Math.round(l.median!)}% six hours later (${l.n} measured) — follows, doesn't lead`
           : `${c.source === "analyzed" ? "track record" : "winning live"}: +$${Math.round(c.pnl).toLocaleString("en-US")} over ${c.closed} trades, ${Math.round(c.win * 100)}% wins`;
         if (buysTops) dropped++;
-        else next.set(address, c.source);
+        else next.set(address, { source: c.source, winRate: c.win });
         up.run(address, c.source, c.pnl, c.closed, c.win, l.n, l.hitRate, l.median, buysTops ? 0 : 1, reason, ts);
       }
       // Wallets that no longer qualify at all

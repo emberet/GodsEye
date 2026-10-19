@@ -37,6 +37,17 @@ export const config = {
   /** Keep wallet_activity rows for wallets seen in the last this-many days. */
   activityRetentionDays: envNum("ACTIVITY_RETENTION_DAYS", 30),
 
+  // ---- Self-adjusting follow bar (see src/learning/adaptive.ts) ----
+  /** Starting point for the learned minimum win rate a wallet needs to be followed… */
+  followWinRateStart: envNum("FOLLOW_WIN_RATE_START", 0.5),
+  /** …which learning keeps between these bounds… */
+  followWinRateFloor: envNum("FOLLOW_WIN_RATE_FLOOR", 0.4),
+  followWinRateCeiling: envNum("FOLLOW_WIN_RATE_CEILING", 0.8),
+  /** …moving at most this much per learning cycle… */
+  followMaxStep: envNum("FOLLOW_MAX_STEP", 0.05),
+  /** …and only once it has this many measured outcomes. */
+  followMinSamples: envNum("FOLLOW_MIN_SAMPLES", 20),
+
   // ---- Smart money (see src/smart/) ----
   /** A wallet winning on the stream counts as smart money from this realized profit (USD)… */
   smartLiveMinPnlUsd: envNum("SMART_LIVE_MIN_PNL_USD", 250),

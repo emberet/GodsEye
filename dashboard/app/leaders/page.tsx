@@ -18,11 +18,40 @@ export default function LeadersPage() {
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
       <p className="mb-3 text-xs text-muted-foreground">
-        Only wallets with a track record are copied: Proven, or at least 10 closed trades in 30 days (never a Lucky streak). Weight follows each
+        Only wallets with a track record are copied: Proven, or at least 10 closed trades in 30 days (never a Lucky streak), with a win rate at or above
+        the follow bar below, which GodsEye learns from results. Weight follows each
         wallet&apos;s profit in USD (valued when each trade settled) over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
         If copying a wallet loses GodsEye money over 14 days, it stops copying it. Top earners only; weights add up to the copy budget
         {data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""}.
       </p>
+
+      <Window
+        title="Follow bar · learned, not fixed"
+        className="mb-3"
+        right={data?.followBar ? <span className="text-muted-foreground">updated {ago(data.followBar.updated_at)}</span> : null}
+      >
+        <div className="flex flex-col gap-2 p-3 text-xs sm:flex-row sm:items-start sm:gap-6">
+          <div className="shrink-0">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Min win rate to follow</p>
+            <p className="font-pixel text-4xl leading-none text-win num">{data?.followBar ? `${Math.round(data.followBar.value * 100)}%` : "50%"}</p>
+            {data?.followBar?.target != null && data.followBar.target !== data.followBar.value && (
+              <p className="text-muted-foreground">heading to {Math.round(data.followBar.target * 100)}%</p>
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p>{data?.followBar?.reason ?? "Not learned yet: starts at 50% and adjusts once copy trades (or shadow copies of smart buys) have measured results."}</p>
+            <p className="text-muted-foreground">
+              Every 15 minutes GodsEye looks at how following worked out (its copy trades, or until there are enough of those, what each smart-wallet buy did over 6 hours),
+              grouped by the leader&apos;s win rate, and moves the bar toward the lowest level that still paid, at most 5 points at a time.
+            </p>
+            {(data?.followBarHistory ?? []).slice(0, 6).map((h) => (
+              <p key={h.id} className="text-muted-foreground">
+                <span className="num">{dt(h.ts)}</span> {Math.round(h.old_value * 100)}% → <span className={h.new_value > h.old_value ? "text-amber" : "text-win"}>{Math.round(h.new_value * 100)}%</span>
+              </p>
+            ))}
+          </div>
+        </div>
+      </Window>
 
       <Window title={`Leaders · ${leaders.filter((l) => l.copy_weight > 0).length} copied`} className="mb-3">
         <Table>

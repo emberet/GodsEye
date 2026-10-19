@@ -158,7 +158,8 @@ export default function SmartMoneyPage() {
         </Window>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        Smart money = wallets with a track record (10+ closed trades in 30 days, profitable, ≥ 50% wins) plus wallets winning big on the live stream right now. A
+        Smart money = wallets with a track record (10+ closed trades in 30 days, profitable, win rate ≥ the learned follow bar
+        {data?.followBar ? `, now ${Math.round(data.followBar.value * 100)}%` : ""}) plus wallets winning big on the live stream right now. A
         signal = 3+ smart wallets buying (or dumping) the same token within an hour. Returns use prices seen on the live stream 1, 6 and 24 hours later. Wallets whose
         buys keep going down afterwards stop counting as smart money. Not financial advice.
       </p>

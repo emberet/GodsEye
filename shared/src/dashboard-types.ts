@@ -274,10 +274,32 @@ export interface Leader {
   last_activity_at: string | null;
 }
 
+/** A threshold GodsEye learns from outcomes instead of having it fixed. */
+export interface LearnedParam {
+  key: string;
+  value: number;
+  target: number | null;
+  samples: number;
+  reason: string | null;
+  updated_at: string;
+}
+
+export interface ParamChange {
+  id: number;
+  key: string;
+  ts: string;
+  old_value: number;
+  new_value: number;
+  reason: string;
+}
+
 export interface LeadersData {
   leaders: Leader[];
   changes: WeightChange[];
   budgetSol: number;
+  /** The learned minimum win rate to follow a wallet (null before the first learning cycle). */
+  followBar: LearnedParam | null;
+  followBarHistory: ParamChange[];
 }
 
 export interface CopiesData {
@@ -388,6 +410,7 @@ export interface SmartWalletRow {
 }
 
 export interface SmartMoneyData {
+  followBar: LearnedParam | null;
   activeWallets: number;
   droppedWallets: number;
   flows: SmartFlowRow[];
