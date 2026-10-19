@@ -330,3 +330,70 @@ export interface RugCheckEntry {
   rugcheck_score: number | null;
   checked_at: string;
 }
+
+/** Smart money moving into / out of one token. */
+export interface SmartFlowRow {
+  mint: string;
+  symbol: string | null;
+  buy_usd_1h: number;
+  sell_usd_1h: number;
+  buy_usd_24h: number;
+  sell_usd_24h: number;
+  buyers_24h: number;
+  sellers_24h: number;
+  first_smart_buy_at: string | null;
+  /** Price change since the first smart buy in the last 24h (%), from prices seen on the stream. */
+  change_since_first_buy: number | null;
+  last_trade_at: string;
+}
+
+export interface SmartSignalRow {
+  id: number;
+  ts: string;
+  mint: string;
+  symbol: string | null;
+  kind: "accumulate" | "exit";
+  wallet_count: number;
+  usd: number;
+  token_age_min: number | null;
+  ret_1h: number | null;
+  ret_6h: number | null;
+  ret_24h: number | null;
+}
+
+/** How well signals have worked so far (the learning). */
+export interface SignalScore {
+  kind: "accumulate" | "exit";
+  horizon: "1h" | "6h" | "24h";
+  signals: number;
+  measured: number;
+  /** Share that went the predicted way (up for accumulate, down for exit). */
+  hit_rate: number | null;
+  median_ret: number | null;
+}
+
+export interface SmartWalletRow {
+  address: string;
+  source: "analyzed" | "live";
+  pnl_usd: number | null;
+  closed: number | null;
+  win_rate: number | null;
+  lead_n: number;
+  lead_hit_rate: number | null;
+  lead_median_6h: number | null;
+  active: number;
+  reason: string | null;
+  tier: Tier | null;
+  kind: WalletKind | null;
+}
+
+export interface SmartMoneyData {
+  activeWallets: number;
+  droppedWallets: number;
+  flows: SmartFlowRow[];
+  signals: SmartSignalRow[];
+  scorecard: SignalScore[];
+  wallets: SmartWalletRow[];
+  /** Smart trades recorded in the last 24h. */
+  trades24h: number;
+}

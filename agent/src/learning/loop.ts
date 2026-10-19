@@ -16,18 +16,20 @@ export function runLearning(db: DB): string[] {
     .prepare(
       `SELECT w.address, w.tier, w.is_fresh, w.copy_weight, s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.closed_30d, s.win_rate_30d,
               COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?), 0) copy_pnl,
-              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?) copy_closed
-         FROM wallets w JOIN wallet_stats s ON s.wallet = w.address`,
+              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?) copy_closed,
+              sw.lead_n, sw.lead_median_6h
+         FROM wallets w JOIN wallet_stats s ON s.wallet = w.address LEFT JOIN smart_wallets sw ON sw.address = w.address`,
     )
     .all(since14, since14) as {
     address: string; tier: Tier; is_fresh: number; copy_weight: number; pnl_7d_sol: number; pnl_30d_sol: number; pnl_7d_usd: number | null; pnl_30d_usd: number | null;
-    closed_30d: number; win_rate_30d: number | null; copy_pnl: number; copy_closed: number;
+    closed_30d: number; win_rate_30d: number | null; copy_pnl: number; copy_closed: number; lead_n: number | null; lead_median_6h: number | null;
   }[];
 
   const inputs: WeightInput[] = rows.map((r) => ({
     // USD at settlement; a wallet with no USD-valued trades falls back to SOL × today's price.
     address: r.address, tier: r.tier, pnl7: r.pnl_7d_usd ?? r.pnl_7d_sol * solNow, pnl30: r.pnl_30d_usd ?? r.pnl_30d_sol * solNow, closed30: r.closed_30d, winRate30: r.win_rate_30d,
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
+    leadN: r.lead_n ?? 0, leadMedian6h: r.lead_median_6h,
   }));
   const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven });
 

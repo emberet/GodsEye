@@ -29,6 +29,7 @@ export function missingHostedSetup(): NextResponse | null {
 /** Empty-but-valid answers for feeds GodsEye hasn't published yet. */
 const EMPTY: Partial<Record<FeedKey, unknown>> = {
   wallets: [], groups: [], logs: [], rugchecks: [], live: [],
+  smart: { activeWallets: 0, droppedWallets: 0, flows: [], signals: [], scorecard: [], wallets: [], trades24h: 0 },
   copies: { open: [], closed: [], trades: [] },
   leaders: { leaders: [], changes: [], budgetSol: 0 },
 };

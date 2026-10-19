@@ -94,6 +94,11 @@ export class LiveBook {
     return [...this.wallets.values()].filter((w) => !w.promoted && w.pnlUsd >= minPnlUsd && w.closed >= minClosed && w.wins / Math.max(1, w.closed) >= 0.5);
   }
 
+  /** Wallets winning big right now (smart-money candidates from the stream alone). */
+  smartCandidates(minPnlUsd: number, minClosed: number, minWinRate: number): LiveWallet[] {
+    return [...this.wallets.values()].filter((w) => w.pnlUsd >= minPnlUsd && w.closed >= minClosed && w.wins / w.closed >= minWinRate);
+  }
+
   /** Forget idle wallets; if still over the cap, drop the least active. */
   evict(now = Date.now()): number {
     let n = 0;

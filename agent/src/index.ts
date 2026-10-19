@@ -121,6 +121,13 @@ async function main() {
     setMeta(db, "stats_version", STATS_VERSION);
   }
   if (live) {
+    // Smart money: who counts (every 5 min) and what their trades did next (every 5 min).
+    live.smart.refresh();
+    cron.schedule("*/5 * * * *", () => void job("smart money", async () => {
+      const n = live.smart.evaluate();
+      live.smart.refresh();
+      if (n) say("learn", `Smart money: measured ${n} price moves after smart trades and signals.`);
+    }), opts);
     live.start();
     cron.schedule("17 3 * * *", () => live.prune(), opts);
   }

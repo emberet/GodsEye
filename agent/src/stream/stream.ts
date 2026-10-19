@@ -8,6 +8,7 @@
  *   • a tracked wallet → stored in wallet_swaps, so its stats stay current
  *   • every wallet     → the live book: live P&L (USD at settlement) and AI/human score; wallets
  *                        making real money get promoted to full analysis
+ *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
  * Reconnects on its own with backoff.
  */
 import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
@@ -22,6 +23,7 @@ import { addWallet } from "../discovery/discover";
 import type { LeaderWatcher } from "../copy/watcher";
 import { convertGrpcTx, type GrpcTxInfo } from "./convert";
 import { LiveBook } from "./live-book";
+import { SmartMoney } from "../smart/smart-money";
 
 const PING_MS = 10_000;
 const FLUSH_MS = 15_000;
@@ -47,11 +49,14 @@ export class LiveStream {
   private retryMs = 1_000;
   private stopped = false;
   private timers: NodeJS.Timeout[] = [];
+  readonly smart: SmartMoney;
 
   constructor(
     private db: DB,
     private watcher: LeaderWatcher,
-  ) {}
+  ) {
+    this.smart = new SmartMoney(db, this.book);
+  }
 
   /** Re-read which wallets are in the database (call after discovery / promotion). */
   refreshTracked(): void {
@@ -137,7 +142,10 @@ export class LiveStream {
       const swaps = parseSwaps(conv.tx, signer, { solUsdAt });
       if (!swaps.length) continue;
       this.stats.swaps += swaps.length;
-      for (const swap of swaps) this.book.record(swap, now);
+      for (const swap of swaps) {
+        this.book.record(swap, now);
+        this.smart.onSwap(swap, now);
+      }
       if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, conv.tx, now);
       else if (this.tracked.has(signer)) this.pendingSwaps.push(...swaps);
     }
@@ -152,6 +160,7 @@ export class LiveStream {
         const touch = this.db.prepare("UPDATE wallets SET last_activity_at = MAX(COALESCE(last_activity_at, ''), ?) WHERE address = ?");
         this.db.transaction(() => batch.forEach((s) => touch.run(s.ts, s.wallet)))();
       }
+      this.smart.flush();
       this.book.rescore();
       const dirty = this.book.takeDirty();
       const up = this.db.prepare(

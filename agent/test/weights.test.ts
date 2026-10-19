@@ -77,3 +77,17 @@ test("a copied wallet that becomes a lucky streak is dropped at once", () => {
   assert.equal(w.get("a")!.weight, 0);
   assert.equal(w.get("b")!.weight, 1);
 });
+
+test("learned lead score scales copy weight: wallets whose buys lead price get more", () => {
+  const w = computeWeights(
+    [
+      { ...base, address: "leads", leadN: 20, leadMedian6h: 40 },
+      { ...base, address: "plain" },
+      { ...base, address: "tops", leadN: 20, leadMedian6h: -30 },
+    ],
+    cfg,
+  );
+  assert.ok(w.get("leads")!.weight > w.get("plain")!.weight);
+  assert.ok(w.get("plain")!.weight > w.get("tops")!.weight);
+  assert.match(w.get("leads")!.reason, /its buys move \+40% in 6h/);
+});

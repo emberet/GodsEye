@@ -3,9 +3,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 
-/** Four sections; each one's sub-pages are linked from inside it. */
+/** Five sections; each one's sub-pages are linked from inside it. */
 export const NAV = [
   { href: "/", label: "Home", match: ["/"] },
+  { href: "/smart", label: "Smart money", match: ["/smart"] },
   { href: "/stream", label: "Live", match: ["/stream"] },
   { href: "/wallets", label: "Wallets", match: ["/wallets", "/groups"] },
   { href: "/copies", label: "Copying", match: ["/copies", "/leaders", "/performance", "/proof"] },

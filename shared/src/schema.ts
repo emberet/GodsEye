@@ -263,4 +263,68 @@ CREATE TABLE IF NOT EXISTS sol_price_hourly (
   hour INTEGER PRIMARY KEY,
   usd REAL NOT NULL
 );
+
+-- SMART MONEY (see agent/src/smart/): wallets GodsEye currently treats as smart money
+CREATE TABLE IF NOT EXISTS smart_wallets (
+  address TEXT PRIMARY KEY,
+  -- analyzed (proven track record) or live (winning big on the stream right now)
+  source TEXT NOT NULL,
+  pnl_usd REAL,
+  closed INTEGER,
+  win_rate REAL,
+  -- what its buys did next: how many were measured, share up after 6h, median 6h return (%)
+  lead_n INTEGER NOT NULL DEFAULT 0,
+  lead_hit_rate REAL,
+  lead_median_6h REAL,
+  -- 1 = currently counted as smart; 0 = dropped (reason says why)
+  active INTEGER NOT NULL DEFAULT 1,
+  reason TEXT,
+  updated_at TEXT NOT NULL
+);
+
+-- Every memecoin trade a smart wallet made (from the live stream), and what the price did next
+CREATE TABLE IF NOT EXISTS smart_flows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  signature TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  wallet TEXT NOT NULL,
+  mint TEXT NOT NULL,
+  side TEXT NOT NULL CHECK (side IN ('buy','sell')),
+  usd REAL,
+  price_usd REAL,
+  ret_1h REAL,
+  ret_6h REAL,
+  ret_24h REAL,
+  -- bits: 1 = 1h checked, 2 = 6h checked, 4 = 24h checked (a return can stay null if the price was unknown)
+  checked INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (signature, wallet, mint)
+);
+CREATE INDEX IF NOT EXISTS idx_smart_flows_mint_ts ON smart_flows(mint, ts);
+CREATE INDEX IF NOT EXISTS idx_smart_flows_wallet_ts ON smart_flows(wallet, ts);
+
+-- "Smart money is moving": several smart wallets buying (or dumping) the same token within an hour
+CREATE TABLE IF NOT EXISTS smart_signals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts TEXT NOT NULL,
+  mint TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('accumulate','exit')),
+  wallets TEXT NOT NULL,
+  wallet_count INTEGER NOT NULL,
+  usd REAL NOT NULL,
+  price_usd REAL,
+  token_age_min REAL,
+  ret_1h REAL,
+  ret_6h REAL,
+  ret_24h REAL,
+  checked INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_smart_signals_ts ON smart_signals(ts);
+
+-- Latest USD price seen on the stream for tokens smart money touched
+CREATE TABLE IF NOT EXISTS token_prices (
+  mint TEXT PRIMARY KEY,
+  price_usd REAL NOT NULL,
+  ts TEXT NOT NULL,
+  first_seen_at TEXT NOT NULL
+);
 `;

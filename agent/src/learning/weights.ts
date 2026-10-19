@@ -31,6 +31,9 @@ export interface WeightInput {
   copyPnl14: number;
   copyClosed14: number;
   oldWeight: number;
+  /** What this wallet's buys did next (from smart-money tracking): measured buys and median 6-hour move (%). */
+  leadN?: number;
+  leadMedian6h?: number | null;
 }
 
 export interface WeightResult {
@@ -66,6 +69,12 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number; minClos
   if (w.isFresh) {
     score *= 0.5;
     notes.push("fresh wallet (half weight)");
+  }
+  // Learned: does the price go up after this wallet buys? Scale 0.5× (buys tops) … 1.5× (leads moves).
+  if ((w.leadN ?? 0) >= 10 && w.leadMedian6h !== null && w.leadMedian6h !== undefined) {
+    const factor = clamp(1 + w.leadMedian6h / 100, 0.5, 1.5);
+    score *= factor;
+    notes.push(`its buys move ${w.leadMedian6h >= 0 ? "+" : ""}${Math.round(w.leadMedian6h)}% in 6h (median of ${w.leadN})`);
   }
   return { weight: score, reason: notes.join(", ") };
 }

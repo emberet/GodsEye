@@ -37,6 +37,20 @@ export const config = {
   /** Keep wallet_activity rows for wallets seen in the last this-many days. */
   activityRetentionDays: envNum("ACTIVITY_RETENTION_DAYS", 30),
 
+  // ---- Smart money (see src/smart/) ----
+  /** A wallet winning on the stream counts as smart money from this realized profit (USD)… */
+  smartLiveMinPnlUsd: envNum("SMART_LIVE_MIN_PNL_USD", 250),
+  /** …over at least this many closed trades, with ≥ 55% wins. */
+  smartLiveMinClosed: envNum("SMART_LIVE_MIN_CLOSED", 5),
+  /** A signal fires when this many smart wallets buy (or dump) the same token… */
+  smartSignalWallets: envNum("SMART_SIGNAL_WALLETS", 3),
+  /** …within this many minutes… */
+  smartSignalWindowMinutes: envNum("SMART_SIGNAL_WINDOW_MINUTES", 60),
+  /** …for at least this much USD in total. */
+  smartSignalMinUsd: envNum("SMART_SIGNAL_MIN_USD", 500),
+  /** A wallet whose buys have this median 6-hour return (%) or worse, over ≥ 10 measured buys, stops counting as smart. */
+  smartDropMedianRet6h: envNum("SMART_DROP_MEDIAN_RET_6H", -15),
+
   // ---- Discovery: finding wallets worth watching ----
   discoverCron: envStr("DISCOVER_CRON", "*/30 * * * *"),
   /** How many of Solana's busiest pools to read recent trades from. */

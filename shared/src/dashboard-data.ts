@@ -10,6 +10,7 @@ import { HEARTBEAT_STALE_MINUTES, TIERS, WALLET_KINDS, type Tier, type WalletKin
 import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
+  SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
   Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
 } from "./dashboard-types";
@@ -291,6 +292,71 @@ export function getRugChecks(d: DB): RugCheckEntry[] {
   return rows.map((r) => ({ ...r, blocks: JSON.parse(r.blocks) as string[], warnings: JSON.parse(r.warnings) as string[] }));
 }
 
+const median = (xs: number[]): number | null => {
+  if (!xs.length) return null;
+  const v = [...xs].sort((a, b) => a - b);
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+
+/** Where smart money is moving, the signals it produced, and how well they worked. */
+export function getSmartMoney(d: DB): SmartMoneyData {
+  const h1 = new Date(Date.now() - 3_600_000).toISOString();
+  const h24 = new Date(Date.now() - 86_400_000).toISOString();
+  const flows = d
+    .prepare(
+      `SELECT f.mint, t.symbol,
+              COALESCE(SUM(CASE WHEN f.side='buy' AND f.ts >= ? THEN f.usd END), 0) buy_usd_1h,
+              COALESCE(SUM(CASE WHEN f.side='sell' AND f.ts >= ? THEN f.usd END), 0) sell_usd_1h,
+              COALESCE(SUM(CASE WHEN f.side='buy' THEN f.usd END), 0) buy_usd_24h,
+              COALESCE(SUM(CASE WHEN f.side='sell' THEN f.usd END), 0) sell_usd_24h,
+              COUNT(DISTINCT CASE WHEN f.side='buy' THEN f.wallet END) buyers_24h,
+              COUNT(DISTINCT CASE WHEN f.side='sell' THEN f.wallet END) sellers_24h,
+              MIN(CASE WHEN f.side='buy' THEN f.ts END) first_smart_buy_at,
+              MAX(f.ts) last_trade_at,
+              (SELECT f2.price_usd FROM smart_flows f2 WHERE f2.mint = f.mint AND f2.side='buy' AND f2.ts >= ? AND f2.price_usd IS NOT NULL ORDER BY f2.ts LIMIT 1) first_price,
+              p.price_usd now_price
+         FROM smart_flows f LEFT JOIN token_info t ON t.mint = f.mint LEFT JOIN token_prices p ON p.mint = f.mint
+        WHERE f.ts >= ?
+        GROUP BY f.mint
+        ORDER BY (buy_usd_24h - sell_usd_24h) DESC
+        LIMIT 40`,
+    )
+    .all(h1, h1, h24, h24) as (SmartFlowRow & { first_price: number | null; now_price: number | null })[];
+  const signals = d
+    .prepare(
+      `SELECT s.id, s.ts, s.mint, t.symbol, s.kind, s.wallet_count, s.usd, s.token_age_min, s.ret_1h, s.ret_6h, s.ret_24h
+         FROM smart_signals s LEFT JOIN token_info t ON t.mint = s.mint ORDER BY s.ts DESC LIMIT 60`,
+    )
+    .all() as SmartSignalRow[];
+  const all = d.prepare("SELECT kind, ret_1h, ret_6h, ret_24h, checked FROM smart_signals").all() as { kind: "accumulate" | "exit"; ret_1h: number | null; ret_6h: number | null; ret_24h: number | null; checked: number }[];
+  const scorecard: SignalScore[] = [];
+  for (const kind of ["accumulate", "exit"] as const) {
+    for (const [horizon, col] of [["1h", "ret_1h"], ["6h", "ret_6h"], ["24h", "ret_24h"]] as const) {
+      const of = all.filter((r) => r.kind === kind);
+      const rets = of.map((r) => r[col]).filter((x): x is number => x !== null);
+      const right = rets.filter((r) => (kind === "accumulate" ? r > 0 : r < 0)).length;
+      scorecard.push({ kind, horizon, signals: of.length, measured: rets.length, hit_rate: rets.length ? right / rets.length : null, median_ret: median(rets) });
+    }
+  }
+  const wallets = d
+    .prepare(
+      `SELECT sw.*, w.tier, w.kind FROM smart_wallets sw LEFT JOIN wallets w ON w.address = sw.address
+        ORDER BY sw.active DESC, sw.lead_n >= 10 DESC, sw.lead_median_6h DESC, sw.pnl_usd DESC LIMIT 100`,
+    )
+    .all() as SmartWalletRow[];
+  const counts = d.prepare("SELECT SUM(active = 1) a, SUM(active = 0 AND reason LIKE 'its buys%') dr FROM smart_wallets").get() as { a: number | null; dr: number | null };
+  return {
+    activeWallets: counts.a ?? 0,
+    droppedWallets: counts.dr ?? 0,
+    flows: flows.map(({ first_price, now_price, ...f }) => ({ ...f, change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null })),
+    signals,
+    scorecard,
+    wallets,
+    trades24h: (d.prepare("SELECT COUNT(*) n FROM smart_flows WHERE ts >= ?").get(h24) as { n: number }).n,
+  };
+}
+
 /** How many proof-ledger entries a published copy keeps (newest first). */
 export const SNAPSHOT_PROOF_ENTRIES = 500;
 /** How many wallet rows a published copy keeps. */
@@ -309,5 +375,6 @@ export function buildDashboardSnapshot(d: DB): Record<string, unknown> {
     logs: getLogs(d, 40),
     rugchecks: getRugChecks(d),
     live: getLiveWallets(d, { sort: "pnl", limit: 2000 }),
+    smart: getSmartMoney(d),
   };
 }
