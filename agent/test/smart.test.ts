@@ -81,3 +81,39 @@ test("learning: a wallet whose buys keep dropping stops counting as smart money"
   assert.equal(row.lead_n, 12);
   assert.match(row.reason, /follows, doesn't lead/);
 });
+
+test("non-memecoins never count as smart money: skipped when known, purged once named", () => {
+  const db = openDb(":memory:");
+  const now = new Date().toISOString();
+  for (const w of ["A", "B", "C"]) {
+    db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier) VALUES (?, ?, 'test', 'proven')").run(w, now);
+    db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_30d_usd, closed_7d, closed_30d, wins_30d, win_rate_30d) VALUES (?, ?, 40, 10, 40, 1, 5, 5, 500, 5, 20, 12, 0.6)").run(w, now);
+  }
+  const named = (mint: string, symbol: string) => db.prepare("INSERT INTO token_info (mint, symbol, checked_at) VALUES (?, ?, ?)").run(mint, symbol, now);
+  const sm = new SmartMoney(db, null);
+  sm.refresh();
+  const on = (wallet: string, mint: string, i: number) => sm.onSwap({ ...swap(wallet, "buy", 300, 1, i), mint }, T + i * 60_000);
+
+  // Already known as a tokenized stock → never recorded, no signal
+  named("AVGO", "AVGOx");
+  on("A", "AVGO", 0);
+  on("B", "AVGO", 1);
+  on("C", "AVGO", 2);
+  // Not named yet when bought, turns out to be wrapped Monero
+  on("A", "WXMR", 3);
+  on("B", "WXMR", 4);
+  on("C", "WXMR", 5);
+  // A real memecoin
+  on("A", "MEME", 6);
+  sm.flush(T + 6 * 60_000);
+  const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+  assert.equal(count("SELECT COUNT(*) n FROM smart_flows WHERE mint = 'AVGO'"), 0);
+  assert.equal(count("SELECT COUNT(*) n FROM smart_flows WHERE mint = 'WXMR'"), 3);
+  assert.equal(count("SELECT COUNT(*) n FROM smart_signals WHERE mint = 'WXMR'"), 1);
+
+  named("WXMR", "wXMR");
+  sm.refresh();
+  assert.equal(count("SELECT COUNT(*) n FROM smart_flows WHERE mint = 'WXMR'"), 0);
+  assert.equal(count("SELECT COUNT(*) n FROM smart_signals"), 0);
+  assert.equal(count("SELECT COUNT(*) n FROM smart_flows WHERE mint = 'MEME'"), 1);
+});

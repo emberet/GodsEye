@@ -55,7 +55,7 @@ export class LiveStream {
     private db: DB,
     private watcher: LeaderWatcher,
   ) {
-    this.smart = new SmartMoney(db, this.book);
+    this.smart = new SmartMoney(db, this.book, { lookupNames: true });
   }
 
   /** Re-read which wallets are in the database (call after discovery / promotion). */

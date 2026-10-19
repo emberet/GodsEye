@@ -17,6 +17,6 @@ test("discovery reads memecoin/SOL and memecoin/memecoin pools only", () => {
 
 test("tokenized stocks and bridged majors aren't memecoins", async () => {
   const { isNonMemecoinSymbol } = await import("@godseye/shared");
-  for (const s of ["COINx", "SPYx", "NVDAx", "ZEC", "wXMR", "$JUP"]) assert.equal(isNonMemecoinSymbol(s), true, s);
-  for (const s of ["BONK", "PUMP", "TRUMP", "Fartcoin", "CLAUDIA", "useless"]) assert.equal(isNonMemecoinSymbol(s), false, s);
+  for (const s of ["COINx", "SPYx", "NVDAx", "AVGOx", "MCDx", "ZEC", "wXMR", "wSUI", "WAPT", "$JUP"]) assert.equal(isNonMemecoinSymbol(s), true, s);
+  for (const s of ["BONK", "PUMP", "TRUMP", "Fartcoin", "CLAUDIA", "useless", "WIF", "WEN", "Mimi"]) assert.equal(isNonMemecoinSymbol(s), false, s);
 });

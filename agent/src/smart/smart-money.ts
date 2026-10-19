@@ -9,6 +9,8 @@
  *          over ≥ SMART_LIVE_MIN_CLOSED closed trades, win rate ≥ the follow bar + 5 points
  *      …minus wallets whose buys tend to go down afterwards (learned, see 3).
  *   2. Every memecoin trade a smart wallet makes on the live stream is recorded (smart_flows).
+ *      Non-memecoins (stablecoins, majors, wrapped/bridged tokens, tokenized stocks) are left out:
+ *      skipped on arrival when already known, and purged once a new token's name shows what it is.
  *      When SMART_SIGNAL_WALLETS (3) smart wallets buy the same token within
  *      SMART_SIGNAL_WINDOW_MINUTES (60) for ≥ SMART_SIGNAL_MIN_USD, that's an "accumulate"
  *      signal; the same for selling is an "exit" signal.
@@ -19,12 +21,12 @@
  * Prices come from the stream itself: the USD value of each swap ÷ tokens, for every memecoin
  * traded, so no extra API calls are needed.
  */
-import { type DB, nowIso, setMeta } from "@godseye/shared";
+import { type DB, isNonMemecoin, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say } from "../log";
 import type { ParsedSwap } from "../chain/parse";
 import type { LiveBook } from "../stream/live-book";
-import { symbolOf, tokenInfo } from "../market/tokens";
+import { cachedTokenInfo, symbolOf, tokenInfo } from "../market/tokens";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "../learning/adaptive";
 
 export const HORIZONS = [
@@ -87,10 +89,14 @@ export class SmartMoney {
   private recent = new Map<string, FlowEvent[]>();
   private lastSignal = new Map<string, number>();
   private pending: { s: ParsedSwap; priceUsd: number | null; winRate: number }[] = [];
+  /** Tokens whose name has been asked for, so each is looked up once. */
+  private named = new Set<string>();
 
   constructor(
     private db: DB,
     private book: LiveBook | null,
+    /** Look up names of new tokens (needed to spot non-memecoins). Off in tests: no network. */
+    private opts: { lookupNames?: boolean } = {},
   ) {
     for (const r of db.prepare("SELECT mint, MAX(ts) ts, kind FROM smart_signals GROUP BY mint, kind").all() as { mint: string; ts: string; kind: string }[]) {
       this.lastSignal.set(`${r.kind}:${r.mint}`, Date.parse(r.ts));
@@ -113,6 +119,7 @@ export class SmartMoney {
       this.prices.set(s.mint, { usd: priceUsd, ts: now, firstSeen: p?.firstSeen ?? now });
     }
     if (!this.smart.has(s.wallet)) return;
+    if (this.notMeme(s.mint)) return;
     this.watched.set(s.mint, now);
     this.pending.push({ s, priceUsd, winRate: this.smart.get(s.wallet)!.winRate });
     if (s.usdAmount === null) return;
@@ -137,6 +144,13 @@ export class SmartMoney {
   /** Save recorded smart trades and the prices needed to measure them. */
   flush(now = Date.now()): void {
     const batch = this.pending.splice(0);
+    if (this.opts.lookupNames) {
+      for (const { s } of batch) {
+        if (this.named.has(s.mint) || cachedTokenInfo(this.db, s.mint)) continue;
+        this.named.add(s.mint);
+        void tokenInfo(this.db, s.mint).catch(() => null);
+      }
+    }
     const ins = this.db.prepare("INSERT OR IGNORE INTO smart_flows (signature, ts, wallet, mint, side, usd, price_usd, wallet_win_rate) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const px = this.db.prepare(
       `INSERT INTO token_prices (mint, price_usd, ts, first_seen_at) VALUES (?, ?, ?, ?)
@@ -181,6 +195,38 @@ export class SmartMoney {
     return measured;
   }
 
+  private notMeme(mint: string): boolean {
+    return isNonMemecoin(mint, cachedTokenInfo(this.db, mint)?.symbol);
+  }
+
+  /** Delete recorded smart trades and signals on tokens that turned out not to be memecoins. */
+  purgeNonMemecoins(): { flows: number; signals: number } {
+    const all = (this.db.prepare("SELECT DISTINCT mint FROM smart_flows UNION SELECT DISTINCT mint FROM smart_signals").all() as { mint: string }[]).map((r) => r.mint);
+    // Tokens recorded before their name was known: look them up so the next pass can judge them.
+    if (this.opts.lookupNames) {
+      for (const m of all) {
+        if (this.named.has(m) || cachedTokenInfo(this.db, m)) continue;
+        this.named.add(m);
+        void tokenInfo(this.db, m).catch(() => null);
+      }
+    }
+    const mints = all.filter((m) => this.notMeme(m));
+    let flows = 0;
+    let signals = 0;
+    const delF = this.db.prepare("DELETE FROM smart_flows WHERE mint = ?");
+    const delS = this.db.prepare("DELETE FROM smart_signals WHERE mint = ?");
+    this.db.transaction(() => {
+      for (const m of mints) {
+        flows += delF.run(m).changes;
+        signals += delS.run(m).changes;
+        this.recent.delete(m);
+        this.watched.delete(m);
+      }
+    })();
+    if (flows || signals) say("learn", `Smart money: removed ${flows} trade${flows === 1 ? "" : "s"} and ${signals} signal${signals === 1 ? "" : "s"} on tokens that aren't memecoins (${mints.map((m) => symbolOf(this.db, m)).join(", ")}).`);
+    return { flows, signals };
+  }
+
   private dbPrice(mint: string): Price | null {
     const r = this.db.prepare("SELECT price_usd, ts, first_seen_at FROM token_prices WHERE mint = ?").get(mint) as { price_usd: number; ts: string; first_seen_at: string } | undefined;
     return r ? { usd: r.price_usd, ts: Date.parse(r.ts), firstSeen: Date.parse(r.first_seen_at) } : null;
@@ -188,6 +234,7 @@ export class SmartMoney {
 
   /** Recompute who counts as smart money, with each wallet's learned lead score. */
   refresh(): { active: number; dropped: number } {
+    this.purgeNonMemecoins();
     const ts = nowIso();
     // The win-rate bar is learned (learning/adaptive.ts), not fixed.
     const bar = getParam(this.db, FOLLOW_MIN_WIN_RATE, config.followWinRateStart);

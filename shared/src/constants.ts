@@ -43,11 +43,17 @@ export const NON_MEMECOIN_MINTS = new Set([
 
 /**
  * True if a token's symbol says it isn't a memecoin: listed majors/stablecoins/bridged tokens,
- * or a tokenized stock (xStocks style: COINx, SPYx, NVDAx…).
+ * a wrapped copy of one (wXMR, wSUI, WAPT…), or a tokenized stock (xStocks style: COINx, SPYx, NVDAx…).
  */
 export function isNonMemecoinSymbol(symbol: string): boolean {
   const s = symbol.replace(/^\$/, "");
-  return NON_MEMECOIN_SYMBOLS.has(s.toUpperCase()) || /^[A-Z]{1,5}x$/.test(s);
+  const up = s.toUpperCase();
+  return NON_MEMECOIN_SYMBOLS.has(up) || (up.length > 2 && up.startsWith("W") && NON_MEMECOIN_SYMBOLS.has(up.slice(1))) || /^[A-Z]{1,5}x$/.test(s);
+}
+
+/** True if this token is known not to be a memecoin (by address, or by its symbol once known). */
+export function isNonMemecoin(mint: string, symbol: string | null | undefined): boolean {
+  return NON_MEMECOIN_MINTS.has(mint) || (!!symbol && isNonMemecoinSymbol(symbol));
 }
 
 /** Symbols of non-memecoins: a safety net for tokens missing from NON_MEMECOIN_MINTS (also used to pick discovery pools). */
