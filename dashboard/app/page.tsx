@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowUpRight, TrendingDown, TrendingUp } from "lucide-react";
 import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import { TopAlert } from "@/components/alert";
+import { Logo } from "@/components/logo";
 import { Empty } from "@/components/window";
 import { Stat, Stats } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
@@ -35,9 +36,13 @@ export default function Home() {
       {error && !s && <p className="card text-sm text-loss" role="alert">No data yet: {error}</p>}
 
       <section className="flex flex-wrap items-center gap-x-6 gap-y-5">
-        <div className="flex min-w-0 flex-1 basis-[340px] items-center gap-2 rounded-[28px] pr-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/img/eye.png" alt="" width={120} height={120} className="h-24 w-24 shrink-0 object-contain sm:h-[120px] sm:w-[120px]" />
+        <div className="flex min-w-0 flex-1 basis-[340px] items-center gap-4 rounded-[28px] pr-4">
+          <span className="hidden sm:block">
+            <Logo size={112} />
+          </span>
+          <span className="sm:hidden">
+            <Logo size={84} />
+          </span>
           <div className="min-w-0">
             <p className="k">{s?.live ? "Watching live" : "Not running"} · {s?.copyMode === "real" ? "real money" : "paper trading"}</p>
             <p className="mt-1 text-lg font-medium leading-snug sm:text-xl">
