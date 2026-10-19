@@ -30,7 +30,7 @@ export function openDb(file = dbFilePath()): DB {
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallets: { tx_per_hour: "REAL", history_from: "TEXT", history_oldest_sig: "TEXT", history_tx_read: "INTEGER NOT NULL DEFAULT 0", history_done: "INTEGER NOT NULL DEFAULT 0" },
   wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL" },
-  token_info: { pool_address: "TEXT" },
+  token_info: { pool_address: "TEXT", launch_checked_at: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL" },
   positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL" },
   wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
@@ -55,6 +55,8 @@ const AFTER_ADDING: Record<string, string> = {
     UPDATE wallets SET weight_reason = REPLACE(weight_reason, ' closed trades in 30 days', ' closed trades seen so far') WHERE weight_reason IS NOT NULL`,
   // Wallets studied before history was read by days had at most 300 transactions read: deepen them from there.
   "wallets.history_done": "UPDATE wallets SET history_tx_read = 300 WHERE last_analyzed_at IS NOT NULL",
+  // Every token row so far came from a GeckoTerminal launch lookup (names now come from Shyft separately).
+  "token_info.launch_checked_at": "UPDATE token_info SET launch_checked_at = checked_at",
   "token_info.pool_address":
     "DELETE FROM wallet_evidence WHERE kind = 'sold_before_crash'; UPDATE wallets SET last_analyzed_at = '2000-01-01T00:00:00.000Z' WHERE tier = 'insider'",
 };

@@ -15,7 +15,7 @@ import { say, short } from "../log";
 import { readWalletHistory } from "../chain/history";
 import { rpcCallsSoFar } from "../chain/rpc-budget";
 import type { ParsedSwap } from "../chain/parse";
-import { cachedTokenInfo, tokenInfo } from "../market/tokens";
+import { cachedTokenInfo, launchDue, tokenInfo } from "../market/tokens";
 import { getPrices } from "../market/prices";
 import { classify } from "./classifier";
 import { computeStats, realize, type SwapLite } from "./pnl";
@@ -34,6 +34,17 @@ interface WalletRowDb {
   last_signature: string | null;
   last_analyzed_at: string | null;
   tx_per_hour: number | null;
+}
+
+/** Where an analysis run's time goes (milliseconds), reset at the start of each run. */
+const runTime = { history: 0, launches: 0, creators: 0, crashes: 0 };
+async function timed<T>(key: keyof typeof runTime, fn: () => Promise<T>): Promise<T> {
+  const t = Date.now();
+  try {
+    return await fn();
+  } finally {
+    runTime[key] += Date.now() - t;
+  }
 }
 
 /** How many token launch lookups one analysis run may make (GeckoTerminal is rate-limited). */
@@ -65,9 +76,10 @@ async function fillTokenAges(db: DB, wallet: string, budget: { left: number }): 
     .all(wallet) as { mint: string }[];
   for (const { mint } of missing) {
     let info = cachedTokenInfo(db, mint);
-    if (!info && budget.left > 0) {
+    // A name may already be cached (from Shyft) without the launch time: that's what's needed here.
+    if (!info?.pool_created_at && launchDue(info) && budget.left > 0) {
       budget.left--;
-      info = await tokenInfo(db, mint).catch(() => null);
+      info = await tokenInfo(db, mint, { launch: true }).catch(() => null);
     }
     if (info?.pool_created_at) {
       db.prepare(
@@ -123,13 +135,13 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   const now = Date.now();
 
   // 1–2) New transactions (+ origin on first look)
-  const h = await readWalletHistory(address, {
+  const h = await timed("history", () => readWalletHistory(address, {
     sinceSignature: row.last_signature,
     limit: firstLook ? config.historyTxLimit : 1000,
     findOrigin: firstLook,
     // First look: the last HISTORY_DAYS days, capped at HISTORY_TX_LIMIT transactions.
     sinceMs: firstLook ? now - config.historyDays * 86_400_000 : undefined,
-  });
+  }));
   insertSwaps(db, h.swaps);
   let { funder, chain_created_at: createdAt, is_fresh: isFresh } = row;
   let lowerBound = 0;
@@ -146,7 +158,7 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   }
 
   // 3) How early it buys
-  await fillTokenAges(db, address, budget);
+  await timed("launches", () => fillTokenAges(db, address, budget));
 
   // 4) Performance
   const { swaps, r, stats } = recomputeStats(db, address, now);
@@ -162,7 +174,7 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   const creatorLinks: TierInput["creatorLinks"] = [];
   const earlyMints = [...new Set(swaps.filter((s) => s.side === "buy" && s.token_age_sec !== null && s.token_age_sec <= config.earlyBuySeconds).map((s) => s.mint))];
   for (const mint of earlyMints.slice(0, CREATOR_LOOKUPS_PER_WALLET)) {
-    const info = await tokenInfo(db, mint, { creator: true }).catch(() => null);
+    const info = await timed("creators", () => tokenInfo(db, mint, { creator: true })).catch(() => null);
     if (!info?.creator) continue;
     const firstBuy = swaps.find((s) => s.mint === mint && s.side === "buy")!;
     if (info.creator === address) creatorLinks.push({ mint, symbol: sym(mint), relation: "is_creator", signature: firstBuy.signature, ts: firstBuy.ts });
@@ -173,7 +185,7 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   const crashExits: TierInput["crashExits"] = [];
   const exits = r.closed.filter((c) => c.pnlSol > 0 && now - Date.parse(c.closedAt) < 30 * 86_400_000).reverse();
   for (const c of exits) {
-    const j = await checkExit(db, { mint: c.mint, signature: c.lastSellSignature, ts: c.closedAt, sellPriceSol: c.lastSellPriceSol }, config, crashBudget);
+    const j = await timed("crashes", () => checkExit(db, { mint: c.mint, signature: c.lastSellSignature, ts: c.closedAt, sellPriceSol: c.lastSellPriceSol }, config, crashBudget));
     if (isCrashExit(j ?? null, config)) crashExits.push({ mint: c.mint, symbol: sym(c.mint), dropPct: j!.dropPct, minutesToLow: j!.minutesToLow, signature: c.lastSellSignature, ts: c.closedAt });
   }
 
@@ -234,7 +246,7 @@ export async function deepenHistory(db: DB, address: string, now = Date.now()): 
     db.prepare("UPDATE wallets SET history_done = 1 WHERE address = ?").run(address);
     return 0;
   }
-  const h = await readWalletHistory(address, { sinceSignature: null, before, limit: left, findOrigin: false, sinceMs: now - config.historyDays * 86_400_000 });
+  const h = await timed("history", () => readWalletHistory(address, { sinceSignature: null, before, limit: left, findOrigin: false, sinceMs: now - config.historyDays * 86_400_000 }));
   insertSwaps(db, h.swaps);
   db.prepare(
     `UPDATE wallets SET
@@ -251,6 +263,7 @@ export async function deepenHistory(db: DB, address: string, now = Date.now()): 
 export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise<number> {
   const callsBefore = rpcCallsSoFar();
   const startedAt = Date.now();
+  for (const k of Object.keys(runTime) as (keyof typeof runTime)[]) runTime[k] = 0;
   const staleBefore = new Date(Date.now() - config.reanalyzeMinutes * 60_000).toISOString();
   const rows = db
     .prepare(
@@ -300,7 +313,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     const secs = Math.max(1, (Date.now() - startedAt) / 1000);
     say(
       "info",
-      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec).`,
+      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.`,
     );
   }
   return done;

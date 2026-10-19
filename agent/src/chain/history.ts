@@ -88,21 +88,33 @@ async function pageSignatures(
   return { sigs: out, exhausted: false, reachedTime: false };
 }
 
+/** Batches of 20 kept in flight at once: Shyft takes ~5 s per batch of parsed transactions, so one at a time is far below RPC_MAX_RPS (the budget still sets the pace). */
+const BATCHES_IN_FLIGHT = 12;
+
 /** Fetch parsed transactions in small batches (falls back to one at a time if the RPC refuses batches). Metered. */
 export async function fetchParsed(signatures: string[]): Promise<(TxLike | null)[]> {
-  const out: (TxLike | null)[] = [];
-  for (let i = 0; i < signatures.length; i += 20) {
-    const chunk = signatures.slice(i, i + 20);
-    try {
-      out.push(...(await rpcBatch(chunk, true)));
-    } catch {
-      for (const sig of chunk) {
-        out.push(await rpcBatch([sig], true).then((r) => r[0]).catch(() => null));
-        await sleep(150);
+  const chunks: string[][] = [];
+  for (let i = 0; i < signatures.length; i += 20) chunks.push(signatures.slice(i, i + 20));
+  const results: (TxLike | null)[][] = new Array(chunks.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const i = next++;
+      const chunk = chunks[i];
+      try {
+        results[i] = await rpcBatch(chunk, true);
+      } catch {
+        const one: (TxLike | null)[] = [];
+        for (const sig of chunk) {
+          one.push(await rpcBatch([sig], true).then((r) => r[0]).catch(() => null));
+          await sleep(150);
+        }
+        results[i] = one;
       }
     }
-  }
-  return out;
+  };
+  await Promise.all(Array.from({ length: Math.min(BATCHES_IN_FLIGHT, chunks.length) }, worker));
+  return results.flat();
 }
 
 export async function fetchParsedOne(signature: string): Promise<TxLike | null> {

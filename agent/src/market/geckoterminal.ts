@@ -7,20 +7,48 @@
 import { fetchJson } from "../http";
 
 const BASE = "https://api.geckoterminal.com/api/v2";
-const MIN_GAP_MS = 6_500; // GeckoTerminal answers 429 well before its documented 30/min
-let queue: Promise<unknown> = Promise.resolve();
+const MIN_GAP_MS = Number(process.env.GT_MIN_GAP_MS ?? 6_500); // GeckoTerminal answers 429 well before its documented 30/min
 let last = 0;
+let running = false;
 
-/** All GeckoTerminal calls go through here, one at a time, ~27/minute max. */
-function gt<T>(path: string): Promise<T> {
-  const run = queue.then(async () => {
-    const wait = last + MIN_GAP_MS - Date.now();
-    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+/**
+ * Who goes first when several parts of GodsEye want GeckoTerminal at once:
+ *   high   — wallet analysis (token launch times, price candles): what the analysis run waits on
+ *   normal — discovery, price fallbacks, SOL's hourly prices
+ */
+export type GtPriority = "high" | "normal";
+const waiting: Record<GtPriority, (() => void)[]> = { high: [], normal: [] };
+
+function pump(): void {
+  if (running) return;
+  const next = waiting.high.shift() ?? waiting.normal.shift();
+  if (!next) return;
+  running = true;
+  const wait = Math.max(0, last + MIN_GAP_MS - Date.now());
+  setTimeout(() => {
     last = Date.now();
-    return fetchJson<T>(`${BASE}${path}`, { retries: 2 });
+    next();
+  }, wait);
+}
+
+/** Calls waiting for GeckoTerminal right now, by priority. */
+export function gtQueueLength(): { high: number; normal: number } {
+  return { high: waiting.high.length, normal: waiting.normal.length };
+}
+
+/** All GeckoTerminal calls go through here, one at a time, ~9/minute; higher priority first. */
+function gt<T>(path: string, priority: GtPriority = "normal"): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    waiting[priority].push(() => {
+      fetchJson<T>(`${BASE}${path}`, { retries: 2 })
+        .then(resolve, reject)
+        .finally(() => {
+          running = false;
+          pump();
+        });
+    });
+    pump();
   });
-  queue = run.catch(() => undefined);
-  return run;
 }
 
 type Windowed = { m5?: string; m15?: string; m30?: string; h1?: string; h6?: string; h24?: string };
@@ -175,8 +203,8 @@ export async function fetchPoolTrades(poolAddress: string, minUsd: number): Prom
 }
 
 /** When a token's first pool was created, its symbol, and its deepest pool (for price candles). */
-export async function fetchTokenLaunch(mint: string): Promise<{ symbol: string | null; poolCreatedAt: string | null; topPool: string | null }> {
-  const res = await gt<{ data: GtPool[] }>(`/networks/solana/tokens/${mint}/pools?page=1`);
+export async function fetchTokenLaunch(mint: string, priority: GtPriority = "high"): Promise<{ symbol: string | null; poolCreatedAt: string | null; topPool: string | null }> {
+  const res = await gt<{ data: GtPool[] }>(`/networks/solana/tokens/${mint}/pools?page=1`, priority);
   let earliest: string | null = null;
   let symbol: string | null = null;
   let topPool: string | null = null;
@@ -201,6 +229,7 @@ export type Candle = [number, number, number, number, number];
 export async function fetchCandles15m(poolAddress: string, beforeTimestamp: number, limit: number): Promise<Candle[]> {
   const res = await gt<{ data: { attributes: { ohlcv_list: number[][] } } }>(
     `/networks/solana/pools/${poolAddress}/ohlcv/minute?aggregate=15&limit=${limit}&currency=usd&before_timestamp=${beforeTimestamp}`,
+    "high",
   );
   return res.data.attributes.ohlcv_list.map((c) => [c[0], c[1], c[2], c[3], c[4]] as Candle).sort((a, b) => a[0] - b[0]);
 }

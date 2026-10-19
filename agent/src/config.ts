@@ -16,6 +16,8 @@ export const config = {
   // ---- API keys ----
   heliusApiKey: envStr("HELIUS_API_KEY"),
   solanaRpcUrl: envStr("SOLANA_RPC_URL"),
+  /** Shyft API key for token names (optional: taken from a Shyft SOLANA_RPC_URL otherwise). */
+  shyftApiKey: envStr("SHYFT_API_KEY"),
   solanaWsUrl: envStr("SOLANA_WS_URL"),
   birdeyeApiKey: envStr("BIRDEYE_API_KEY"),
   jupiterApiKey: envStr("JUPITER_API_KEY"),
@@ -77,11 +79,11 @@ export const config = {
   /** First look at a wallet: read back this many days of its transactions… */
   historyDays: envNum("HISTORY_DAYS", 7),
   /** …but at most this many transactions (busy bots trade thousands a day). Also caps later deepening. */
-  historyTxLimit: envNum("HISTORY_TX_LIMIT", 2000),
+  historyTxLimit: envNum("HISTORY_TX_LIMIT", 5000),
   /** Wallets studied before deeper history existed: how many to read further back per analysis run. */
-  historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 2),
+  historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 4),
   /** Steady cap on history RPC requests per second (each transaction in a batch counts). Keep well under your plan's limit. */
-  rpcMaxRps: envNum("RPC_MAX_RPS", 40),
+  rpcMaxRps: envNum("RPC_MAX_RPS", 60),
   /** Wallets younger than this many days count as "fresh". */
   freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
   /** Re-analyze a wallet at most this often (leaders are also updated live). */
