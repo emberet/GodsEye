@@ -1,37 +1,53 @@
 import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
 import { TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import type { Tier, WalletKind } from "@/lib/types";
 import { shortAddr, solscanAccount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const TIER_STYLE: Record<Tier, string> = {
-  insider: "border-fuchsia-400/50 bg-fuchsia-400/10 text-fuchsia-300",
-  lucky_streak: "border-amber/50 bg-amber/10 text-amber",
-  needs_attention: "border-orange-400/50 bg-orange-400/10 text-orange-300",
-  quitter: "border-border bg-transparent text-muted-foreground",
-  proven: "border-win/50 bg-win/10 text-win",
-  unrated: "border-border bg-muted text-muted-foreground",
+  proven: "bg-lilac text-ink",
+  insider: "bg-frame text-white",
+  lucky_streak: "bg-chip text-ink",
+  needs_attention: "bg-[#F1DCE3] text-loss",
+  quitter: "bg-transparent text-muted-foreground ring-1 ring-inset ring-chip",
+  unrated: "bg-chip text-muted-foreground",
 };
 
-const TIER_ICON: Record<Tier, string> = { insider: "🕵", lucky_streak: "🍀", needs_attention: "⚠", quitter: "💤", proven: "🏆", unrated: "·" };
+/** Avatar colour for a wallet, from its tier. */
+export const TIER_DOT: Record<Tier, string> = {
+  proven: "bg-lilac",
+  insider: "bg-frame text-white",
+  lucky_streak: "bg-chip",
+  needs_attention: "bg-[#F1DCE3]",
+  quitter: "bg-chip text-muted-foreground",
+  unrated: "bg-chip text-muted-foreground",
+};
 
 export function TierBadge({ tier, className }: { tier: Tier; className?: string }) {
   return (
-    <span title={TIER_DESCRIPTIONS[tier]} className={cn("inline-flex items-center gap-1 whitespace-nowrap border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider", TIER_STYLE[tier], className)}>
-      <span aria-hidden>{TIER_ICON[tier]}</span>
+    <span title={TIER_DESCRIPTIONS[tier]} className={cn("tag", TIER_STYLE[tier], className)}>
       {TIER_LABELS[tier]}
     </span>
   );
 }
 
+export const kindLabel = (kind: WalletKind) => (kind === "ai" ? "Bot" : kind === "human" ? "Human" : "Undecided");
+
 export function KindBadge({ kind, score, className }: { kind: WalletKind; score: number | null; className?: string }) {
-  const label = kind === "ai" ? "AI / bot" : kind === "human" ? "Human" : "Undecided";
-  const style = kind === "ai" ? "border-cyan-400/50 bg-cyan-400/10 text-cyan-300" : kind === "human" ? "border-sky-200/40 bg-sky-200/10 text-sky-100" : "border-border text-muted-foreground";
   return (
-    <span title={score === null ? "Not enough swaps to judge" : `AI score ${score}/100 (≥65 AI/bot, ≤35 human)`} className={cn("inline-flex items-center gap-1 whitespace-nowrap border px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wider", style, className)}>
-      <span aria-hidden>{kind === "ai" ? "🤖" : kind === "human" ? "🧑" : "?"}</span>
-      {label}
-      {score !== null && <span className="font-normal opacity-70 num">{Math.round(score)}</span>}
+    <span title={score === null ? "Not enough swaps to judge" : `Bot score ${Math.round(score)}/100 (65+ bot, 35 or less human)`} className={cn("tag", kind === "unknown" && "text-muted-foreground", className)}>
+      {kindLabel(kind)}
+      {score !== null && <span className="font-normal text-muted-foreground num">{Math.round(score)}</span>}
+    </span>
+  );
+}
+
+/** Round avatar with the first two characters of an address. */
+export function WalletDot({ address, tier, className }: { address: string; tier?: Tier | null; className?: string }) {
+  return (
+    <span className={cn("dot text-[13px] font-semibold", tier ? TIER_DOT[tier] : "bg-chip", className)} aria-hidden>
+      {address.slice(0, 2)}
     </span>
   );
 }
@@ -41,14 +57,14 @@ export function Addr({ address, n = 4, internal = true, className }: { address: 
   return (
     <span className={cn("inline-flex items-center gap-1 font-mono", className)}>
       {internal ? (
-        <Link href={`/wallets/${address}`} className="text-foreground underline decoration-dotted underline-offset-2 hover:text-win" title={address}>
+        <Link href={`/wallets/${address}`} className="text-ink hover:text-violet-deep" title={address}>
           {shortAddr(address, n)}
         </Link>
       ) : (
         <span title={address}>{shortAddr(address, n)}</span>
       )}
-      <a href={solscanAccount(address)} target="_blank" rel="noreferrer" className="text-[10px] text-muted-foreground hover:text-win" aria-label={`${address} on Solscan`}>
-        ↗
+      <a href={solscanAccount(address)} target="_blank" rel="noreferrer" className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:bg-white hover:text-violet-deep" aria-label={`${address} on Solscan`}>
+        <ArrowUpRight size={13} aria-hidden />
       </a>
     </span>
   );

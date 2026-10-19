@@ -1,34 +1,37 @@
 "use client";
 import { usePoll } from "@/lib/use-poll";
 import type { LogRow } from "@/lib/types";
+import { ago } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const COLOR: Record<string, string> = {
-  win: "text-win",
-  fee: "text-win",
-  loss: "text-loss",
-  error: "text-loss",
-  warn: "text-amber",
-  trade: "text-cyan-300",
-  learn: "text-fuchsia-300",
-  wallet: "text-sky-300",
+const DOT: Record<string, string> = {
+  win: "bg-violet",
+  fee: "bg-violet",
+  trade: "bg-lilac",
+  learn: "bg-lilac",
+  wallet: "bg-[#8E8D93]",
+  loss: "bg-loss",
+  error: "bg-loss",
+  warn: "bg-[#E0B65A]",
 };
 
+/** What GodsEye just did, as a dark timeline strip. */
 export function TerminalFeed({ limit = 14 }: { limit?: number }) {
   const { data } = usePoll<LogRow[]>("/api/logs", 10_000);
   const rows = (data ?? []).slice(0, limit);
   return (
-    <div className="h-full min-h-[220px] bg-black p-3 text-[12px] leading-relaxed" role="log" aria-live="polite">
-      {rows.length === 0 && <p className="text-muted-foreground">godseye&gt; waiting for the first event…</p>}
-      {rows.map((r) => (
-        <p key={r.id} className="break-words">
-          <span className="text-muted-foreground">{r.ts.slice(11, 19)}</span>{" "}
-          <span className={cn(COLOR[r.level] ?? "text-foreground")}>{r.message}</span>
-        </p>
-      ))}
-      <p className="text-win">
-        godseye&gt; <span className="animate-blink">█</span>
-      </p>
-    </div>
+    <section className="rounded-[28px] bg-frame p-5 text-[#F6F5F2] sm:p-6" aria-label="Activity">
+      <h2 className="text-[22px] font-medium tracking-[-0.02em]">What GodsEye just did</h2>
+      <ol className="mt-3" role="log" aria-live="polite">
+        {rows.length === 0 && <li className="py-2 text-sm text-[#A9A8AE]">Waiting for the first event…</li>}
+        {rows.map((r) => (
+          <li key={r.id} className="flex gap-3 border-t border-white/10 py-2.5 text-sm first:border-t-0">
+            <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", DOT[r.level] ?? "bg-[#8E8D93]")} aria-hidden />
+            <span className="min-w-0 flex-1 break-words">{r.message}</span>
+            <span className="shrink-0 text-xs text-[#A9A8AE] num" title={r.ts}>{ago(r.ts)}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

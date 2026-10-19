@@ -1,174 +1,162 @@
 "use client";
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { COPYING_LINKS, SubNav } from "@/components/nav";
-import { Window } from "@/components/window";
-import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Empty, Window } from "@/components/window";
+import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dt, pnlClass, signedSol, signedUsd } from "@/lib/format";
+import { ago, pnlClass, shortAddr, signedSol, signedUsd } from "@/lib/format";
 import type { LeadersData, SmartMoneyData } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+const pc = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n * 100)}%`);
 
 export default function LeadersPage() {
   const { data } = usePoll<LeadersData>("/api/leaders", 30_000);
   const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 30_000);
   const score = (kind: "accumulate" | "exit", h: "1h" | "6h" | "24h") => smart?.scorecard.find((x) => x.kind === kind && x.horizon === h);
-  const measuredWallets = (smart?.wallets ?? []).filter((w) => w.lead_n > 0).slice(0, 12);
+  const measured = (smart?.wallets ?? []).filter((w) => w.lead_n > 0).slice(0, 8);
   const leaders = data?.leaders ?? [];
+  const fb = data?.followBar;
+  const barPct = fb ? Math.round(fb.value * 100) : 50;
+
   return (
     <>
-      <PageHeader title="Copying" kicker="who it copies · re-weighted every 15 min">
+      <PageHeader title="Who it copies" back="/copies" kicker="Re-checked every 15 minutes. Only wallets with a real track record make the cut.">
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
-      <p className="mb-3 text-xs text-muted-foreground">
-        Only wallets with a track record are copied: Proven, or at least 10 closed trades in 30 days (never a Lucky streak), with a win rate at or above
-        the follow bar below, which GodsEye learns from results. Weight follows each
-        wallet&apos;s profit in USD (valued when each trade settled) over 7 days (60%) and 30 days (40%), scaled by win rate and number of trades. Losing this week → 0 at once.
-        If copying a wallet loses GodsEye money over 14 days, it stops copying it. Top earners only; weights add up to the copy budget
-        {data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""}.
-      </p>
 
-      <Window
-        title="Follow bar · learned, not fixed"
-        className="mb-3"
-        right={data?.followBar ? <span className="text-muted-foreground">updated {ago(data.followBar.updated_at)}</span> : null}
-      >
-        <div className="flex flex-col gap-2 p-3 text-xs sm:flex-row sm:items-start sm:gap-6">
-          <div className="shrink-0">
-            <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Min win rate to follow</p>
-            <p className="font-pixel text-4xl leading-none text-win num">{data?.followBar ? `${Math.round(data.followBar.value * 100)}%` : "50%"}</p>
-            {data?.followBar?.target != null && data.followBar.target !== data.followBar.value && (
-              <p className="text-muted-foreground">heading to {Math.round(data.followBar.target * 100)}%</p>
-            )}
-          </div>
-          <div className="min-w-0 flex-1 space-y-1">
-            <p>{data?.followBar?.reason ?? "Not learned yet: starts at 50% and adjusts once copy trades (or shadow copies of smart buys) have measured results."}</p>
-            <p className="text-muted-foreground">
-              Every 15 minutes GodsEye looks at how following worked out (its copy trades, or until there are enough of those, what each smart-wallet buy did over 6 hours),
-              grouped by the leader&apos;s win rate, and moves the bar toward the lowest level that still paid, at most 5 points at a time.
-            </p>
-            {(data?.followBarHistory ?? []).slice(0, 6).map((h) => (
-              <p key={h.id} className="text-muted-foreground">
-                <span className="num">{dt(h.ts)}</span> {Math.round(h.old_value * 100)}% → <span className={h.new_value > h.old_value ? "text-amber" : "text-win"}>{Math.round(h.new_value * 100)}%</span>
+      <section className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
+        <div className="card">
+          <h2 className="text-[22px] font-medium tracking-[-0.02em]">Follow bar</h2>
+          <div className="mt-4 flex items-center gap-5">
+            <div className="relative h-28 w-28 shrink-0" role="img" aria-label={`Follow bar ${barPct}% wins`}>
+              <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90" aria-hidden>
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#E2DFD8" strokeWidth="3.5" />
+                <circle cx="18" cy="18" r="15.5" fill="none" stroke="#8B63FF" strokeWidth="3.5" strokeLinecap="round" strokeDasharray={`${(barPct / 100) * 97.4} 97.4`} />
+              </svg>
+              <span className="absolute inset-0 flex items-center justify-center text-[28px] font-light num">{barPct}%</span>
+            </div>
+            <div className="min-w-0">
+              <p className="font-medium">Minimum win rate to be copied</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Not fixed. GodsEye raises it when copying lower-win-rate wallets loses money, and lowers it when they turn out fine.
+                {fb?.target != null && fb.target !== fb.value && <> Heading to {Math.round(fb.target * 100)}%.</>}
               </p>
-            ))}
+            </div>
           </div>
+          <p className="mt-4 rounded-2xl bg-panel px-4 py-3 text-sm">
+            <span className="font-semibold">Right now: </span>
+            {fb?.reason ?? "Starts at 50% and adjusts once copies, or shadow copies of smart buys, have results."}
+          </p>
+          {(data?.followBarHistory ?? []).length > 0 && (
+            <div className="mt-2">
+              {(data?.followBarHistory ?? []).slice(0, 4).map((h) => (
+                <div key={h.id} className="line text-sm">
+                  <span className="num">
+                    {Math.round(h.old_value * 100)}% → <b className="text-violet-deep">{Math.round(h.new_value * 100)}%</b>
+                  </span>
+                  <span className="ml-auto text-xs text-muted-foreground">{ago(h.ts)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      </Window>
 
-      <Window title="What GodsEye has learned from smart money" className="mb-3">
-        <div className="grid gap-px bg-border sm:grid-cols-2">
-          <div className="bg-card p-3 text-xs">
-            <p className="mb-2 text-muted-foreground">
-              When 3+ smart wallets buy (or dump) the same token within an hour, did the price follow? ({smart?.activeWallets ?? "—"} smart wallets followed
-              {smart?.droppedWallets ? `, ${smart.droppedWallets} dropped for buying tops` : ""})
-            </p>
-            <table className="w-full num">
-              <thead>
-                <tr className="text-left text-[10px] uppercase tracking-widest text-muted-foreground">
-                  <th className="font-normal">Signal</th>
-                  <th className="text-right font-normal">1h</th>
-                  <th className="text-right font-normal">6h</th>
-                  <th className="text-right font-normal">24h</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(["accumulate", "exit"] as const).map((k) => (
-                  <tr key={k}>
-                    <td className={k === "accumulate" ? "text-win" : "text-loss"}>{k === "accumulate" ? "Buying → went up" : "Dumping → went down"}</td>
-                    {(["1h", "6h", "24h"] as const).map((h) => {
-                      const sc = score(k, h);
-                      return (
-                        <td key={h} className="text-right" title={sc ? `${sc.measured}/${sc.signals} measured, median ${sc.median_ret?.toFixed(0) ?? "—"}%` : ""}>
-                          {sc?.hit_rate == null ? "—" : `${Math.round(sc.hit_rate * 100)}%`} <span className="text-muted-foreground">({sc?.measured ?? 0})</span>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="bg-card p-3 text-xs">
-            <p className="mb-2 text-muted-foreground">Smart wallets: did the price go up after they bought? (lead score; scales how much GodsEye copies them)</p>
-            {measuredWallets.length === 0 && <p className="text-muted-foreground">No buys measured yet (each is checked 1, 6 and 24 hours later).</p>}
-            {measuredWallets.map((w) => (
-              <p key={w.address} className={cn("flex items-center justify-between gap-2", !w.active && "opacity-50")}>
-                <Addr address={w.address} internal={w.tier !== null} />
-                <span className="num">
-                  {w.lead_hit_rate == null ? "—" : `${Math.round(w.lead_hit_rate * 100)}% up`} ·{" "}
-                  <span className={pnlClass(w.lead_median_6h)}>median {w.lead_median_6h == null ? "—" : `${w.lead_median_6h >= 0 ? "+" : ""}${Math.round(w.lead_median_6h)}%`}</span>{" "}
-                  <span className="text-muted-foreground">({w.lead_n})</span>
-                </span>
-              </p>
+        <div className="card">
+          <h2 className="text-[22px] font-medium tracking-[-0.02em]">What it learned from smart money</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            When 3 or more smart wallets buy (or dump) the same coin within an hour, did the price follow? {smart?.activeWallets ?? "—"} smart wallets followed
+            {smart?.droppedWallets ? `, ${smart.droppedWallets} dropped for buying tops` : ""}.
+          </p>
+          <div className="mt-4 grid grid-cols-[auto_repeat(3,minmax(0,1fr))] items-end gap-x-4 gap-y-3">
+            <span />
+            {(["1h", "6h", "24h"] as const).map((h) => (
+              <span key={h} className="k text-right">after {h}</span>
+            ))}
+            {(["accumulate", "exit"] as const).map((k) => (
+              <div key={k} className="contents">
+                <span className="text-sm font-medium">{k === "accumulate" ? "Bought, went up" : "Dumped, went down"}</span>
+                {(["1h", "6h", "24h"] as const).map((h) => {
+                  const sc = score(k, h);
+                  return (
+                    <span key={h} className="text-right" title={sc ? `${sc.measured} of ${sc.signals} measured, median ${sc.median_ret?.toFixed(0) ?? "—"}%` : ""}>
+                      <span className="text-[26px] font-light num">{pc(sc?.hit_rate)}</span>
+                      <span className="block text-xs text-muted-foreground num">{sc?.measured ?? 0} measured</span>
+                    </span>
+                  );
+                })}
+              </div>
             ))}
           </div>
-        </div>
-      </Window>
-
-      <Window title={`Leaders · ${leaders.filter((l) => l.copy_weight > 0).length} copied`} className="mb-3">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Wallet</TableHead>
-              <TableHead>Tier</TableHead>
-              <TableHead>Kind</TableHead>
-              <TableHead className="text-right">Weight</TableHead>
-              <TableHead className="text-right">Its 7d</TableHead>
-              <TableHead className="text-right">Its 30d</TableHead>
-              <TableHead className="text-right">Wins</TableHead>
-              <TableHead className="text-right">GodsEye&apos;s copy P&amp;L</TableHead>
-              <TableHead>Active</TableHead>
-              <TableHead>Why</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {leaders.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">No wallet is earning enough to copy yet.</TableCell>
-              </TableRow>
-            )}
-            {leaders.map((l) => (
-              <TableRow key={l.address} className={l.copy_weight > 0 ? "" : "opacity-60"}>
-                <TableCell><Addr address={l.address} /></TableCell>
-                <TableCell><TierBadge tier={l.tier} /></TableCell>
-                <TableCell><KindBadge kind={l.kind} score={null} /></TableCell>
-                <TableCell className="text-right">
-                  <div className="flex items-center justify-end gap-2">
-                    <div className="h-2 w-16 bevel-in bg-black" aria-hidden>
-                      <div className="h-full bg-win" style={{ width: `${Math.min(100, l.copy_weight * 100)}%` }} />
-                    </div>
-                    <span className="w-10 font-bold text-win">{(l.copy_weight * 100).toFixed(0)}%</span>
-                  </div>
-                </TableCell>
-                <TableCell className={cn("text-right", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</TableCell>
-                <TableCell className={cn("text-right", pnlClass(l.pnl_30d_usd))}>{signedUsd(l.pnl_30d_usd)}</TableCell>
-                <TableCell className="text-right">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}%`}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(l.copy_pnl_usd))} title={`${signedSol(l.copy_pnl_sol, 3)} SOL`}>
-                  {signedUsd(l.copy_pnl_usd)} <span className="font-normal text-muted-foreground">({l.copy_closed})</span>
-                </TableCell>
-                <TableCell className="text-muted-foreground">{ago(l.last_activity_at)}</TableCell>
-                <TableCell className="max-w-[300px] truncate text-xs text-muted-foreground" title={l.weight_reason ?? ""}>{l.weight_reason}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Window>
-
-      <Window title="Weight changes">
-        <div className="divide-y text-xs">
-          {(data?.changes ?? []).length === 0 && <p className="p-4 text-muted-foreground">No changes yet.</p>}
-          {(data?.changes ?? []).map((c) => (
-            <div key={c.id} className="flex flex-wrap items-center gap-2 px-3 py-1.5">
-              <span className="text-muted-foreground">{dt(c.ts)}</span>
-              <Addr address={c.wallet} />
-              <span className="num">
-                {(c.old_weight * 100).toFixed(0)}% → <span className={c.new_weight > c.old_weight ? "text-win" : "text-loss"}>{(c.new_weight * 100).toFixed(0)}%</span>
+          <p className="k mt-5">Smart wallets: how often the price rose 6 hours after they bought</p>
+          {measured.length === 0 && <p className="py-2 text-sm text-muted-foreground">No buys measured yet. Each one is checked 1, 6 and 24 hours later.</p>}
+          {measured.map((w) => (
+            <div key={w.address} className={cn("line text-sm", !w.active && "opacity-50")}>
+              <WalletDot address={w.address} tier={w.tier} className="h-8 w-8 text-[11px]" />
+              <Link href={`/wallets/${w.address}`} className="font-mono hover:text-violet-deep">{shortAddr(w.address)}</Link>
+              <span className="ml-auto num">{pc(w.lead_hit_rate)} up</span>
+              <span className={cn("w-24 text-right num", pnlClass(w.lead_median_6h))}>
+                median {w.lead_median_6h == null ? "—" : `${w.lead_median_6h >= 0 ? "+" : ""}${Math.round(w.lead_median_6h)}%`}
               </span>
-              <span className="text-muted-foreground">{c.reason}</span>
             </div>
           ))}
         </div>
+      </section>
+
+      <Window title="Every wallet it considered" right={<span className="text-muted-foreground">{leaders.filter((l) => l.copy_weight > 0).length} copied</span>}>
+        <p className="text-sm text-muted-foreground">
+          Its share of the copy budget{data?.budgetSol ? ` (${data.budgetSol} SOL)` : ""} follows its profit in dollars over 7 and 30 days, scaled by how often it wins. A losing week drops it to zero at once;
+          if copying it loses GodsEye money over 14 days, it&apos;s dropped.
+        </p>
+        <div className="mt-2">
+          {leaders.length === 0 && <Empty img="wallet">No wallet is earning enough to copy yet.</Empty>}
+          {leaders.map((l) => (
+            <Link key={l.address} href={`/wallets/${l.address}`} className={cn("line flex-wrap transition-colors hover:text-violet-deep sm:flex-nowrap", l.copy_weight === 0 && "opacity-60")}>
+              <WalletDot address={l.address} tier={l.tier} />
+              <div className="min-w-0 flex-1 basis-56">
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono">{shortAddr(l.address)}</span>
+                  <TierBadge tier={l.tier} />
+                  <KindBadge kind={l.kind} score={null} />
+                </p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground" title={l.weight_reason ?? ""}>{l.weight_reason ?? `active ${ago(l.last_activity_at)}`}</p>
+              </div>
+              <div className="flex items-center gap-5">
+                <div className="text-right">
+                  <p className="k">Wins</p>
+                  <p className="text-lg font-light num">{pc(l.win_rate_30d)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="k">Its week</p>
+                  <p className={cn("text-lg font-light num", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</p>
+                </div>
+                <div className="text-right" title={`${signedSol(l.copy_pnl_sol, 3)} SOL over ${l.copy_closed} copies`}>
+                  <p className="k">Copying it</p>
+                  <p className={cn("text-lg font-light num", pnlClass(l.copy_pnl_usd))}>{signedUsd(l.copy_pnl_usd)}</p>
+                </div>
+                <div className="w-20 text-right">
+                  <p className="k">Budget</p>
+                  <p className="text-2xl font-light num">{(l.copy_weight * 100).toFixed(0)}%</p>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </Window>
+
+      <Window title="Recent changes">
+        {(data?.changes ?? []).length === 0 && <p className="py-3 text-sm text-muted-foreground">No changes yet.</p>}
+        {(data?.changes ?? []).slice(0, 15).map((c) => (
+          <div key={c.id} className="line flex-wrap text-sm sm:flex-nowrap">
+            <Link href={`/wallets/${c.wallet}`} className="font-mono hover:text-violet-deep">{shortAddr(c.wallet)}</Link>
+            <span className="num">
+              {(c.old_weight * 100).toFixed(0)}% → <b className={c.new_weight > c.old_weight ? "text-violet-deep" : "text-loss"}>{(c.new_weight * 100).toFixed(0)}%</b>
+            </span>
+            <span className="min-w-0 flex-1 truncate text-muted-foreground" title={c.reason}>{c.reason}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{ago(c.ts)}</span>
+          </div>
+        ))}
       </Window>
     </>
   );

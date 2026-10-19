@@ -1,10 +1,11 @@
 "use client";
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
-import { Window } from "@/components/window";
-import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
+import { Empty, Window } from "@/components/window";
+import { Addr, KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedUsd } from "@/lib/format";
+import { ago, pnlClass, shortAddr, signedUsd } from "@/lib/format";
 import type { WalletGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -13,47 +14,40 @@ export default function GroupsPage() {
   const groups = data ?? [];
   return (
     <>
-      <PageHeader title="Wallets" kicker="fresh wallets, grouped by funder">
+      <PageHeader title="New wallets by funder" kicker="Wallets that got their first SOL from the same address are grouped together.">
         <SubNav links={WALLET_LINKS} />
       </PageHeader>
-      <p className="mb-3 text-xs text-muted-foreground">
-        Each new wallet is analyzed: when it was created, who sent it its first SOL, and whether a program (AI / bot) or a person trades it. Wallets with the
-        same funder form a group. A funder behind 25+ wallets is probably an exchange.
-      </p>
-      {error && <p className="mb-3 text-sm text-loss">{error}</p>}
-      {data && groups.length === 0 && <p className="text-sm text-muted-foreground">No groups yet. They appear as GodsEye analyzes fresh wallets.</p>}
-      <div className="grid gap-3 lg:grid-cols-2">
+      {error && <p className="card text-sm text-loss">{error}</p>}
+      {data && groups.length === 0 && (
+        <div className="card">
+          <Empty img="wallet" title="No groups yet">They appear as GodsEye studies new wallets.</Empty>
+        </div>
+      )}
+      <div className="grid gap-5 lg:grid-cols-2">
         {groups.map((g) => (
           <Window
             key={g.funder}
-            title={`Funder ${g.funder.slice(0, 4)}…${g.funder.slice(-4)} · ${g.size} wallet${g.size === 1 ? "" : "s"}`}
-            icon={g.likely_exchange ? "🏦" : undefined}
-            right={<span className="text-[11px] text-muted-foreground">newest {ago(g.newest_at)}</span>}
+            title={<span className="font-mono">{shortAddr(g.funder)}</span>}
+            right={<span className="text-muted-foreground">{g.size} wallet{g.size === 1 ? "" : "s"} · newest {ago(g.newest_at)}</span>}
           >
-            <div className="border-b px-3 py-2 text-xs">
-              <div className="flex flex-wrap items-center gap-3">
-                <span>
-                  Funder: <Addr address={g.funder} />
-                </span>
-                {g.funder_tier && <TierBadge tier={g.funder_tier} />}
-                {g.likely_exchange && <span className="text-amber">likely an exchange</span>}
-              </div>
-              <div className="mt-1.5 flex flex-wrap gap-3 text-muted-foreground">
-                <span className="text-cyan-300">🤖 {g.ai} AI / bot</span>
-                <span className="text-sky-100">🧑 {g.human} human</span>
-                <span>? {g.unknown} undecided</span>
-                <span className="text-win">{g.fresh} fresh</span>
-              </div>
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <Addr address={g.funder} />
+              {g.funder_tier && <TierBadge tier={g.funder_tier} />}
+              {g.likely_exchange && <span className="tag bg-frame text-white">Probably an exchange</span>}
+              <span className="tag">{g.ai} bots</span>
+              <span className="tag">{g.human} humans</span>
+              {g.unknown > 0 && <span className="tag text-muted-foreground">{g.unknown} undecided</span>}
+              {g.fresh > 0 && <span className="tag bg-lilac">{g.fresh} new</span>}
             </div>
-            <div className="divide-y">
+            <div className="mt-2">
               {g.members.map((m) => (
-                <div key={m.address} className="flex flex-wrap items-center gap-2 px-3 py-1.5 text-xs">
-                  <Addr address={m.address} />
-                  {m.is_fresh === 1 && <span className="border border-win/40 px-1 text-[10px] uppercase text-win">fresh</span>}
+                <Link key={m.address} href={`/wallets/${m.address}`} className="line flex-wrap transition-colors hover:text-violet-deep">
+                  <WalletDot address={m.address} tier={m.tier} className="h-9 w-9 text-xs" />
+                  <span className="font-mono">{shortAddr(m.address)}</span>
                   <TierBadge tier={m.tier} />
-                  <KindBadge kind={m.kind} score={m.ai_score} />
-                  <span className={cn("ml-auto num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)} 30d</span>
-                </div>
+                  <KindBadge kind={m.kind} score={null} />
+                  <span className={cn("ml-auto text-lg font-light num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)}</span>
+                </Link>
               ))}
             </div>
           </Window>

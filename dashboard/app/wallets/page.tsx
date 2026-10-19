@@ -1,30 +1,37 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronRight, Search } from "lucide-react";
 import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
-import { Window } from "@/components/window";
-import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Empty } from "@/components/window";
+import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedSol, signedUsd } from "@/lib/format";
-import type { WalletList } from "@/lib/types";
+import { pnlClass, shortAddr, signedSol, signedUsd } from "@/lib/format";
+import type { Summary, WalletList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SORTS = [
-  { v: "pnl_30d", label: "30d P&L" },
-  { v: "pnl_7d", label: "7d P&L" },
-  { v: "weight", label: "Copy weight" },
-  { v: "ai_score", label: "AI score" },
-  { v: "last_activity", label: "Last active" },
-  { v: "first_seen", label: "Newest found" },
+  { v: "pnl_30d", label: "Biggest profit, 30 days" },
+  { v: "pnl_7d", label: "Biggest profit, 7 days" },
+  { v: "weight", label: "Copied most" },
+  { v: "ai_score", label: "Most bot-like" },
+  { v: "last_activity", label: "Active most recently" },
+  { v: "first_seen", label: "Found most recently" },
 ];
-const PAGE = 50;
+const KINDS = [
+  { v: "all", label: "Bots + humans" },
+  { v: "ai", label: "Bots" },
+  { v: "human", label: "Humans" },
+  { v: "unknown", label: "Undecided" },
+];
+const PAGE = 30;
 
 export default function WalletsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-muted-foreground">loading…</p>}>
+    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
       <WalletDatabase />
     </Suspense>
   );
@@ -59,122 +66,123 @@ function WalletDatabase() {
   if (fresh) api.set("fresh", "1");
   if (sp.get("q")) api.set("q", sp.get("q")!);
   const { data, error } = usePoll<WalletList>(`/api/wallets?${api.toString()}`, 30_000);
+  const { data: s } = usePoll<Summary>("/api/summary", 30_000);
   const rows = data?.rows ?? [];
   const pages = data ? Math.ceil(data.total / PAGE) : 0;
 
   return (
     <>
-      <PageHeader title="Wallets" kicker={`${data?.total ?? "…"} wallets · public`}>
+      <PageHeader title="Wallets" kicker="Every wallet GodsEye has studied, and what it thinks of each one.">
         <SubNav links={WALLET_LINKS} />
       </PageHeader>
 
-      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="search address or funder…"
-          aria-label="Search wallets"
-          className="bevel-in bg-black px-1.5 py-1 text-xs text-foreground w-full outline-none placeholder:text-muted-foreground sm:w-64"
-        />
-        <select aria-label="Tier" value={tier} onChange={(e) => set({ tier: e.target.value })} className="bevel-in bg-black px-1.5 py-1 text-xs text-foreground" title={tier === "all" ? "" : TIER_DESCRIPTIONS[tier as (typeof TIERS)[number]]}>
-          <option value="all">All tiers</option>
-          {TIERS.map((t) => (
-            <option key={t} value={t}>
-              {TIER_LABELS[t]}
-            </option>
-          ))}
-        </select>
-        <select aria-label="AI or human" value={kind} onChange={(e) => set({ kind: e.target.value })} className="bevel-in bg-black px-1.5 py-1 text-xs text-foreground">
-          <option value="all">AI + human</option>
-          <option value="ai">AI / bot</option>
-          <option value="human">Human</option>
-          <option value="unknown">Undecided</option>
-        </select>
-        <select aria-label="Sort" value={sort} onChange={(e) => set({ sort: e.target.value })} className="bevel-in bg-black px-1.5 py-1 text-xs text-foreground">
-          {SORTS.map((o) => (
-            <option key={o.v} value={o.v}>
-              Sort: {o.label}
-            </option>
-          ))}
-        </select>
-        <label className="flex items-center gap-1.5 text-muted-foreground">
-          <input type="checkbox" checked={fresh} onChange={(e) => set({ fresh: e.target.checked ? "1" : null })} /> fresh only
+      <section className="flex flex-wrap items-center gap-x-7 gap-y-4">
+        <label className="flex min-h-[56px] flex-1 basis-[320px] items-center gap-2.5 rounded-full bg-white pl-5 pr-2 focus-within:ring-2 focus-within:ring-violet-deep">
+          <Search size={20} strokeWidth={1.8} className="shrink-0 text-muted-foreground" aria-hidden />
+          <span className="sr-only">Search wallets</span>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Paste a wallet or funder address"
+            className="min-h-[48px] min-w-0 flex-1 bg-transparent text-[15px] outline-none placeholder:text-muted-foreground"
+          />
         </label>
-      </div>
+        <div className="flex gap-7 px-1">
+          <div>
+            <p className="k">Studied</p>
+            <p className="mt-0.5 text-[34px] font-light leading-none num">{s?.walletsTracked.toLocaleString("en-US") ?? "—"}</p>
+          </div>
+          <div>
+            <p className="k">Seen live today</p>
+            <p className="mt-0.5 text-[34px] font-light leading-none num">{s?.stream.walletsSeen24h.toLocaleString("en-US") ?? "—"}</p>
+          </div>
+        </div>
+      </section>
 
-      <Window title="Wallet database">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Wallet</TableHead>
-              <TableHead>Tier</TableHead>
-              <TableHead>AI / human</TableHead>
-              <TableHead className="text-right">7d P&amp;L</TableHead>
-              <TableHead className="text-right">30d P&amp;L</TableHead>
-              <TableHead className="text-right">Wins</TableHead>
-              <TableHead className="text-right">Trades 30d</TableHead>
-              <TableHead className="text-right">Copy wt</TableHead>
-              <TableHead>Group</TableHead>
-              <TableHead>Active</TableHead>
-              <TableHead>Why</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {error && (
-              <TableRow>
-                <TableCell colSpan={11} className="py-6 text-center text-loss">{error}</TableCell>
-              </TableRow>
-            )}
-            {!error && rows.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={11} className="py-10 text-center text-muted-foreground">{data ? "No wallets match." : "loading…"}</TableCell>
-              </TableRow>
-            )}
-            {rows.map((w) => (
-              <TableRow key={w.address}>
-                <TableCell>
-                  <Addr address={w.address} />
-                  {w.is_fresh === 1 && <span className="ml-1.5 border border-win/40 px-1 text-[10px] uppercase text-win">fresh</span>}
-                  {w.is_smart === 1 && <span className="ml-1.5 border border-amber/50 px-1 text-[10px] uppercase text-amber" title="GodsEye counts this wallet as smart money">smart</span>}
-                </TableCell>
-                <TableCell>
-                  <TierBadge tier={w.tier} />
-                </TableCell>
-                <TableCell>
-                  <KindBadge kind={w.kind} score={w.ai_score} />
-                </TableCell>
-                <TableCell className={cn("text-right", pnlClass(w.pnl_7d_usd))} title={`${signedSol(w.pnl_7d_sol, 2)} SOL`}>{signedUsd(w.pnl_7d_usd)}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(w.pnl_30d_usd))} title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>{signedUsd(w.pnl_30d_usd)}</TableCell>
-                <TableCell className="text-right">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</TableCell>
-                <TableCell className="text-right">{w.swaps_30d ?? "—"}</TableCell>
-                <TableCell className={cn("text-right", w.copy_weight > 0 ? "font-bold text-win" : "text-muted-foreground")}>{w.copy_weight > 0 ? `${(w.copy_weight * 100).toFixed(0)}%` : "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{w.group_size > 1 ? `${w.group_size} wallets` : "—"}</TableCell>
-                <TableCell className="text-muted-foreground">{ago(w.last_activity_at)}</TableCell>
-                <TableCell className="max-w-[320px] truncate text-xs text-muted-foreground" title={w.tier_reason ?? ""}>
-                  {w.last_analyzed_at ? w.tier_reason : "queued for analysis"}
-                </TableCell>
-              </TableRow>
+      <section className="flex flex-wrap items-center gap-2" aria-label="Filter wallets">
+        <button type="button" onClick={() => set({ tier: null })} aria-pressed={tier === "all"} className={cn("pill", tier === "all" && "pill-on")}>
+          All
+        </button>
+        {TIERS.map((t) => (
+          <button key={t} type="button" title={TIER_DESCRIPTIONS[t]} onClick={() => set({ tier: tier === t ? null : t })} aria-pressed={tier === t} className={cn("pill", tier === t && "pill-on")}>
+            {t === "proven" && <span className="h-2 w-2 rounded-full bg-violet" aria-hidden />}
+            {TIER_LABELS[t]}
+            {s && <span className="text-muted-foreground num">{s.tierCounts[t]}</span>}
+          </button>
+        ))}
+        <span className="hidden flex-1 lg:block" />
+        <label className="pill pr-2">
+          <span className="sr-only">Bots or humans</span>
+          <select value={kind} onChange={(e) => set({ kind: e.target.value })} className="cursor-pointer bg-transparent outline-none">
+            {KINDS.map((k) => (
+              <option key={k.v} value={k.v}>{k.label}</option>
             ))}
-          </TableBody>
-        </Table>
-        {pages > 1 && (
-          <div className="flex items-center justify-between border-t px-3 py-2 text-xs">
-            <button disabled={page === 0} onClick={() => set({ page: String(page - 1) })} className="bevel-out bg-w95-gray px-2 py-0.5 text-black disabled:opacity-40">
-              ← prev
-            </button>
-            <span className="text-muted-foreground">
-              page {page + 1} / {pages}
-            </span>
-            <button disabled={page + 1 >= pages} onClick={() => set({ page: String(page + 1) })} className="bevel-out bg-w95-gray px-2 py-0.5 text-black disabled:opacity-40">
-              next →
-            </button>
+          </select>
+        </label>
+        <label className="pill pr-2">
+          <span className="sr-only">Sort</span>
+          <select value={sort} onChange={(e) => set({ sort: e.target.value })} className="cursor-pointer bg-transparent outline-none">
+            {SORTS.map((o) => (
+              <option key={o.v} value={o.v}>{o.label}</option>
+            ))}
+          </select>
+        </label>
+        <button type="button" onClick={() => set({ fresh: fresh ? null : "1" })} aria-pressed={fresh} className={cn("pill", fresh && "pill-on")}>
+          New wallets only
+        </button>
+      </section>
+
+      <section className="flex flex-col gap-2.5" aria-label="Wallets">
+        {error && <p className="card text-sm text-loss">{error}</p>}
+        {!error && rows.length === 0 && (
+          <div className="card">
+            <Empty img="wallet" title={data ? "No wallets match" : "Loading…"}>{data ? "Try another filter, or clear the search." : "Fetching wallets."}</Empty>
           </div>
         )}
-        <p className="border-t px-3 py-2 text-[11px] text-muted-foreground">
-          P&amp;L is realized profit in USD from memecoin swaps settled in SOL, USDC or USDT, each trade valued when it settled (hover for SOL). Labels are automated reads of on-chain behaviour, not accusations.
-          Each wallet&apos;s page lists the evidence behind its label.
-        </p>
-      </Window>
+        {rows.map((w) => (
+          <Link key={w.address} href={`/wallets/${w.address}`} className="group flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[24px] bg-card px-4 py-4 transition-colors hover:bg-white sm:px-5">
+            <WalletDot address={w.address} tier={w.tier} />
+            <div className="min-w-0 flex-1 basis-[260px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[15px]" title={w.address}>{shortAddr(w.address)}</span>
+                <TierBadge tier={w.tier} />
+                {w.kind !== "unknown" && <KindBadge kind={w.kind} score={null} />}
+                {w.is_fresh === 1 && <span className="tag bg-lilac">New wallet</span>}
+                {w.is_smart === 1 && <span className="tag bg-white ring-1 ring-inset ring-lilac" title="GodsEye counts this wallet as smart money">Smart money</span>}
+                {w.copy_weight > 0 && <span className="tag bg-frame text-white">Copied</span>}
+              </div>
+              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{w.last_analyzed_at ? w.tier_reason : "Queued for a full look."}</p>
+            </div>
+            <div className="ml-auto flex items-center gap-6 sm:gap-8">
+              <div className="text-right">
+                <p className="k">Wins</p>
+                <p className="text-[22px] font-light num">{w.win_rate_30d === null ? "—" : `${Math.round(w.win_rate_30d * 100)}%`}</p>
+              </div>
+              <div className="w-[110px] text-right" title={`${signedSol(w.pnl_30d_sol, 2)} SOL`}>
+                <p className="k">30 days</p>
+                <p className={cn("text-[26px] font-light num", pnlClass(w.pnl_30d_usd))}>{signedUsd(w.pnl_30d_usd)}</p>
+              </div>
+              <span className="dot hidden bg-white transition-colors group-hover:bg-lilac sm:inline-flex" aria-hidden>
+                <ChevronRight size={16} strokeWidth={1.8} />
+              </span>
+            </div>
+          </Link>
+        ))}
+      </section>
+
+      {pages > 1 && (
+        <nav className="flex items-center justify-center gap-3" aria-label="Pages">
+          <button type="button" disabled={page === 0} onClick={() => set({ page: String(page - 1) })} className="btn">Newer</button>
+          <span className="text-sm text-muted-foreground num">Page {page + 1} of {pages}</span>
+          <button type="button" disabled={page + 1 >= pages} onClick={() => set({ page: String(page + 1) })} className="btn">More</button>
+        </nav>
+      )}
+
+      <p className="px-1 text-xs text-muted-foreground">
+        Profit is in dollars, valued when each trade settled, from memecoin trades paid in SOL, USDC or USDT. Labels are automated reads of on-chain behaviour, not accusations;
+        each wallet&apos;s page shows the evidence.
+      </p>
     </>
   );
 }

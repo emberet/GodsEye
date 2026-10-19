@@ -2,126 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
-/* GodsEye — dark terminal / Bloomberg */
+/* GodsEye — soft grey panels inside a dark frame, on lilac, with one purple accent */
 @layer base {
   :root {
-    --background: 160 12% 3.5%;
-    --foreground: 150 14% 86%;
-    --card: 165 12% 6%;
-    --muted: 165 10% 11%;
-    --muted-foreground: 160 7% 52%;
-    --border: 165 12% 16%;
-    --primary: 151 100% 50%;
-    --primary-foreground: 160 12% 4%;
-    color-scheme: dark;
+    --background: 40 11% 91%; /* panel #ECEAE5 */
+    --foreground: 240 5% 12%; /* ink #1E1E21 */
+    --card: 45 12% 96%; /* #F6F5F2 */
+    --muted: 42 10% 86%; /* chip #E2DFD8 */
+    --muted-foreground: 250 3% 43%; /* #6B6A70 */
+    --border: 42 10% 86%;
+    --primary: 255 100% 69%; /* violet #8B63FF */
+    --primary-foreground: 0 0% 100%;
+    color-scheme: light;
   }
   * {
     @apply border-border;
   }
   html,
   body {
-    @apply bg-background text-foreground font-mono;
+    @apply font-sans text-foreground;
+    background: #c9b8ff;
+  }
+  .num,
+  td,
+  .tabular {
     font-variant-numeric: tabular-nums;
   }
-  body {
-    background-image:
-      radial-gradient(ellipse at top, hsl(151 100% 50% / 0.06), transparent 60%),
-      linear-gradient(hsl(165 12% 16% / 0.25) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(165 12% 16% / 0.25) 1px, transparent 1px);
-    background-size: 100% 100%, 32px 32px, 32px 32px;
-    min-height: 100vh;
-  }
-  /* CRT scanlines */
-  body::after {
-    content: "";
-    pointer-events: none;
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    background: repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 0px, rgba(0, 0, 0, 0.18) 1px, transparent 1px, transparent 3px);
-    mix-blend-mode: multiply;
-  }
   ::selection {
-    background: #00ff88;
-    color: #000;
+    background: #c9b8ff;
+    color: #1e1e21;
+  }
+  a,
+  button,
+  summary,
+  select,
+  input {
+    -webkit-tap-highlight-color: transparent;
+  }
+  :focus-visible {
+    outline: 2px solid #6a3ff5;
+    outline-offset: 2px;
   }
 }
 
 @layer components {
-  /* Win95 bevels */
-  .bevel-out {
-    border: 2px solid;
-    border-color: #ffffff #404040 #404040 #ffffff;
-    box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #dfdfdf;
+  /* A content card: pale, no border, big radius. */
+  .card {
+    @apply rounded-[28px] bg-card p-5 sm:p-6;
   }
-  .bevel-in {
-    border: 2px solid;
-    border-color: #404040 #ffffff #ffffff #404040;
+  /* Small label above a number. */
+  .k {
+    @apply text-xs font-medium text-muted-foreground;
   }
-  .titlebar {
-    background: linear-gradient(90deg, #000080, #1084d0);
+  /* Big light number, with an optional small unit beside it. */
+  .big {
+    @apply text-[34px] font-light leading-none tracking-[-0.03em] sm:text-[40px];
   }
-  .titlebar-inactive {
-    background: linear-gradient(90deg, #404040, #8a8a8a);
+  .unit {
+    @apply ml-1 text-sm font-medium tracking-normal text-muted-foreground;
   }
-  .w95-btn {
-    @apply bevel-out bg-w95-gray text-black font-pixel text-lg leading-none px-3 py-1 active:translate-y-px;
+  .pill {
+    @apply inline-flex min-h-[40px] items-center gap-2 rounded-full bg-chip px-4 text-sm font-medium text-[#3A3A40] transition-colors hover:bg-white;
   }
-  .num {
-    font-variant-numeric: tabular-nums;
+  .pill-on {
+    @apply bg-white text-ink;
   }
-}
-
-/* GLITCH TEXT */
-.glitch {
-  position: relative;
-  display: inline-block;
-}
-.glitch::before,
-.glitch::after {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-}
-.glitch::before {
-  color: #ff4444;
-  transform: translate(-2px, 0);
-  animation: glitch-a 2.8s infinite steps(1);
-  mix-blend-mode: screen;
-}
-.glitch::after {
-  color: #00e5ff;
-  transform: translate(2px, 0);
-  animation: glitch-b 3.4s infinite steps(1);
-  mix-blend-mode: screen;
-}
-@keyframes glitch-a {
-  0%, 86%, 100% { clip-path: inset(100% 0 0 0); }
-  87% { clip-path: inset(10% 0 60% 0); transform: translate(-4px, -1px); }
-  89% { clip-path: inset(55% 0 20% 0); transform: translate(3px, 1px); }
-  92% { clip-path: inset(30% 0 45% 0); transform: translate(-2px, 0); }
-}
-@keyframes glitch-b {
-  0%, 80%, 100% { clip-path: inset(100% 0 0 0); }
-  81% { clip-path: inset(70% 0 5% 0); transform: translate(4px, 0); }
-  84% { clip-path: inset(5% 0 75% 0); transform: translate(-3px, 1px); }
-  87% { clip-path: inset(40% 0 40% 0); transform: translate(2px, -1px); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .glitch::before,
-  .glitch::after {
-    animation: none;
-    clip-path: inset(100% 0 0 0);
+  .tag {
+    @apply inline-flex min-h-[24px] items-center gap-1 whitespace-nowrap rounded-full bg-chip px-2.5 text-xs font-semibold text-[#2E2E33];
+  }
+  .btn {
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full bg-white px-5 text-sm font-semibold text-ink transition-colors hover:bg-lilac disabled:pointer-events-none disabled:opacity-40;
+  }
+  .btn-dark {
+    @apply bg-frame text-white hover:bg-ink;
+  }
+  .field {
+    @apply min-h-[44px] rounded-full border-0 bg-white px-4 text-sm text-ink outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-violet-deep;
+  }
+  .dot {
+    @apply inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full;
+  }
+  /* A soft row inside a card. */
+  .line {
+    @apply flex items-center gap-3 border-t border-chip py-3 first:border-t-0;
   }
 }
 
-/* Recharts tweaks */
+/* Recharts on the light theme */
 .recharts-cartesian-grid line {
-  stroke: hsl(165 12% 16%);
+  stroke: #e2dfd8;
 }
 .recharts-text {
-  fill: hsl(160 7% 52%);
-  font-family: var(--font-mono);
+  fill: #6b6a70;
+  font-family: var(--font-sans);
   font-size: 11px;
 }

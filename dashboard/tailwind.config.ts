@@ -2,7 +2,6 @@ import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
 
 const config: Config = {
-  darkMode: "class",
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
   theme: {
     extend: {
@@ -13,20 +12,27 @@ const config: Config = {
         muted: { DEFAULT: "hsl(var(--muted))", foreground: "hsl(var(--muted-foreground))" },
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--foreground))" },
         primary: { DEFAULT: "hsl(var(--primary))", foreground: "hsl(var(--primary-foreground))" },
-        win: "#00FF88",
-        loss: "#FF4444",
-        amber: "#FFC24B",
-        w95: { gray: "#c0c0c0", light: "#ffffff", dark: "#808080", navy: "#000080", blue: "#1084d0" },
+        // GodsEye: soft warm greys, a dark frame and one purple.
+        ink: "#1E1E21",
+        frame: "#2A2A2F",
+        panel: "#ECEAE5",
+        chip: "#E2DFD8",
+        tab: "#DCD9D2",
+        lilac: "#C9B8FF",
+        violet: { DEFAULT: "#8B63FF", deep: "#6A3FF5" },
+        win: "#6A3FF5",
+        loss: "#B0476A",
+        amber: "#9A6A12",
       },
       fontFamily: {
-        pixel: ["var(--font-pixel)", "monospace"],
+        sans: ["var(--font-sans)", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "monospace"],
       },
+      borderRadius: { card: "28px", panel: "32px", frame: "44px" },
       keyframes: {
-        pulsedot: { "0%,100%": { opacity: "1", transform: "scale(1)" }, "50%": { opacity: ".35", transform: "scale(.8)" } },
-        blink: { "0%,49%": { opacity: "1" }, "50%,100%": { opacity: "0" } },
+        pulsedot: { "0%,100%": { opacity: "1", transform: "scale(1)" }, "50%": { opacity: ".45", transform: "scale(.85)" } },
       },
-      animation: { pulsedot: "pulsedot 1.4s ease-in-out infinite", blink: "blink 1s step-end infinite" },
+      animation: { pulsedot: "pulsedot 1.6s ease-in-out infinite" },
     },
   },
   plugins: [animate],

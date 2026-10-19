@@ -1,13 +1,14 @@
 "use client";
 import Link from "next/link";
-import { TIERS, TIER_DESCRIPTIONS } from "@godseye/shared/constants";
-import { StatusBadge } from "@/components/status-badge";
-import { Window } from "@/components/window";
-import { Stat } from "@/components/stat";
+import { ArrowUpRight, TrendingDown, TrendingUp } from "lucide-react";
+import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
+import { TopAlert } from "@/components/alert";
+import { Empty } from "@/components/window";
+import { Stat, Stats } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
-import { Addr, KindBadge, TierBadge } from "@/components/wallet-badges";
+import { TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pct, pnlClass, signedSol, signedUsd } from "@/lib/format";
+import { ago, pct, pnlClass, shortAddr, signedUsd } from "@/lib/format";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -16,132 +17,181 @@ export default function Home() {
   const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
   const { data: copies } = usePoll<CopiesData>("/api/copies", 10_000);
   const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 15_000);
-  const flows = (smart?.flows ?? []).slice(0, 8);
-  const signals = (smart?.signals ?? []).slice(0, 6);
-  const copying = (leaders?.leaders ?? []).filter((l) => l.copy_weight > 0);
-  const wr = s?.winRate ?? null;
-  const st = s?.stream;
+  const flows = (smart?.flows ?? []).slice(0, 5);
+  const signals = (smart?.signals ?? []).slice(0, 4);
+  const copying = (leaders?.leaders ?? []).filter((l) => l.copy_weight > 0).slice(0, 5);
+  const open = copies?.open ?? [];
+  const seen = s?.stream.walletsSeen24h ?? 0;
+  const bar = leaders?.followBar?.value ?? smart?.followBar?.value ?? null;
+  const money = s?.realizedPnlUsd ?? null;
+  const [whole, cents] = money === null ? ["—", ""] : (() => {
+    const t = signedUsd(money);
+    const i = t.lastIndexOf(".");
+    return i === -1 ? [t, ""] : [t.slice(0, i), t.slice(i)];
+  })();
 
   return (
-    <div className="grid gap-3">
-      {error && <p className="border border-amber/60 bg-amber/10 p-2 text-xs text-amber" role="alert">⚠ No data yet: {error}</p>}
+    <>
+      {error && !s && <p className="card text-sm text-loss" role="alert">No data yet: {error}</p>}
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        {s ? <StatusBadge live={s.live} heartbeat={s.heartbeat} /> : <span>connecting…</span>}
-        {st?.enabled && (
-          <Link href="/stream" className="hover:text-foreground">
-            stream <span className={st.status === "connected" ? "text-win" : "text-amber"}>{st.status ?? "starting"}</span> · {st.swapsPerSec ?? "—"} swaps/s
-          </Link>
-        )}
-        <span className="hidden sm:inline">GodsEye copies whoever is making money right now, AI agents and humans alike, and drops losers automatically.</span>
-      </div>
+      <section className="flex flex-wrap items-center gap-x-6 gap-y-5">
+        <div className="flex min-w-0 flex-1 basis-[340px] items-center gap-2 rounded-[28px] pr-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/img/eye.png" alt="" width={120} height={120} className="h-24 w-24 shrink-0 object-contain sm:h-[120px] sm:w-[120px]" />
+          <div className="min-w-0">
+            <p className="k">{s?.live ? "Watching live" : "Not running"} · {s?.copyMode === "real" ? "real money" : "paper trading"}</p>
+            <p className="mt-1 text-lg font-medium leading-snug sm:text-xl">
+              {seen > 0 ? `Watching ${seen.toLocaleString("en-US")} wallets.` : "Watching every memecoin trade on Solana."} Copying the ones that keep winning.
+            </p>
+          </div>
+        </div>
+        <Stats className="flex-[2] basis-[520px]">
+          <Stat label="Your profit" value={whole} unit={cents || undefined} valueClass={pnlClass(money)} sub={s ? `${s.wins} won · ${s.losses} lost` : undefined} />
+          <Stat label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub={s ? `${s.openPositions} of ${s.maxPositions} trades open` : undefined} />
+          <Stat label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades today` : undefined} />
+          <Stat label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub="Learned from results" />
+        </Stats>
+      </section>
 
-      <div className="grid grid-cols-2 gap-px border bg-border sm:grid-cols-3 lg:grid-cols-6">
-        <Stat className="border-0" label="Realized P&L" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${signedSol(s.realizedPnlSol, 3)} SOL from copies` : ""} valueClass={pnlClass(s?.realizedPnlUsd)} />
-        <Stat className="border-0" label="Win rate" value={wr === null ? "—" : `${wr.toFixed(1)}%`} sub={s ? `${s.wins}W / ${s.losses}L` : ""} valueClass={wr === null ? "" : wr >= 50 ? "text-win" : "text-loss"} />
-        <Stat className="border-0" label="Open" value={s ? `${s.openPositions}/${s.maxPositions}` : "—"} sub={s ? `${s.unrealizedPnlUsd === null ? `${signedSol(s.unrealizedPnlSol, 3)} SOL` : signedUsd(s.unrealizedPnlUsd)} unrealized` : ""} valueClass={pnlClass(s?.unrealizedPnlUsd ?? s?.unrealizedPnlSol)} />
-        <Stat className="border-0" label="Copying" value={s?.leaders ?? "—"} sub="wallets" />
-        <Stat className="border-0" label="Analyzed" value={s?.walletsTracked.toLocaleString("en-US") ?? "—"} sub="wallets with a tier" />
-        <Stat className="border-0" label="Seen live" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub="wallets, last 24h" />
-      </div>
+      <TopAlert s={s} />
 
-      <div className="flex flex-wrap gap-1.5">
-        {TIERS.map((t) => (
-          <Link key={t} href={`/wallets?tier=${t}`} title={TIER_DESCRIPTIONS[t]} className="flex items-center gap-1.5 border px-2 py-1 hover:bg-muted/50">
-            <TierBadge tier={t} className="border-0 bg-transparent px-0 py-0" />
-            <span className="text-sm font-bold num">{s?.tierCounts[t] ?? "—"}</span>
-          </Link>
-        ))}
-        <Link href="/wallets?kind=ai" className="flex items-center gap-1.5 border px-2 py-1 text-[11px] uppercase hover:bg-muted/50">
-          🤖 AI/bot <span className="text-sm font-bold text-cyan-300 num">{s?.kindCounts.ai ?? "—"}</span>
-        </Link>
-        <Link href="/wallets?kind=human" className="flex items-center gap-1.5 border px-2 py-1 text-[11px] uppercase hover:bg-muted/50">
-          🧑 Human <span className="text-sm font-bold text-sky-100 num">{s?.kindCounts.human ?? "—"}</span>
-        </Link>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        <Window
-          title={`Where smart money is moving · ${smart?.activeWallets ?? "—"} smart wallets`}
-          className="lg:col-span-2"
-          right={smart ? <span className="text-muted-foreground">{smart.trades24h.toLocaleString("en-US")} smart trades in 24h</span> : null}
-        >
-          <div className="divide-y">
-            {flows.length === 0 && <p className="p-3 text-xs text-muted-foreground">No smart-money trades yet. They show up as the live stream sees smart wallets trade.</p>}
+      <section className="grid gap-5 lg:grid-cols-2">
+        <div className="card">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[22px] font-medium tracking-[-0.02em]">Where smart money is moving</h2>
+            <Link href="/leaders" className="dot bg-white hover:bg-lilac" aria-label="What GodsEye learned from smart money">
+              <ArrowUpRight size={18} strokeWidth={1.8} aria-hidden />
+            </Link>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">Net buying by wallets that keep winning, last 24 hours.</p>
+          <div className="mt-3">
+            {flows.length === 0 && <Empty>Nothing yet. Coins show up here as smart wallets trade them.</Empty>}
             {flows.map((f) => {
-              const net1 = f.buy_usd_1h - f.sell_usd_1h;
-              const net24 = f.buy_usd_24h - f.sell_usd_24h;
+              const net = f.buy_usd_24h - f.sell_usd_24h;
+              const up = net >= 0;
               return (
-                <div key={f.mint} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                  <a href={`https://dexscreener.com/solana/${f.mint}`} target="_blank" rel="noreferrer" className="min-w-0 truncate font-bold hover:text-win">
-                    {f.symbol ?? `${f.mint.slice(0, 4)}…`} ↗
-                  </a>
-                  <div className="flex items-center gap-3 num">
-                    <span className="text-muted-foreground">{f.buyers_24h} buying · {f.sellers_24h} selling</span>
-                    <span className={pnlClass(net1)} title="net smart money, last hour">{signedUsd(net1)} 1h</span>
-                    <span className={cn("w-20 text-right font-bold", pnlClass(net24))} title="net smart money, last 24h">{signedUsd(net24)}</span>
-                    <span className={cn("w-12 text-right", pnlClass(f.change_since_first_buy))} title="price change since the first smart buy">{pct(f.change_since_first_buy, 0)}</span>
+                <a key={f.mint} href={`https://dexscreener.com/solana/${f.mint}`} target="_blank" rel="noreferrer" className="line transition-colors hover:text-violet-deep">
+                  <span className={cn("dot font-semibold", up ? "bg-lilac" : "bg-chip")} aria-hidden>
+                    {(f.symbol ?? f.mint).slice(0, 1).toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{f.symbol ?? shortAddr(f.mint)}</p>
+                    <p className="k">
+                      {f.buyers_24h} buying · {f.sellers_24h} selling
+                      {f.change_since_first_buy !== null && <> · {pct(f.change_since_first_buy, 0)} since first buy</>}
+                    </p>
                   </div>
-                </div>
+                  <p className={cn("flex items-center gap-1.5 text-2xl font-light num", up ? "text-ink" : "text-loss")}>
+                    {signedUsd(net)}
+                    {up ? <TrendingUp size={16} className="text-violet-deep" aria-label="net buying" /> : <TrendingDown size={16} aria-label="net selling" />}
+                  </p>
+                </a>
               );
             })}
           </div>
-        </Window>
-        <Window title="Smart money signals">
-          <div className="divide-y">
-            {signals.length === 0 && <p className="p-3 text-xs text-muted-foreground">None yet. A signal fires when 3+ smart wallets buy (or dump) the same token within an hour.</p>}
-            {signals.map((g) => (
-              <div key={g.id} className="flex items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                <span className="min-w-0 truncate">
-                  <span className={g.kind === "accumulate" ? "text-win" : "text-loss"}>{g.kind === "accumulate" ? "▲" : "▼"}</span> <span className="font-bold">{g.symbol ?? `${g.mint.slice(0, 4)}…`}</span>{" "}
-                  <span className="text-muted-foreground">· {g.wallet_count} wallets · {ago(g.ts)}</span>
-                </span>
-                <span className={cn("num", pnlClass(g.ret_6h ?? g.ret_1h))} title="price move after the signal (6h, or 1h so far)">
-                  {g.ret_6h !== null ? `${pct(g.ret_6h, 0)} 6h` : g.ret_1h !== null ? `${pct(g.ret_1h, 0)} 1h` : "pending"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Window>
-      </div>
+        </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
-        <Window title="Copying now" className="lg:col-span-2" right={<Link href="/leaders" className="text-muted-foreground underline">all</Link>}>
-          <div className="divide-y">
-            {copying.length === 0 && <p className="p-3 text-xs text-muted-foreground">Nobody yet. Leaders appear once an analyzed wallet is making money.</p>}
-            {copying.slice(0, 8).map((l) => (
-              <div key={l.address} className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 text-xs">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <Addr address={l.address} />
-                  <TierBadge tier={l.tier} />
-                  <KindBadge kind={l.kind} score={null} />
-                </div>
-                <div className="flex items-center gap-3 num">
-                  <span className={pnlClass(l.pnl_7d_usd)}>{signedUsd(l.pnl_7d_usd)} 7d</span>
-                  <span className="w-10 text-right font-bold text-win">{(l.copy_weight * 100).toFixed(0)}%</span>
-                </div>
-              </div>
-            ))}
+        <div className="card flex flex-col">
+          <h2 className="text-[22px] font-medium tracking-[-0.02em]">Signals</h2>
+          <div className="mt-2 flex-1">
+            {signals.length === 0 ? (
+              <Empty img="radar" title="Quiet for now">
+                A signal appears when 3 or more smart wallets buy, or dump, the same coin within an hour.
+              </Empty>
+            ) : (
+              signals.map((g) => {
+                const r = g.ret_6h ?? g.ret_1h;
+                return (
+                  <div key={g.id} className="line">
+                    <span className={cn("dot", g.kind === "accumulate" ? "bg-lilac" : "bg-chip")} aria-hidden>
+                      {g.kind === "accumulate" ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">
+                        {g.wallet_count} smart wallets {g.kind === "accumulate" ? "bought" : "dumped"} {g.symbol ?? shortAddr(g.mint)}
+                      </p>
+                      <p className="k">{ago(g.ts)}</p>
+                    </div>
+                    <p className={cn("text-right text-xl font-light num", pnlClass(r))}>
+                      {r === null ? <span className="text-sm text-muted-foreground">measuring</span> : <>{pct(r, 0)}<span className="unit">{g.ret_6h !== null ? "6h" : "1h"}</span></>}
+                    </p>
+                  </div>
+                );
+              })
+            )}
           </div>
-        </Window>
-        <Window title="Open positions" right={<Link href="/copies" className="text-muted-foreground underline">all</Link>}>
-          <div className="divide-y">
-            {(copies?.open ?? []).length === 0 && <p className="p-3 text-xs text-muted-foreground">None.</p>}
-            {(copies?.open ?? []).map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
-                <span className="min-w-0 truncate">
-                  <span className="font-bold">{p.symbol ?? p.mint.slice(0, 6)}</span> <span className="text-muted-foreground">· {ago(p.opened_at)}</span>
-                </span>
-                <span className={cn("font-bold num", pnlClass(p.unrealized_pct))}>{pct(p.unrealized_pct ?? null)}</span>
-              </div>
-            ))}
-          </div>
-        </Window>
-      </div>
+        </div>
+      </section>
 
-      <Window title="Log" bodyClassName="bg-black">
-        <TerminalFeed limit={12} />
-      </Window>
-    </div>
+      <section className="grid gap-5 lg:grid-cols-2">
+        <div className="card">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[22px] font-medium tracking-[-0.02em]">Who it copies</h2>
+            <Link href="/leaders" className="pill">See all</Link>
+          </div>
+          <div className="mt-3">
+            {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies once it has a real track record and keeps winning.</Empty>}
+            {copying.map((l) => (
+              <Link key={l.address} href={`/wallets/${l.address}`} className="line transition-colors hover:text-violet-deep">
+                <WalletDot address={l.address} tier={l.tier} />
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono">{shortAddr(l.address)}</span>
+                    <TierBadge tier={l.tier} />
+                  </p>
+                  <p className="k mt-0.5">{(l.copy_weight * 100).toFixed(0)}% of the copy budget</p>
+                </div>
+                <p className={cn("text-right text-2xl font-light num", pnlClass(l.pnl_7d_usd))}>
+                  {signedUsd(l.pnl_7d_usd)}
+                  <span className="unit">7d</span>
+                </p>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[22px] font-medium tracking-[-0.02em]">Open trades</h2>
+            <Link href="/copies" className="pill">See all</Link>
+          </div>
+          <div className="mt-2">
+            {open.length === 0 && (
+              <Empty img="wallet" title="None open">
+                When a wallet GodsEye copies buys a memecoin, a small copy shows up here.
+              </Empty>
+            )}
+            {open.slice(0, 5).map((p) => (
+              <div key={p.id} className="line">
+                <span className="dot bg-lilac font-semibold" aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
+                  <p className="k">opened {ago(p.opened_at)}</p>
+                </div>
+                <p className={cn("text-2xl font-light num", pnlClass(p.unrealized_pct))}>{pct(p.unrealized_pct ?? null, 1)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="card">
+        <h2 className="text-[22px] font-medium tracking-[-0.02em]">Every wallet, sorted</h2>
+        <p className="mt-1 text-sm text-muted-foreground">GodsEye studies each wallet it sees trading and gives it a label. Tap one to see those wallets.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {TIERS.map((t) => (
+            <Link key={t} href={`/wallets?tier=${t}`} title={TIER_DESCRIPTIONS[t]} className="pill gap-2.5 bg-white pl-2 hover:bg-lilac">
+              <TierBadge tier={t} className="pointer-events-none" />
+              <span className="sr-only">{TIER_LABELS[t]}</span>
+              <span className="text-base num">{s?.tierCounts[t] ?? "—"}</span>
+            </Link>
+          ))}
+          <Link href="/wallets?kind=ai" className="pill bg-white hover:bg-lilac">Bots <span className="text-base num">{s?.kindCounts.ai ?? "—"}</span></Link>
+          <Link href="/wallets?kind=human" className="pill bg-white hover:bg-lilac">Humans <span className="text-base num">{s?.kindCounts.human ?? "—"}</span></Link>
+        </div>
+      </section>
+
+      <TerminalFeed limit={8} />
+    </>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 import { PageHeader } from "@/components/page-header";
 import { COPYING_LINKS, SubNav } from "@/components/nav";
-import { Window } from "@/components/window";
-import { Stat } from "@/components/stat";
+import { Empty, Window } from "@/components/window";
+import { Stat, Stats } from "@/components/stat";
 import { EquityChart, MonthlyChart, RollingWinRateChart } from "@/components/charts/perf-charts";
 import { usePoll } from "@/lib/use-poll";
 import { dollars, dt, pct, pnlClass } from "@/lib/format";
@@ -14,56 +14,52 @@ export default function PerformancePage() {
   const last = data?.equity.at(-1);
   return (
     <>
-      <PageHeader title="Copying" kicker="performance in USD · closed positions only">
+      <PageHeader title="Results" back="/copies" kicker="How copying has gone, in dollars, counting closed trades only.">
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
-      <div className="mb-3 grid grid-cols-2 gap-px border bg-border sm:grid-cols-3 lg:grid-cols-6">
-        <Stat className="border-0" label="Equity" value={last ? dollars(last.equity) : "—"} sub={`started ${dollars(data?.startingCapitalUsd ?? null)}`} />
-        <Stat className="border-0" label="Total return" value={pct(last && data?.startingCapitalUsd ? (last.cumPnl / data.startingCapitalUsd) * 100 : null)} valueClass={pnlClass(last?.cumPnl)} />
-        <Stat className="border-0"
-          label="Max drawdown"
-          value={data ? `${data.drawdown.maxDrawdownPct.toFixed(2)}%` : "—"}
-          sub={data?.drawdown.troughTs ? `trough ${dt(data.drawdown.troughTs).slice(0, 10)}` : "no drawdown yet"}
+      <Stats>
+        <Stat label="Money in the account" value={last ? dollars(last.equity) : "—"} sub={`started with ${dollars(data?.startingCapitalUsd ?? null)}`} />
+        <Stat label="Total return" value={pct(last && data?.startingCapitalUsd ? (last.cumPnl / data.startingCapitalUsd) * 100 : null, 1)} valueClass={pnlClass(last?.cumPnl)} />
+        <Stat
+          label="Worst drop from a high"
+          value={data ? `${data.drawdown.maxDrawdownPct.toFixed(1)}%` : "—"}
+          sub={data?.drawdown.troughTs ? `lowest on ${dt(data.drawdown.troughTs).slice(0, 10)}` : "No drop yet"}
           valueClass={data && data.drawdown.maxDrawdownPct < 0 ? "text-loss" : ""}
         />
-        <Stat className="border-0" label="Current DD" value={data ? `${data.currentDrawdownPct.toFixed(2)}%` : "—"} valueClass={data && data.currentDrawdownPct < 0 ? "text-loss" : "text-win"} />
-        <Stat className="border-0" label="Avg win" value={pct(data?.avgWinPct ?? null, 2)} sub={`avg loss ${pct(data?.avgLossPct ?? null, 2)}`} valueClass="text-win" />
-        <Stat className="border-0" label="Profit factor" value={data?.profitFactor ? data.profitFactor.toFixed(2) : "—"} sub="gross win ÷ gross loss" />
-      </div>
+        <Stat label="Wins vs losses" value={data?.profitFactor ? data.profitFactor.toFixed(2) : "—"} unit="×" sub={`avg win ${pct(data?.avgWinPct ?? null, 1)} · avg loss ${pct(data?.avgLossPct ?? null, 1)}`} />
+      </Stats>
 
-      {/* Drawdown meter */}
-      {data && (
-        <Window title="Drawdown" className="mb-3">
-          <div className="p-4">
-            <div className="flex justify-between text-[11px] text-muted-foreground">
+      {empty ? (
+        <div className="card">
+          <Empty img="wallet" title="No results yet">Charts appear after GodsEye closes its first copied trades.</Empty>
+        </div>
+      ) : (
+        <>
+          <Window title="Money over time">
+            <EquityChart data={data!} />
+          </Window>
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Window title="Win rate, last 30 days">
+              <RollingWinRateChart data={data!} />
+            </Window>
+            <Window title="By month">
+              <MonthlyChart data={data!} />
+            </Window>
+          </div>
+          <Window title="Drop from the high">
+            <div className="flex justify-between text-xs text-muted-foreground">
               <span>0%</span>
-              <span>max {data.drawdown.maxDrawdownPct.toFixed(2)}%</span>
+              <span>worst {data!.drawdown.maxDrawdownPct.toFixed(1)}%</span>
               <span>−20%</span>
             </div>
-            <div className="relative mt-1 h-4 bevel-in bg-black" role="meter" aria-valuemin={-20} aria-valuemax={0} aria-valuenow={data.currentDrawdownPct} aria-label="Current drawdown">
-              <div className="absolute inset-y-0 left-0 bg-loss/40" style={{ width: `${Math.min(100, (Math.abs(data.drawdown.maxDrawdownPct) / 20) * 100)}%` }} />
-              <div className="absolute inset-y-0 left-0 bg-loss" style={{ width: `${Math.min(100, (Math.abs(data.currentDrawdownPct) / 20) * 100)}%` }} />
+            <div className="relative mt-2 h-3 overflow-hidden rounded-full bg-chip" role="meter" aria-valuemin={-20} aria-valuemax={0} aria-valuenow={data!.currentDrawdownPct} aria-label="Current drop from the high">
+              <div className="absolute inset-y-0 left-0 rounded-full bg-lilac" style={{ width: `${Math.min(100, (Math.abs(data!.drawdown.maxDrawdownPct) / 20) * 100)}%` }} />
+              <div className="absolute inset-y-0 left-0 rounded-full bg-violet" style={{ width: `${Math.min(100, (Math.abs(data!.currentDrawdownPct) / 20) * 100)}%` }} />
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground">Bright = current drawdown from peak equity · faded = worst drawdown ever.</p>
-          </div>
-        </Window>
+            <p className="mt-2 text-xs text-muted-foreground">Dark purple is today&apos;s drop from the highest point; light purple is the worst it has been.</p>
+          </Window>
+        </>
       )}
-
-      <div className="grid gap-3 lg:grid-cols-2">
-        <Window title="Equity" className="lg:col-span-2">
-          <div className="p-2 sm:p-4">{empty ? <EmptyChart /> : <EquityChart data={data!} />}</div>
-        </Window>
-        <Window title="30-day win rate">
-          <div className="p-2 sm:p-4">{empty ? <EmptyChart /> : <RollingWinRateChart data={data!} />}</div>
-        </Window>
-        <Window title="Monthly">
-          <div className="p-2 sm:p-4">{empty ? <EmptyChart /> : <MonthlyChart data={data!} />}</div>
-        </Window>
-      </div>
     </>
   );
-}
-
-function EmptyChart() {
-  return <p className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">Charts appear after GodsEye closes its first copied positions.</p>;
 }

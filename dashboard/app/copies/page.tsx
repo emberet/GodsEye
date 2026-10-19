@@ -1,145 +1,143 @@
 "use client";
+import { useState } from "react";
+import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { COPYING_LINKS, SubNav } from "@/components/nav";
-import { Window } from "@/components/window";
+import { TopAlert } from "@/components/alert";
+import { Empty, Window } from "@/components/window";
+import { Stat, Stats } from "@/components/stat";
 import { RugChecks } from "@/components/rug-checks";
-import { Addr } from "@/components/wallet-badges";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TierBadge, WalletDot } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, dt, pct, pnlClass, signedSol, signedUsd, solscanTx } from "@/lib/format";
-import type { CopiesData } from "@/lib/types";
+import { ago, dollars, pct, pnlClass, shortAddr, signedSol, signedUsd, solscanTx } from "@/lib/format";
+import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<string, "win" | "loss" | "amber" | "outline"> = { filled: "win", failed: "loss", pending: "amber", skipped: "outline" };
+const STATUS: Record<string, string> = { filled: "bg-lilac", failed: "bg-[#F1DCE3] text-loss", pending: "bg-frame text-white", skipped: "" };
+const STATUS_LABEL: Record<string, string> = { filled: "Done", failed: "Failed", pending: "Sending", skipped: "Skipped" };
 
 export default function CopiesPage() {
-  const { data, updatedAt } = usePoll<CopiesData>("/api/copies", 10_000);
+  const { data } = usePoll<CopiesData>("/api/copies", 10_000);
+  const { data: s } = usePoll<Summary>("/api/summary", 10_000);
+  const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
+  const [allTrades, setAllTrades] = useState(false);
   const open = data?.open ?? [];
-  const totalU = open.reduce((s, p) => s + (p.unrealized_usd ?? 0), 0);
+  const closed = data?.closed ?? [];
+  const trades = data?.trades ?? [];
+  const copying = (leaders?.leaders ?? []).filter((l) => l.copy_weight > 0);
+  const bar = leaders?.followBar?.value ?? null;
+
   return (
     <>
-      <PageHeader title="Copying" kicker={updatedAt ? `positions · updated ${updatedAt.toISOString().slice(11, 19)} UTC` : "positions"}>
+      <PageHeader title="Copying" kicker={copying.length ? `GodsEye is ready to copy ${copying.length} wallet${copying.length === 1 ? "" : "s"}. ${open.length ? `${open.length} trade${open.length === 1 ? "" : "s"} open.` : "Nothing open yet."}` : "Waiting for a wallet with a real track record."}>
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
 
-      <Window title={`Open positions · ${open.length}`} className="mb-3" right={<span className={cn("text-xs font-bold num", totalU >= 0 ? "text-win" : "text-loss")}>{signedUsd(totalU)}</span>}>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Token</TableHead>
-              <TableHead>Copied from</TableHead>
-              <TableHead>Opened</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              <TableHead className="text-right">Sold so far</TableHead>
-              <TableHead className="text-right">Unrealized</TableHead>
-              <TableHead>Mode</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {open.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">No open positions.</TableCell>
-              </TableRow>
-            )}
-            {open.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="font-bold">{p.symbol ?? p.mint.slice(0, 6)}</TableCell>
-                <TableCell><Addr address={p.leader} /></TableCell>
-                <TableCell className="text-muted-foreground">{ago(p.opened_at)}</TableCell>
-                <TableCell className="text-right">{dollars(p.cost_usd)} <span className="text-muted-foreground">({p.cost_sol.toFixed(3)} SOL)</span></TableCell>
-                <TableCell className="text-right">{p.proceeds_sol > 0 ? dollars(p.proceeds_usd) : "—"}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(p.unrealized_pct))}>
-                  {pct(p.unrealized_pct ?? null)} <span className="font-normal">({p.unrealized_usd != null ? signedUsd(p.unrealized_usd) : `${signedSol(p.unrealized_sol ?? null)} SOL`})</span>
-                </TableCell>
-                <TableCell><Badge variant={p.mode === "real" ? "amber" : "outline"}>{p.mode}</Badge></TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <Stats>
+        <Stat label="Profit from copying" value={signedUsd(s?.realizedPnlUsd ?? null)} valueClass={pnlClass(s?.realizedPnlUsd)} sub={s ? `${s.wins} won · ${s.losses} lost · today ${signedUsd(s.todayPnlUsd)}` : undefined} />
+        <Stat label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} not yet sold` : undefined} />
+        <Stat label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : undefined} />
+        <Stat label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub="Moves on its own as copies win or lose" />
+      </Stats>
+
+      <TopAlert s={s} />
+
+      <section className="grid gap-5 lg:grid-cols-2">
+        <Window title="Open trades" right={open.length > 0 && <span className="text-muted-foreground num">{signedUsd(open.reduce((t, p) => t + (p.unrealized_usd ?? 0), 0))}</span>}>
+          {open.length === 0 && (
+            <Empty img="wallet" title="No open trades">
+              When a wallet below buys a memecoin, GodsEye buys a small copy and shows it here.
+            </Empty>
+          )}
+          {open.map((p) => (
+            <div key={p.id} className="line">
+              <span className="dot bg-lilac font-semibold" aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
+                <p className="k">
+                  {dollars(p.cost_usd)} in · copied from <span className="font-mono">{shortAddr(p.leader)}</span> · {ago(p.opened_at)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className={cn("text-2xl font-light num", pnlClass(p.unrealized_pct))}>{pct(p.unrealized_pct ?? null, 1)}</p>
+                <p className="k num">{p.unrealized_usd != null ? signedUsd(p.unrealized_usd) : `${signedSol(p.unrealized_sol ?? null, 3)} SOL`}</p>
+              </div>
+            </div>
+          ))}
+        </Window>
+
+        <Window title="Who it copies" right={<Link href="/leaders" className="pill">Details</Link>}>
+          {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
+          {copying.slice(0, 6).map((l) => (
+            <Link key={l.address} href={`/wallets/${l.address}`} className="line transition-colors hover:text-violet-deep">
+              <WalletDot address={l.address} tier={l.tier} />
+              <div className="min-w-0 flex-1">
+                <p className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono">{shortAddr(l.address)}</span>
+                  <TierBadge tier={l.tier} />
+                </p>
+                <p className="k mt-0.5">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`} · {signedUsd(l.pnl_7d_usd)} this week</p>
+              </div>
+              <div className="w-28 sm:w-40">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Budget</span>
+                  <span className="font-semibold num">{(l.copy_weight * 100).toFixed(0)}%</span>
+                </div>
+                <div className="mt-1.5 h-2 rounded-full bg-chip" aria-hidden>
+                  <div className="h-2 rounded-full bg-violet" style={{ width: `${Math.min(100, l.copy_weight * 100)}%` }} />
+                </div>
+              </div>
+            </Link>
+          ))}
+        </Window>
+      </section>
+
+      <Window
+        title="What it decided"
+        right={trades.length > 8 && <button type="button" className="pill" onClick={() => setAllTrades((v) => !v)}>{allTrades ? "Show fewer" : `Show all ${trades.length}`}</button>}
+      >
+        <p className="text-sm text-muted-foreground">Every buy or sell GodsEye considered, and why it went ahead or didn&apos;t.</p>
+        <div className="mt-2">
+          {trades.length === 0 && <p className="py-3 text-sm text-muted-foreground">No decisions yet.</p>}
+          {(allTrades ? trades : trades.slice(0, 8)).map((c) => (
+            <div key={c.id} className="line flex-wrap sm:flex-nowrap">
+              <span className={cn("tag w-[74px] justify-center", STATUS[c.status])}>{STATUS_LABEL[c.status] ?? c.status}</span>
+              <p className="min-w-0 flex-1 text-sm">
+                <span className="font-semibold">{c.side === "buy" ? "Buy" : "Sell"} {c.symbol ?? shortAddr(c.mint)}</span>
+                {c.size_sol != null && <span className="text-muted-foreground"> · {c.size_sol.toFixed(3)} SOL</span>}
+                <span className={cn("block truncate text-xs", c.error ? "text-loss" : "text-muted-foreground")} title={c.error ?? c.reason ?? ""}>
+                  {c.error ?? c.reason ?? `copying ${shortAddr(c.leader)}`}
+                </span>
+              </p>
+              {c.signature ? (
+                <a href={solscanTx(c.signature)} target="_blank" rel="noreferrer" className="shrink-0 text-xs text-violet-deep underline underline-offset-2">{ago(c.created_at)}</a>
+              ) : (
+                <span className="shrink-0 text-xs text-muted-foreground">{ago(c.created_at)}</span>
+              )}
+            </div>
+          ))}
+        </div>
       </Window>
 
-      <Window title={`Copy decisions · latest ${data?.trades.length ?? 0}`} className="mb-3">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>When</TableHead>
-              <TableHead>Side</TableHead>
-              <TableHead>Token</TableHead>
-              <TableHead>Leader</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">SOL</TableHead>
-              <TableHead className="text-right">Delay</TableHead>
-              <TableHead>Why / error</TableHead>
-              <TableHead>Tx</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(data?.trades ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">No copy decisions yet.</TableCell>
-              </TableRow>
-            )}
-            {(data?.trades ?? []).map((c) => (
-              <TableRow key={c.id}>
-                <TableCell className="text-muted-foreground">{dt(c.created_at)}</TableCell>
-                <TableCell className={c.side === "buy" ? "text-win" : "text-loss"}>{c.side}</TableCell>
-                <TableCell className="font-bold">{c.symbol ?? c.mint.slice(0, 6)}</TableCell>
-                <TableCell><Addr address={c.leader} /></TableCell>
-                <TableCell><Badge variant={STATUS[c.status]}>{c.status}</Badge></TableCell>
-                <TableCell className="text-right">{c.size_sol?.toFixed(4) ?? "—"}</TableCell>
-                <TableCell className="text-right text-muted-foreground">{c.latency_ms === null ? "—" : `${(c.latency_ms / 1000).toFixed(1)}s`}</TableCell>
-                <TableCell className="max-w-[340px] truncate text-xs text-muted-foreground" title={c.error ?? c.reason ?? ""}>
-                  {c.error ? <span className="text-loss">{c.error}</span> : c.reason}
-                </TableCell>
-                <TableCell>
-                  {c.signature ? (
-                    <a href={solscanTx(c.signature)} target="_blank" rel="noreferrer" className="text-muted-foreground underline">↗</a>
-                  ) : (
-                    <span className="text-muted-foreground">—</span>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+      <Window title="Closed trades" right={closed.length > 0 && <Link href="/performance" className="pill">Results</Link>}>
+        {closed.length === 0 && <p className="py-3 text-sm text-muted-foreground">Nothing closed yet.</p>}
+        {closed.slice(0, 12).map((p) => (
+          <div key={p.id} className="line">
+            <span className={cn("dot font-semibold", (p.pnl_usd ?? p.pnl_sol ?? 0) >= 0 ? "bg-lilac" : "bg-chip")} aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
+              <p className="k">
+                {dollars(p.cost_usd)} in · {dollars(p.proceeds_usd)} out · {p.exit_reason} · {ago(p.closed_at)}
+              </p>
+            </div>
+            <div className="text-right" title={`${signedSol(p.pnl_sol)} SOL`}>
+              <p className={cn("text-2xl font-light num", pnlClass(p.pnl_usd ?? p.pnl_sol))}>{p.pnl_usd != null ? signedUsd(p.pnl_usd) : `${signedSol(p.pnl_sol, 3)} SOL`}</p>
+              <p className="k num">{pct(p.pnl_pct, 1)}</p>
+            </div>
+          </div>
+        ))}
       </Window>
 
-      <Window title={`Closed · ${data?.closed.length ?? 0}`} className="mb-3">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Closed</TableHead>
-              <TableHead>Token</TableHead>
-              <TableHead>Copied from</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              <TableHead className="text-right">Proceeds</TableHead>
-              <TableHead className="text-right">P&amp;L</TableHead>
-              <TableHead>Exit</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(data?.closed ?? []).length === 0 && (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">Nothing closed yet.</TableCell>
-              </TableRow>
-            )}
-            {(data?.closed ?? []).map((p) => (
-              <TableRow key={p.id}>
-                <TableCell className="text-muted-foreground">{dt(p.closed_at)}</TableCell>
-                <TableCell className="font-bold">{p.symbol ?? p.mint.slice(0, 6)}</TableCell>
-                <TableCell><Addr address={p.leader} /></TableCell>
-                <TableCell className="text-right">{dollars(p.cost_usd)}</TableCell>
-                <TableCell className="text-right">{dollars(p.proceeds_usd)}</TableCell>
-                <TableCell className={cn("text-right font-bold", pnlClass(p.pnl_usd ?? p.pnl_sol))} title={`${signedSol(p.pnl_sol)} SOL`}>
-                  {p.pnl_usd != null ? signedUsd(p.pnl_usd) : `${signedSol(p.pnl_sol)} SOL`} <span className="font-normal">({pct(p.pnl_pct)})</span>
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">{p.exit_reason}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </Window>
       <RugChecks />
     </>
   );
