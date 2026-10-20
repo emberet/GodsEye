@@ -52,3 +52,46 @@ test("GeckoTerminal: analysis lookups go ahead of background calls", async () =>
   assert.deepEqual(done, ["top1", "launch", "top2"]);
   globalThis.fetch = realFetch;
 });
+
+test("launch times keep the earliest known: Solana's first mint transaction beats a later pool", async () => {
+  const { recordLaunch, cachedTokenInfo } = await import("../src/market/tokens");
+  const db = openDb(":memory:");
+  recordLaunch(db, "M2", "2026-10-18T10:00:00.000Z");
+  recordLaunch(db, "M2", "2026-10-18T12:00:00.000Z"); // later: ignored
+  assert.equal(cachedTokenInfo(db, "M2")!.pool_created_at, "2026-10-18T10:00:00.000Z");
+  recordLaunch(db, "M2", "2026-10-18T09:00:00.000Z"); // earlier: wins
+  assert.equal(cachedTokenInfo(db, "M2")!.pool_created_at, "2026-10-18T09:00:00.000Z");
+  // GeckoTerminal's pool (2026-10-18T00:00Z in the fake network) is earlier still, so it would win; a later pool would not.
+  (config as { shyftApiKey: string | undefined }).shyftApiKey = "test-key";
+  fakeNetwork();
+  recordLaunch(db, "M3", "2026-10-17T00:00:00.000Z");
+  const t = await tokenInfo(db, "M3", { pool: true });
+  assert.equal(t.pool_created_at, "2026-10-17T00:00:00.000Z");
+  assert.equal(t.pool_address, "POOL");
+  globalThis.fetch = realFetch;
+});
+
+test("RugCheck is asked once per token, even when it doesn't know the creator", async () => {
+  (config as { shyftApiKey: string | undefined }).shyftApiKey = "test-key";
+  fakeNetwork(); // RugCheck answers {data: []}: no creator
+  const db = openDb(":memory:");
+  const first = await tokenInfo(db, "M4", { creator: true });
+  assert.equal(first.creator, "");
+  const asked = calls.filter((u) => u.includes("rugcheck")).length;
+  assert.equal(asked, 1);
+  await tokenInfo(db, "M4", { creator: true });
+  assert.equal(calls.filter((u) => u.includes("rugcheck")).length, 1);
+  globalThis.fetch = realFetch;
+});
+
+test("a creator read from the mint's first transaction fills a gap but never overwrites one", async () => {
+  const { recordLaunch, cachedTokenInfo } = await import("../src/market/tokens");
+  const db = openDb(":memory:");
+  recordLaunch(db, "M5", "2026-10-18T10:00:00.000Z", "CreatorA");
+  assert.equal(cachedTokenInfo(db, "M5")!.creator, "CreatorA");
+  recordLaunch(db, "M5", "2026-10-18T10:00:00.000Z", "CreatorB");
+  assert.equal(cachedTokenInfo(db, "M5")!.creator, "CreatorA");
+  db.prepare("UPDATE token_info SET creator = '' WHERE mint = 'M5'").run(); // RugCheck didn't know
+  recordLaunch(db, "M5", "2026-10-18T10:00:00.000Z", "CreatorC");
+  assert.equal(cachedTokenInfo(db, "M5")!.creator, "CreatorC");
+});

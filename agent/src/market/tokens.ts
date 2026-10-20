@@ -30,6 +30,24 @@ export function cachedTokenInfo(db: DB, mint: string): TokenInfo | null {
   return (db.prepare("SELECT * FROM token_info WHERE mint = ?").get(mint) as TokenInfo | undefined) ?? null;
 }
 
+const earliest = (a: string | null, b: string | null) => (a && b ? (a < b ? a : b) : (a ?? b));
+
+/**
+ * Record a launch time read from Solana (the mint's first transaction), and its creator (who paid for that
+ * transaction) when known. Keeps the earliest known launch;
+ * doesn't count as asking GeckoTerminal, which is still asked for the pool when price candles are needed.
+ */
+export function recordLaunch(db: DB, mint: string, at: string, creator: string | null = null): void {
+  db.prepare(
+    `INSERT INTO token_info (mint, pool_created_at, creator, checked_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(mint) DO UPDATE SET
+       pool_created_at = CASE
+         WHEN token_info.pool_created_at IS NULL OR excluded.pool_created_at < token_info.pool_created_at THEN excluded.pool_created_at
+         ELSE token_info.pool_created_at END,
+       creator = CASE WHEN COALESCE(token_info.creator, '') = '' THEN excluded.creator ELSE token_info.creator END`,
+  ).run(mint, at, creator, nowIso());
+}
+
 /** Should GeckoTerminal be asked for this token's launch time (never asked, or unknown and asked a while ago)? */
 export function launchDue(info: TokenInfo | null, now = Date.now()): boolean {
   if (!info?.launch_checked_at) return true;
@@ -56,16 +74,18 @@ export async function tokenInfo(db: DB, mint: string, opts: { creator?: boolean;
       info = {
         ...info,
         symbol: info.symbol ?? launch.symbol,
-        pool_created_at: launch.poolCreatedAt ?? info.pool_created_at,
+        // Keep the earlier launch: Solana's first mint transaction can predate GeckoTerminal's pool.
+        pool_created_at: earliest(info.pool_created_at, launch.poolCreatedAt),
         pool_address: launch.topPool ?? info.pool_address,
         launch_checked_at: nowIso(),
       };
     }
   }
   if (info.decimals === null) info = { ...info, decimals: (await tokenDecimals(mint).catch(() => null)) ?? null };
-  if (opts.creator && !info.creator) {
-    const report = await fetchJson<{ creator?: string }>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 15_000 }).catch(() => null);
-    if (report?.creator) info = { ...info, creator: report.creator };
+  // Creator from RugCheck, asked once per token: "" means RugCheck answered but doesn't know (don't ask again).
+  if (opts.creator && info.creator === null) {
+    const report = await fetchJson<{ creator?: string }>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 8_000 }).catch(() => null);
+    if (report) info = { ...info, creator: report.creator || "" };
   }
   info = { ...info, checked_at: nowIso() };
   db.prepare(

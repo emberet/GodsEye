@@ -124,7 +124,7 @@ async function main() {
   // Once an hour: what reading wallet history actually cost in RPC requests.
   cron.schedule("0 * * * *", () => {
     const u = rpcUsage(60);
-    if (u.calls) say("info", `RPC for wallet history, last hour: ${u.calls.toLocaleString("en-US")} requests, ${u.avgPerSec.toFixed(1)}/sec on average, busiest minute ${u.peakPerSec.toFixed(1)}/sec (cap ${config.rpcMaxRps}/sec).`);
+    if (u.calls) say("info", `RPC for wallet history, last hour: ${u.calls.toLocaleString("en-US")} requests, ${u.avgPerSec.toFixed(1)}/sec on average, busiest minute ${u.peakPerSec.toFixed(1)}/sec (cap ${config.rpcMaxRps}/sec)${u.throttled ? `; the RPC rate-limited ${u.throttled.toLocaleString("en-US")} of them — lower RPC_MAX_RPS` : "; no rate limiting"}.`);
   });
   if (live) {
     // Smart money: who counts (every 5 min) and what their trades did next (every 5 min).

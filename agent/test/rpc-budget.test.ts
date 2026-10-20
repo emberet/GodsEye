@@ -12,3 +12,18 @@ test("history RPC is spread out at RPC_MAX_RPS and counted", async () => {
   assert.ok(elapsed >= 450 && elapsed < 1500, `took ${elapsed} ms`);
   assert.equal(rpcUsage(60).calls, 100);
 });
+
+test("rate-limited RPC answers are counted for the hourly report", async () => {
+  const { noteThrottled } = await import("../src/chain/rpc-budget");
+  const before = rpcUsage(60).throttled;
+  noteThrottled();
+  noteThrottled();
+  assert.equal(rpcUsage(60).throttled - before, 2);
+});
+
+test("the running total never shrinks, so long runs measure correctly", async () => {
+  const { rpcCallsSoFar } = await import("../src/chain/rpc-budget");
+  const a = rpcCallsSoFar();
+  await takeRpc(3);
+  assert.equal(rpcCallsSoFar() - a, 3);
+});

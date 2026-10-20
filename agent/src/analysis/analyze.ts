@@ -12,10 +12,10 @@
 import { type DB, isNonMemecoinSymbol, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
-import { readWalletHistory } from "../chain/history";
-import { rpcCallsSoFar } from "../chain/rpc-budget";
+import { mintLaunchBefore, readWalletHistory } from "../chain/history";
+import { rpcCallsSoFar, rpcUsage } from "../chain/rpc-budget";
 import type { ParsedSwap } from "../chain/parse";
-import { cachedTokenInfo, launchDue, tokenInfo } from "../market/tokens";
+import { cachedTokenInfo, launchDue, recordLaunch, tokenInfo } from "../market/tokens";
 import { getPrices } from "../market/prices";
 import { classify } from "./classifier";
 import { computeStats, realize, type SwapLite } from "./pnl";
@@ -69,25 +69,63 @@ export function insertSwaps(db: DB, swaps: ParsedSwap[]): number {
   return n;
 }
 
-/** Fill in "seconds after launch" for buys whose token launch time is now known. */
+/** Coins per wallet whose launch time is looked up in one analysis (each costs 1–4 RPC calls). */
+const LAUNCH_MINTS_PER_WALLET = 25;
+const LAUNCH_LOOKUPS_IN_FLIGHT = 5;
+/** RugCheck creator lookups per run: only for coins whose creator Solana couldn't give (slow, rate-limited). */
+const RUGCHECK_LOOKUPS_PER_RUN = 20;
+
+/**
+ * Fill in "seconds after launch" for this wallet's buys. Launch times come from Solana first (the mint's
+ * first transaction: cheap, and the true launch), and from GeckoTerminal only when Solana can't settle it.
+ */
 async function fillTokenAges(db: DB, wallet: string, budget: { left: number }): Promise<void> {
   const missing = db
-    .prepare("SELECT DISTINCT mint FROM wallet_swaps WHERE wallet = ? AND side = 'buy' AND token_age_sec IS NULL ORDER BY ts DESC LIMIT 25")
-    .all(wallet) as { mint: string }[];
-  for (const { mint } of missing) {
+    .prepare(
+      `SELECT mint, MIN(ts) first_ts,
+              (SELECT signature FROM wallet_swaps f WHERE f.wallet = w.wallet AND f.mint = w.mint AND f.side = 'buy' ORDER BY f.ts LIMIT 1) first_sig
+         FROM wallet_swaps w WHERE wallet = ? AND side = 'buy' AND token_age_sec IS NULL
+        GROUP BY mint ORDER BY MAX(ts) DESC LIMIT ?`,
+    )
+    .all(wallet, LAUNCH_MINTS_PER_WALLET) as { mint: string; first_ts: string; first_sig: string }[];
+  const setAges = (mint: string, launchAt: string) =>
+    db.prepare(
+      `UPDATE wallet_swaps SET token_age_sec = MAX(0, (julianday(ts) - julianday(?)) * 86400.0)
+        WHERE wallet = ? AND mint = ? AND token_age_sec IS NULL AND ts >= ?`,
+    ).run(launchAt, wallet, mint, launchAt);
+  // A few coins at a time: each is a couple of RPC calls, mostly waiting on the network.
+  let next = 0;
+  const one = async ({ mint, first_ts, first_sig }: (typeof missing)[number]) => {
     let info = cachedTokenInfo(db, mint);
-    // A name may already be cached (from Shyft) without the launch time: that's what's needed here.
-    if (!info?.pool_created_at && launchDue(info) && budget.left > 0) {
+    if (info?.pool_created_at) {
+      setAges(mint, info.pool_created_at);
+      return;
+    }
+    // 1) Solana: walk the mint's history back from this wallet's first buy.
+    const chain = await mintLaunchBefore(mint, first_sig, first_ts).catch(() => null);
+    if (chain?.exact) {
+      recordLaunch(db, mint, chain.at, chain.creator);
+      setAges(mint, chain.at);
+      return;
+    }
+    // Not the very first transaction, but already old enough at the first buy: ages are lower bounds,
+    // which is all "early buy" needs (they can't be early).
+    if (chain && (Date.parse(first_ts) - Date.parse(chain.at)) / 1000 > config.earlyBuySeconds) {
+      setAges(mint, chain.at);
+      return;
+    }
+    // 2) GeckoTerminal (rate-limited): very busy launches, or when Solana couldn't answer.
+    if (launchDue(info) && budget.left > 0) {
       budget.left--;
       info = await tokenInfo(db, mint, { launch: true }).catch(() => null);
+      if (info?.pool_created_at) setAges(mint, info.pool_created_at);
     }
-    if (info?.pool_created_at) {
-      db.prepare(
-        `UPDATE wallet_swaps SET token_age_sec = MAX(0, (julianday(ts) - julianday(?)) * 86400.0)
-          WHERE wallet = ? AND mint = ? AND token_age_sec IS NULL AND ts >= ?`,
-      ).run(info.pool_created_at, wallet, mint, info.pool_created_at);
-    }
-  }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(LAUNCH_LOOKUPS_IN_FLIGHT, missing.length) }, async () => {
+      while (next < missing.length) await one(missing[next++]);
+    }),
+  );
 }
 
 /**
@@ -128,7 +166,13 @@ export function recomputeAllStats(db: DB): number {
   return rows.length;
 }
 
-export async function analyzeWallet(db: DB, address: string, budget = { left: TOKEN_LOOKUPS_PER_RUN }, crashBudget = { left: CRASH_CHECKS_PER_RUN }): Promise<void> {
+export async function analyzeWallet(
+  db: DB,
+  address: string,
+  budget = { left: TOKEN_LOOKUPS_PER_RUN },
+  crashBudget = { left: CRASH_CHECKS_PER_RUN },
+  rugBudget = { left: RUGCHECK_LOOKUPS_PER_RUN },
+): Promise<void> {
   const row = db.prepare("SELECT * FROM wallets WHERE address = ?").get(address) as WalletRowDb | undefined;
   if (!row) return;
   const firstLook = !row.last_analyzed_at;
@@ -174,7 +218,12 @@ export async function analyzeWallet(db: DB, address: string, budget = { left: TO
   const creatorLinks: TierInput["creatorLinks"] = [];
   const earlyMints = [...new Set(swaps.filter((s) => s.side === "buy" && s.token_age_sec !== null && s.token_age_sec <= config.earlyBuySeconds).map((s) => s.mint))];
   for (const mint of earlyMints.slice(0, CREATOR_LOOKUPS_PER_WALLET)) {
-    const info = await timed("creators", () => tokenInfo(db, mint, { creator: true })).catch(() => null);
+    // Usually known already: read from the mint's first transaction while finding its launch time.
+    let info = cachedTokenInfo(db, mint);
+    if (info?.creator === null && rugBudget.left > 0) {
+      rugBudget.left--;
+      info = await timed("creators", () => tokenInfo(db, mint, { creator: true })).catch(() => null);
+    }
     if (!info?.creator) continue;
     const firstBuy = swaps.find((s) => s.mint === mint && s.side === "buy")!;
     if (info.creator === address) creatorLinks.push({ mint, symbol: sym(mint), relation: "is_creator", signature: firstBuy.signature, ts: firstBuy.ts });
@@ -241,7 +290,7 @@ export async function deepenHistory(db: DB, address: string, now = Date.now()): 
     | undefined;
   if (!row) return 0;
   const before = row.history_oldest_sig ?? (db.prepare("SELECT signature FROM wallet_swaps WHERE wallet = ? ORDER BY ts LIMIT 1").get(address) as { signature: string } | undefined)?.signature;
-  const left = config.historyTxLimit - row.history_tx_read;
+  const left = config.historyDeepTxLimit - row.history_tx_read;
   if (!before || left <= 0) {
     db.prepare("UPDATE wallets SET history_done = 1 WHERE address = ?").run(address);
     return 0;
@@ -269,37 +318,52 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     .prepare(
       `SELECT address FROM wallets
         WHERE analyze_errors < 5 AND (last_analyzed_at IS NULL OR last_analyzed_at < ?)
-        ORDER BY last_analyzed_at IS NOT NULL, copy_weight > 0 DESC, last_analyzed_at
+        ORDER BY last_analyzed_at IS NOT NULL, copy_weight > 0 DESC,
+                 -- never studied: wallets the live stream saw making money first, then the newest found
+                 (last_analyzed_at IS NULL AND discovered_via = 'live_stream') DESC,
+                 CASE WHEN last_analyzed_at IS NULL THEN first_seen_at END DESC,
+                 last_analyzed_at
         LIMIT ?`,
     )
     .all(staleBefore, limit) as { address: string }[];
   const budget = { left: TOKEN_LOOKUPS_PER_RUN };
   const crashBudget = { left: CRASH_CHECKS_PER_RUN };
+  const rugBudget = { left: RUGCHECK_LOOKUPS_PER_RUN };
   let done = 0;
-  for (const { address } of rows) {
-    try {
-      await analyzeWallet(db, address, budget, crashBudget);
-      done++;
-    } catch (e) {
-      db.prepare("UPDATE wallets SET analyze_errors = analyze_errors + 1 WHERE address = ?").run(address);
-      say("warn", `Couldn't analyze ${short(address)}: ${(e as Error).message.slice(0, 140)}`);
+  // Several wallets at once: each is mostly waiting on the network; the RPC budget sets the overall pace.
+  let next = 0;
+  const worker = async () => {
+    while (next < rows.length) {
+      const { address } = rows[next++];
+      try {
+        await analyzeWallet(db, address, budget, crashBudget, rugBudget);
+        done++;
+      } catch (e) {
+        db.prepare("UPDATE wallets SET analyze_errors = analyze_errors + 1 WHERE address = ?").run(address);
+        say("warn", `Couldn't analyze ${short(address)}: ${(e as Error).message.slice(0, 140)}`);
+      }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(config.analyzeConcurrency, rows.length)) }, worker));
   // Wallets studied before history was read by days: read further back, copied wallets first.
   let deepened = 0;
   let deepTx = 0;
   const deepen = db
     .prepare(
-      `SELECT address FROM wallets
-        WHERE last_analyzed_at IS NOT NULL AND history_done = 0 AND analyze_errors < 5
-        ORDER BY copy_weight > 0 DESC, tier IN ('proven','needs_attention','insider','lucky_streak') DESC, last_analyzed_at DESC
+      `SELECT w.address FROM wallets w
+         LEFT JOIN wallet_stats s ON s.wallet = w.address
+         LEFT JOIN smart_wallets sm ON sm.address = w.address AND sm.active = 1
+        WHERE w.last_analyzed_at IS NOT NULL AND w.history_done = 0 AND w.analyze_errors < 5
+          -- deep history only where it matters: wallets GodsEye copies or follows, or that are making money
+          AND (w.copy_weight > 0 OR sm.address IS NOT NULL OR w.tier IN ('proven', 'insider') OR (s.pnl_30d_usd > 0 AND s.closed_30d >= 3))
+        ORDER BY w.copy_weight > 0 DESC, sm.address IS NOT NULL DESC, w.tier = 'proven' DESC, s.pnl_30d_usd DESC
         LIMIT ?`,
     )
     .all(config.historyDeepenPerRun) as { address: string }[];
-  for (const { address } of deepen) {
+  await Promise.all(deepen.map(async ({ address }) => {
     try {
       deepTx += await deepenHistory(db, address);
-      await analyzeWallet(db, address, budget, crashBudget); // re-score with the longer history
+      await analyzeWallet(db, address, budget, crashBudget, rugBudget); // re-score with the longer history
       deepened++;
     } catch (e) {
       // e.g. the RPC can't find the stored cursor transaction: keep the history it has and stop retrying,
@@ -307,13 +371,13 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
       db.prepare("UPDATE wallets SET history_done = 1 WHERE address = ?").run(address);
       say("warn", `Couldn't read further back for ${short(address)}, keeping the history it has: ${(e as Error).message.slice(0, 200)}`);
     }
-  }
+  }));
   if (done || deepened) {
     const calls = rpcCallsSoFar() - callsBefore;
     const secs = Math.max(1, (Date.now() - startedAt) / 1000);
     say(
       "info",
-      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.`,
+      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec, ${(rpcUsage(Math.ceil(secs / 60)).throttled).toLocaleString("en-US")} rate-limited). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.`,
     );
   }
   return done;

@@ -7,7 +7,7 @@ import { rpcUrl } from "../config";
 import { connection } from "../rpc";
 import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
 import { solUsdAt } from "../market/solprice";
-import { takeRpc } from "./rpc-budget";
+import { noteThrottled, takeRpc } from "./rpc-budget";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,6 +29,7 @@ async function rpcCall(signatures: string[], metered: boolean): Promise<RpcReply
   for (let attempt = 0; ; attempt++) {
     if (metered) await takeRpc(body.length);
     const res = await fetch(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
+    if (res.status === 429) noteThrottled();
     if (res.status === 429 && attempt < 4) {
       await sleep(1500 * 2 ** attempt); // rate-limited: back off and try again
       continue;
@@ -50,6 +51,7 @@ async function rpcBatch(signatures: string[], metered = false): Promise<(TxLike 
     const failed: number[] = [];
     for (const r of replies) {
       if (r.error) {
+        if (/rate|limit|429|too many/i.test(r.error.message)) noteThrottled();
         failed.push(pending[r.id]);
         lastError = r.error.message;
       } else out[pending[r.id]] = r.result ?? null;
@@ -86,6 +88,30 @@ async function pageSignatures(
     before = page[page.length - 1].signature;
   }
   return { sigs: out, exhausted: false, reachedTime: false };
+}
+
+/**
+ * When was this token launched, as far as Solana can tell cheaply? Walks the mint's signatures back from
+ * `before` (a buy of it), up to `pages` × 1000. `exact`: the mint's first transaction was reached, so `at`
+ * is the launch; otherwise `at` is the oldest transaction seen, so the buy came at least that long after
+ * launch. Metered like other history reads.
+ */
+export async function mintLaunchBefore(
+  mint: string,
+  before: string,
+  beforeTs: string,
+  pages = 3,
+): Promise<{ at: string; exact: boolean; creator: string | null }> {
+  const p = await pageSignatures(mint, { before, limit: pages * 1000, metered: true });
+  const oldest = p.sigs.at(-1);
+  const at = oldest?.blockTime ? new Date(oldest.blockTime * 1000).toISOString() : beforeTs; // nothing older: the buy launched it
+  // The mint's first transaction created it: whoever paid for it is the creator (one more RPC call, no RugCheck).
+  let creator: string | null = null;
+  if (p.exhausted && oldest) {
+    const tx = await rpcBatch([oldest.signature], true).then((r) => r[0]).catch(() => null);
+    creator = tx?.transaction.message.accountKeys[0]?.pubkey.toString() ?? null;
+  }
+  return { at, exact: p.exhausted, creator };
 }
 
 /** Batches of 20 kept in flight at once: Shyft takes ~5 s per batch of parsed transactions, so one at a time is far below RPC_MAX_RPS (the budget still sets the pace). */
@@ -143,7 +169,7 @@ export interface WalletHistory {
   oldestSignature: string | null;
   /** Transactions read this time. */
   read: number;
-  /** True if nothing more needs reading back: the wallet's first transaction, the day target, or the cap was reached. */
+  /** True if nothing more needs reading back: the wallet's first transaction or the day target was reached. */
   historyDone: boolean;
 }
 
@@ -196,6 +222,7 @@ export async function readWalletHistory(
     historyFrom: t(sigs.at(-1)),
     oldestSignature: sigs.at(-1)?.signature ?? null,
     read: sigs.length,
-    historyDone: page.exhausted || page.reachedTime || sigs.length >= opts.limit,
+    // Complete only when the wallet's start or the day target was reached; stopping at the cap leaves room to deepen.
+    historyDone: page.exhausted || page.reachedTime,
   };
 }

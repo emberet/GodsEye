@@ -75,15 +75,19 @@ export const config = {
 
   // ---- Analysis: reading each wallet's history ----
   analyzeCron: envStr("ANALYZE_CRON", "*/10 * * * *"),
-  analyzePerRun: envNum("ANALYZE_PER_RUN", 15),
+  analyzePerRun: envNum("ANALYZE_PER_RUN", 60),
+  /** Wallets analyzed at the same time (each mostly waits on the network). */
+  analyzeConcurrency: envNum("ANALYZE_CONCURRENCY", 8),
   /** First look at a wallet: read back this many days of its transactions… */
   historyDays: envNum("HISTORY_DAYS", 7),
-  /** …but at most this many transactions (busy bots trade thousands a day). Also caps later deepening. */
-  historyTxLimit: envNum("HISTORY_TX_LIMIT", 5000),
+  /** …but at most this many transactions on first look (busy bots trade thousands a day): breadth first. */
+  historyTxLimit: envNum("HISTORY_TX_LIMIT", 1000),
+  /** Promising wallets (copied, smart money, proven or profitable) are then read back up to this many in total. */
+  historyDeepTxLimit: envNum("HISTORY_DEEP_TX_LIMIT", 5000),
   /** Wallets studied before deeper history existed: how many to read further back per analysis run. */
-  historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 4),
+  historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 6),
   /** Steady cap on history RPC requests per second (each transaction in a batch counts). Keep well under your plan's limit. */
-  rpcMaxRps: envNum("RPC_MAX_RPS", 60),
+  rpcMaxRps: envNum("RPC_MAX_RPS", 75),
   /** Wallets younger than this many days count as "fresh". */
   freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
   /** Re-analyze a wallet at most this often (leaders are also updated live). */
