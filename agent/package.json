@@ -5,7 +5,7 @@
   "type": "module",
   "description": "GodsEye — finds profitable Solana wallets, tiers them, tells AI from human, and copy-trades the winners.",
   "scripts": {
-    "agent": "tsx src/index.ts",
+    "agent": "NODE_OPTIONS=--max-old-space-size=8192 tsx src/index.ts",
     "discover": "tsx src/cli/discover.ts",
     "analyze": "tsx src/cli/analyze.ts",
     "learn": "tsx src/cli/learn.ts",

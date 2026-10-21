@@ -11,6 +11,7 @@
  *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
  * Reconnects on its own with backoff.
  */
+import { getHeapStatistics } from "node:v8";
 import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
 import { type DB, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
@@ -179,14 +180,33 @@ export class LiveStream {
         }
       })();
       this.book.evict();
+      this.guardMemory();
       const secs = (Date.now() - this.stats.since) / 1000;
       setMeta(this.db, "stream_last_at", nowIso());
       setMeta(this.db, "stream_tx_per_sec", (this.stats.txs / secs).toFixed(1));
       setMeta(this.db, "stream_swaps_per_sec", (this.stats.swaps / secs).toFixed(1));
       setMeta(this.db, "stream_wallets_in_memory", this.book.size);
+      setMeta(this.db, "agent_heap_mb", Math.round(process.memoryUsage().heapUsed / 1e6));
       this.stats = { txs: 0, swaps: 0, since: Date.now() };
     } catch (e) {
       say("error", `Live stream flush failed: ${(e as Error).message}`);
+    }
+  }
+
+  private lastMemoryWarn = 0;
+
+  /**
+   * The live book is the agent's biggest memory user. If the heap passes 70% of Node's limit, forget the
+   * least-active live wallets (their totals are already saved) instead of running out of memory and crashing.
+   */
+  private guardMemory(): void {
+    const limit = getHeapStatistics().heap_size_limit;
+    const used = process.memoryUsage().heapUsed;
+    if (used < limit * 0.7) return;
+    const n = this.book.shrinkTo(Math.floor(this.book.size * 0.6));
+    if (Date.now() - this.lastMemoryWarn > 10 * 60_000) {
+      this.lastMemoryWarn = Date.now();
+      say("warn", `Memory at ${Math.round(used / 1e6).toLocaleString("en-US")} of ${Math.round(limit / 1e6).toLocaleString("en-US")} MB: forgot the ${n.toLocaleString("en-US")} least-active live wallets (keeping ${this.book.size.toLocaleString("en-US")}).`);
     }
   }
 
