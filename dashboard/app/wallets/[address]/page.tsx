@@ -7,7 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import { CopyButton } from "@/components/copy-button";
 import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
-import { Addr, KindBadge, TierBadge, WalletDot, kindLabel } from "@/components/wallet-badges";
+import { Addr, KindBadge, kindLabel, TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
 import { ago, dollars, dt, hasWeek, pnlClass, shortAddr, signedSol, signedUsd, solscanAccount, solscanTx, spanLabel } from "@/lib/format";
 import type { WalletDetail } from "@/lib/types";
@@ -63,7 +63,9 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         </Link>
         <WalletDot address={w.address} tier={w.tier} className="h-16 w-16 text-xl sm:h-[72px] sm:w-[72px]" />
         <div className="min-w-0 flex-1 basis-64">
-          <h1 className="font-mono text-2xl sm:text-[30px]" title={w.address}>{shortAddr(w.address)}</h1>
+          <h1 className="text-2xl sm:text-[30px]">
+            <WalletLink address={w.address} />
+          </h1>
           <div className="mt-2 flex flex-wrap gap-2">
             <TierBadge tier={w.tier} />
             <KindBadge kind={w.kind} score={null} />
@@ -165,7 +167,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
           <div key={x.id} className="line flex-wrap sm:flex-nowrap">
             <span className={cn("tag w-[70px] justify-center", x.side === "buy" ? "bg-lime text-ink" : "bg-coral text-ink")}>{x.side === "buy" ? "Bought" : "Sold"}</span>
             <p className="min-w-0 flex-1 font-semibold">
-              {x.symbol ?? shortAddr(x.mint)}
+              <TokenLink mint={x.mint} symbol={x.symbol} />
               <span className="ml-2 text-xs font-normal text-muted-foreground">
                 {x.token_age_sec !== null && <>coin was {age(x.token_age_sec)} old · </>}
                 {x.quote === "SOL" ? `${x.sol_amount.toFixed(3)} SOL` : x.quote.includes("+") ? x.quote : `${x.quote}`}
@@ -206,7 +208,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
                 <div key={c.id} className="line text-sm">
                   <span className={cn("tag", c.status === "filled" ? "bg-lime text-ink" : c.status === "failed" ? "bg-coral text-ink" : "")}>{c.status}</span>
                   <span className="min-w-0 flex-1 truncate">
-                    {c.side} {c.symbol}
+                    {c.side} <TokenLink mint={c.mint} symbol={c.symbol} />
                     {c.reason && <span className="text-muted-foreground"> · {c.reason}</span>}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{ago(c.created_at)}</span>
@@ -221,11 +223,12 @@ export default function WalletPage({ params }: { params: { address: string } }) 
         <Window title="Wallets with the same funder" right={<span className="text-muted-foreground">{data.group.length + 1} wallets</span>}>
           <div className="flex flex-wrap gap-2">
             {data.group.map((g) => (
-              <Link key={g.address} href={`/wallets/${g.address}`} className="pill gap-2 pl-1.5">
+              <div key={g.address} className="pill gap-2 pl-1.5 pr-1.5 hover:translate-y-0">
                 <WalletDot address={g.address} tier={g.tier} className="h-8 w-8 text-[11px]" />
-                <span className="font-mono">{shortAddr(g.address)}</span>
+                <WalletLink address={g.address} />
                 <TierBadge tier={g.tier} />
-              </Link>
+                <WalletPageLink address={g.address} className="h-7 w-7 shadow-none" />
+              </div>
             ))}
           </div>
         </Window>

@@ -6,7 +6,7 @@ import { TopAlert } from "@/components/alert";
 import { Empty } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
-import { TIER_STYLE, WalletDot } from "@/components/wallet-badges";
+import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
 import { ago, pct, pnlClass, shortAddr, signedUsd, weekLabel } from "@/lib/format";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
@@ -98,17 +98,20 @@ export default function Home() {
         <Panel title="Who it copies" href="/leaders">
           {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
           {copying.map((l) => (
-            <Link key={l.address} href={`/wallets/${l.address}`} className="line hover:text-accent">
+            <div key={l.address} className="line">
               <WalletDot address={l.address} tier={l.tier} className="h-10 w-10" />
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-sm font-semibold">{shortAddr(l.address)}</p>
+                <p className="text-sm font-semibold">
+                  <WalletLink address={l.address} />
+                </p>
                 <p className="k">{(l.copy_weight * 100).toFixed(0)}% of budget · {l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`}</p>
               </div>
               <p className={cn("text-lg font-extrabold num", pnlClass(l.pnl_7d_usd))}>
                 {signedUsd(l.pnl_7d_usd)}
                 <span className="unit">{weekLabel(l.history_from)}</span>
               </p>
-            </Link>
+              <WalletPageLink address={l.address} />
+            </div>
           ))}
           {open.length > 0 && (
             <Link href="/copies" className="mt-3 flex items-center justify-between rounded-[14px] border-[2.5px] border-ink bg-panel px-3 py-2.5 text-sm font-bold hover:text-accent">
@@ -130,7 +133,9 @@ export default function Home() {
                     {g.kind === "accumulate" ? <TrendingUp size={18} strokeWidth={2.6} /> : <TrendingDown size={18} strokeWidth={2.6} />}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-extrabold">{g.symbol ?? shortAddr(g.mint)}</p>
+                    <p className="truncate font-extrabold">
+                      <TokenLink mint={g.mint} symbol={g.symbol} />
+                    </p>
                     <p className="k">{g.wallet_count} wallets {g.kind === "accumulate" ? "bought" : "dumped"} · {ago(g.ts)}</p>
                   </div>
                   <p className={cn("text-lg font-extrabold num", pnlClass(r))}>{r === null ? <span className="text-sm text-muted-foreground">measuring</span> : pct(r, 0)}</p>

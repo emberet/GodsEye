@@ -7,9 +7,9 @@ import { TopAlert } from "@/components/alert";
 import { Empty, Window } from "@/components/window";
 import { Stat, Stats } from "@/components/stat";
 import { RugChecks } from "@/components/rug-checks";
-import { TierBadge, WalletDot } from "@/components/wallet-badges";
+import { TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, pct, pnlClass, shortAddr, signedSol, signedUsd, solscanTx, weekLabel } from "@/lib/format";
+import { ago, dollars, pct, pnlClass, signedSol, signedUsd, solscanTx, weekLabel } from "@/lib/format";
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -53,9 +53,11 @@ export default function CopiesPage() {
             <div key={p.id} className="line">
               <span className="dot bg-lilac font-black" aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
+                <p className="truncate font-semibold">
+                  <TokenLink mint={p.mint} symbol={p.symbol} />
+                </p>
                 <p className="k">
-                  {dollars(p.cost_usd)} in · copied from <span className="font-mono">{shortAddr(p.leader)}</span> · {ago(p.opened_at)}
+                  {dollars(p.cost_usd)} in · copied from <WalletLink address={p.leader} /> · {ago(p.opened_at)}
                 </p>
               </div>
               <div className="text-right">
@@ -69,11 +71,11 @@ export default function CopiesPage() {
         <Window title="Who it copies" right={<Link href="/leaders" className="pill">Details</Link>}>
           {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
           {copying.slice(0, 6).map((l) => (
-            <Link key={l.address} href={`/wallets/${l.address}`} className="line transition-colors hover:text-accent">
+            <div key={l.address} className="line">
               <WalletDot address={l.address} tier={l.tier} />
               <div className="min-w-0 flex-1">
                 <p className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono">{shortAddr(l.address)}</span>
+                  <WalletLink address={l.address} />
                   <TierBadge tier={l.tier} />
                 </p>
                 <p className="k mt-0.5">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`} · {signedUsd(l.pnl_7d_usd)} {weekLabel(l.history_from) === "7d" ? "this week" : weekLabel(l.history_from)}</p>
@@ -87,7 +89,8 @@ export default function CopiesPage() {
                   <div className="h-full bg-lime" style={{ width: `${Math.min(100, l.copy_weight * 100)}%` }} />
                 </div>
               </div>
-            </Link>
+              <WalletPageLink address={l.address} />
+            </div>
           ))}
         </Window>
       </section>
@@ -103,10 +106,16 @@ export default function CopiesPage() {
             <div key={c.id} className="line flex-wrap sm:flex-nowrap">
               <span className={cn("tag w-[74px] justify-center", STATUS[c.status])}>{STATUS_LABEL[c.status] ?? c.status}</span>
               <p className="min-w-0 flex-1 text-sm">
-                <span className="font-semibold">{c.side === "buy" ? "Buy" : "Sell"} {c.symbol ?? shortAddr(c.mint)}</span>
+                <span className="font-semibold">
+                  {c.side === "buy" ? "Buy" : "Sell"} <TokenLink mint={c.mint} symbol={c.symbol} />
+                </span>
                 {c.size_sol != null && <span className="text-muted-foreground"> · {c.size_sol.toFixed(3)} SOL</span>}
                 <span className={cn("block truncate text-xs", c.error ? "text-loss" : "text-muted-foreground")} title={c.error ?? c.reason ?? ""}>
-                  {c.error ?? c.reason ?? `copying ${shortAddr(c.leader)}`}
+                  {c.error ?? c.reason ?? (
+                    <>
+                      copying <WalletLink address={c.leader} />
+                    </>
+                  )}
                 </span>
               </p>
               {c.signature ? (
@@ -125,7 +134,9 @@ export default function CopiesPage() {
           <div key={p.id} className="line">
             <span className={cn("dot font-semibold", (p.pnl_usd ?? p.pnl_sol ?? 0) >= 0 ? "bg-lime" : "bg-coral")} aria-hidden>{(p.symbol ?? p.mint).slice(0, 1).toUpperCase()}</span>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-semibold">{p.symbol ?? shortAddr(p.mint)}</p>
+              <p className="truncate font-semibold">
+                <TokenLink mint={p.mint} symbol={p.symbol} />
+              </p>
               <p className="k">
                 {dollars(p.cost_usd)} in · {dollars(p.proceeds_usd)} out · {p.exit_reason} · {ago(p.closed_at)}
               </p>

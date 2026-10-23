@@ -1,11 +1,10 @@
 "use client";
 import { useState } from "react";
-import Link from "next/link";
 import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
-import { TierBadge, kindLabel } from "@/components/wallet-badges";
+import { kindLabel, TierBadge, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, shortAddr, signedSol, signedUsd } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd } from "@/lib/format";
 import type { LiveWalletRow, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -94,19 +93,21 @@ export default function StreamPage() {
               <>
                 <span className="w-7 shrink-0 text-xl font-extrabold text-muted-foreground num">{i + 1}</span>
                 <div className="min-w-0 flex-1">
-                  <span className="font-mono" title={w.address}>{shortAddr(w.address)}</span>
+                  <WalletLink address={w.address} />
                   <p className="k mt-0.5">
                     {kindLabel(w.live_kind)} · {w.live_closed ? `${w.live_closed} closed, ${w.live_wins} won` : `${w.swaps} trades`} · {w.volume_sol.toFixed(1)} SOL traded · {ago(w.last_seen_at)}
                   </p>
                 </div>
                 {w.tier ? <TierBadge tier={w.tier} /> : <span className={cn("tag", w.promoted && "bg-lilac")}>{status}</span>}
                 <p className={cn("w-[110px] text-right text-2xl font-extrabold num", pnlClass(w.live_pnl_usd))} title={`${signedSol(w.live_pnl_sol, 3)} SOL`}>{signedUsd(w.live_pnl_usd)}</p>
+                {/* GodsEye's own page exists once a wallet has been studied */}
+                {w.tier ? <WalletPageLink address={w.address} /> : <span className="h-9 w-9 shrink-0" aria-hidden />}
               </>
             );
-            return w.tier ? (
-              <Link key={w.address} href={`/wallets/${w.address}`} className="line transition-colors hover:text-accent">{row}</Link>
-            ) : (
-              <div key={w.address} className="line">{row}</div>
+            return (
+              <div key={w.address} className="line">
+                {row}
+              </div>
             );
           })}
         </div>

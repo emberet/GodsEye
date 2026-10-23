@@ -1,11 +1,10 @@
 "use client";
-import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { COPYING_LINKS, SubNav } from "@/components/nav";
 import { Empty, Window } from "@/components/window";
-import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
+import { KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, shortAddr, signedSol, signedUsd, weekLabel } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd, weekLabel } from "@/lib/format";
 import type { LeadersData, SmartMoneyData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -94,7 +93,7 @@ export default function LeadersPage() {
           {measured.map((w) => (
             <div key={w.address} className={cn("line text-sm", !w.active && "opacity-50")}>
               <WalletDot address={w.address} tier={w.tier} className="h-8 w-8 text-[11px]" />
-              <Link href={`/wallets/${w.address}`} className="font-mono hover:text-accent">{shortAddr(w.address)}</Link>
+              <WalletLink address={w.address} />
               <span className="ml-auto num">{pc(w.lead_hit_rate)} up</span>
               <span className={cn("w-24 text-right num", pnlClass(w.lead_median_6h))}>
                 median {w.lead_median_6h == null ? "—" : `${w.lead_median_6h >= 0 ? "+" : ""}${Math.round(w.lead_median_6h)}%`}
@@ -112,11 +111,11 @@ export default function LeadersPage() {
         <div className="mt-2">
           {leaders.length === 0 && <Empty img="wallet">No wallet is earning enough to copy yet.</Empty>}
           {leaders.map((l) => (
-            <Link key={l.address} href={`/wallets/${l.address}`} className={cn("line flex-wrap transition-colors hover:text-accent sm:flex-nowrap", l.copy_weight === 0 && "opacity-60")}>
+            <div key={l.address} className={cn("line flex-wrap sm:flex-nowrap", l.copy_weight === 0 && "opacity-60")}>
               <WalletDot address={l.address} tier={l.tier} />
               <div className="min-w-0 flex-1 basis-56">
                 <p className="flex flex-wrap items-center gap-2">
-                  <span className="font-mono">{shortAddr(l.address)}</span>
+                  <WalletLink address={l.address} />
                   <TierBadge tier={l.tier} />
                   <KindBadge kind={l.kind} score={null} />
                 </p>
@@ -139,8 +138,9 @@ export default function LeadersPage() {
                   <p className="k">Budget</p>
                   <p className="text-2xl font-extrabold num">{(l.copy_weight * 100).toFixed(0)}%</p>
                 </div>
+                <WalletPageLink address={l.address} />
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       </Window>
@@ -149,7 +149,7 @@ export default function LeadersPage() {
         {(data?.changes ?? []).length === 0 && <p className="py-3 text-sm text-muted-foreground">No changes yet.</p>}
         {(data?.changes ?? []).slice(0, 15).map((c) => (
           <div key={c.id} className="line flex-wrap text-sm sm:flex-nowrap">
-            <Link href={`/wallets/${c.wallet}`} className="font-mono hover:text-accent">{shortAddr(c.wallet)}</Link>
+            <WalletLink address={c.wallet} />
             <span className="num">
               {(c.old_weight * 100).toFixed(0)}% → <b className={c.new_weight > c.old_weight ? "text-accent" : "text-loss"}>{(c.new_weight * 100).toFixed(0)}%</b>
             </span>

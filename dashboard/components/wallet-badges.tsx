@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import type { Tier, WalletKind } from "@/lib/types";
-import { shortAddr, solscanAccount } from "@/lib/format";
+import { dexscreenerToken, shortAddr, solscanAccount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export const TIER_STYLE: Record<Tier, string> = {
@@ -52,20 +52,44 @@ export function WalletDot({ address, tier, className }: { address: string; tier?
   );
 }
 
-/** A wallet address: links to its GodsEye page, with a Solscan link beside it. */
-export function Addr({ address, n = 4, internal = true, className }: { address: string; n?: number; internal?: boolean; className?: string }) {
+/** A wallet address that opens the wallet on Solscan, in a new tab. */
+export function WalletLink({ address, n = 4, className }: { address: string; n?: number; className?: string }) {
   return (
-    <span className={cn("inline-flex items-center gap-1 font-mono", className)}>
-      {internal ? (
-        <Link href={`/wallets/${address}`} className="text-ink hover:text-accent" title={address}>
-          {shortAddr(address, n)}
-        </Link>
-      ) : (
-        <span title={address}>{shortAddr(address, n)}</span>
-      )}
-      <a href={solscanAccount(address)} target="_blank" rel="noreferrer" className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground hover:-translate-y-0.5 hover:text-accent" aria-label={`${address} on Solscan`}>
-        <ArrowUpRight size={13} aria-hidden />
-      </a>
-    </span>
+    <a
+      href={solscanAccount(address)}
+      target="_blank"
+      rel="noreferrer"
+      title={`${address} on Solscan`}
+      className={cn("font-mono underline-offset-2 hover:text-accent hover:underline", className)}
+    >
+      {shortAddr(address, n)}
+    </a>
   );
 }
+
+/** The arrow button on a wallet row: GodsEye's own page for the wallet (its label and the evidence). */
+export function WalletPageLink({ address, className }: { address: string; className?: string }) {
+  return (
+    <Link href={`/wallets/${address}`} title="GodsEye's page for this wallet: its label and the evidence" aria-label={`GodsEye's page for ${shortAddr(address)}`} className={cn("dot h-9 w-9 shrink-0 bg-cream shadow-hard-sm hover:bg-lilac", className)}>
+      <ChevronRight size={16} strokeWidth={2.6} aria-hidden />
+    </Link>
+  );
+}
+
+/** A coin that opens its chart on DexScreener, in a new tab. */
+export function TokenLink({ mint, symbol, className }: { mint: string; symbol: string | null | undefined; className?: string }) {
+  return (
+    <a
+      href={dexscreenerToken(mint)}
+      target="_blank"
+      rel="noreferrer"
+      title={`${symbol ?? mint} on DexScreener`}
+      className={cn("underline-offset-2 hover:text-accent hover:underline", className)}
+    >
+      {symbol ?? shortAddr(mint)}
+    </a>
+  );
+}
+
+/** A wallet address (opens Solscan). Kept for older call sites. */
+export const Addr = ({ address, n = 4, className }: { address: string; n?: number; internal?: boolean; className?: string }) => <WalletLink address={address} n={n} className={className} />;

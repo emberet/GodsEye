@@ -1,6 +1,7 @@
 "use client";
 import { Window } from "@/components/window";
 import { Badge } from "@/components/ui/badge";
+import { TokenLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
 import { ago } from "@/lib/format";
 import type { RugCheckEntry } from "@/lib/types";
@@ -20,7 +21,7 @@ export function RugChecks() {
         {rows.slice(0, 12).map((r) => (
           <div key={r.mint} className="line flex-wrap items-start sm:flex-nowrap">
             <Badge variant={r.verdict === "pass" ? "win" : "loss"}>{r.verdict === "pass" ? "Passed" : "Blocked"}</Badge>
-            <span className="w-24 shrink-0 font-semibold">{r.symbol}</span>
+            <TokenLink mint={r.mint} symbol={r.symbol} className="w-24 shrink-0 truncate font-semibold" />
             <div className="min-w-0 flex-1 text-sm">
               {r.blocks.map((b) => (
                 <p key={b} className="text-loss">{b}</p>

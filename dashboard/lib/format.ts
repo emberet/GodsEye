@@ -47,3 +47,5 @@ export const spanLabel = (from: string | null | undefined, now = Date.now()) => 
 export const hasWeek = (from: string | null | undefined, now = Date.now()) => !from || now - Date.parse(from) >= 7 * 86_400_000;
 /** Label for a wallet's 7-day profit: "7d", or the shorter span it actually covers. */
 export const weekLabel = (from: string | null | undefined, now = Date.now()) => (hasWeek(from, now) ? "7d" : spanLabel(from, now));
+/** A coin's chart on DexScreener. */
+export const dexscreenerToken = (mint: string) => `https://dexscreener.com/solana/${mint}`;

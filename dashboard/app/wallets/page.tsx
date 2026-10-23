@@ -1,15 +1,14 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
 import { Empty } from "@/components/window";
-import { KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
+import { KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { pnlClass, shortAddr, signedSol, signedUsd, spanLabel } from "@/lib/format";
+import { pnlClass, signedSol, signedUsd, spanLabel } from "@/lib/format";
 import type { Summary, WalletList } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -141,11 +140,11 @@ function WalletDatabase() {
           </div>
         )}
         {rows.map((w) => (
-          <Link key={w.address} href={`/wallets/${w.address}`} className="group flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[18px] border-[3px] border-ink bg-card px-4 py-4 shadow-hard transition-transform hover:-translate-y-0.5 sm:px-5">
+          <div key={w.address} className="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-[18px] border-[3px] border-ink bg-card px-4 py-4 shadow-hard sm:px-5">
             <WalletDot address={w.address} tier={w.tier} />
             <div className="min-w-0 flex-1 basis-[260px]">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-mono text-[15px]" title={w.address}>{shortAddr(w.address)}</span>
+                <WalletLink address={w.address} className="text-[15px]" />
                 <TierBadge tier={w.tier} />
                 {w.kind !== "unknown" && <KindBadge kind={w.kind} score={null} />}
                 {w.is_fresh === 1 && <span className="tag bg-coral text-ink">New wallet</span>}
@@ -166,11 +165,9 @@ function WalletDatabase() {
                 <p className="k" title={w.history_from ? `GodsEye has this wallet's trades since ${w.history_from.slice(0, 16).replace("T", " ")} UTC` : undefined}>{spanLabel(w.history_from)}</p>
                 <p className={cn("text-[26px] font-extrabold num", pnlClass(w.pnl_30d_usd))}>{signedUsd(w.pnl_30d_usd)}</p>
               </div>
-              <span className="dot hidden bg-cream transition-colors group-hover:bg-lilac sm:inline-flex" aria-hidden>
-                <ChevronRight size={16} strokeWidth={1.8} />
-              </span>
+              <WalletPageLink address={w.address} />
             </div>
-          </Link>
+          </div>
         ))}
       </section>
 

@@ -1,11 +1,10 @@
 "use client";
-import Link from "next/link";
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
 import { Empty, Window } from "@/components/window";
-import { Addr, KindBadge, TierBadge, WalletDot } from "@/components/wallet-badges";
+import { Addr, KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, shortAddr, signedUsd } from "@/lib/format";
+import { ago, pnlClass, signedUsd } from "@/lib/format";
 import type { WalletGroup } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +26,7 @@ export default function GroupsPage() {
         {groups.map((g) => (
           <Window
             key={g.funder}
-            title={<span className="font-mono">{shortAddr(g.funder)}</span>}
+            title={<WalletLink address={g.funder} />}
             right={<span className="text-muted-foreground">{g.size} wallet{g.size === 1 ? "" : "s"} · newest {ago(g.newest_at)}</span>}
           >
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -41,13 +40,14 @@ export default function GroupsPage() {
             </div>
             <div className="mt-2">
               {g.members.map((m) => (
-                <Link key={m.address} href={`/wallets/${m.address}`} className="line flex-wrap transition-colors hover:text-accent">
+                <div key={m.address} className="line flex-wrap">
                   <WalletDot address={m.address} tier={m.tier} className="h-9 w-9 text-xs" />
-                  <span className="font-mono">{shortAddr(m.address)}</span>
+                  <WalletLink address={m.address} />
                   <TierBadge tier={m.tier} />
                   <KindBadge kind={m.kind} score={null} />
                   <span className={cn("ml-auto text-lg font-extrabold num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)}</span>
-                </Link>
+                  <WalletPageLink address={m.address} />
+                </div>
               ))}
             </div>
           </Window>
