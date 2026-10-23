@@ -38,6 +38,8 @@ interface WalletRowDb {
 
 /** Where an analysis run's time goes (milliseconds), reset at the start of each run. */
 const runTime = { history: 0, launches: 0, creators: 0, crashes: 0 };
+/** Older transactions the RPC listed but no longer returns, this run (their swaps are missing). */
+let runUnavailable = 0;
 async function timed<T>(key: keyof typeof runTime, fn: () => Promise<T>): Promise<T> {
   const t = Date.now();
   try {
@@ -187,6 +189,7 @@ export async function analyzeWallet(
     sinceMs: firstLook ? now - config.historyDays * 86_400_000 : undefined,
   }));
   insertSwaps(db, h.swaps);
+  runUnavailable += h.unavailable;
   let { funder, chain_created_at: createdAt, is_fresh: isFresh } = row;
   let lowerBound = 0;
   let txPerHour = row.tx_per_hour;
@@ -297,6 +300,7 @@ export async function deepenHistory(db: DB, address: string, now = Date.now()): 
   }
   const h = await timed("history", () => readWalletHistory(address, { sinceSignature: null, before, limit: left, findOrigin: false, sinceMs: now - config.historyDays * 86_400_000 }));
   insertSwaps(db, h.swaps);
+  runUnavailable += h.unavailable;
   db.prepare(
     `UPDATE wallets SET
         history_from = CASE WHEN ? IS NOT NULL AND (history_from IS NULL OR ? < history_from) THEN ? ELSE history_from END,
@@ -313,6 +317,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
   const callsBefore = rpcCallsSoFar();
   const startedAt = Date.now();
   for (const k of Object.keys(runTime) as (keyof typeof runTime)[]) runTime[k] = 0;
+  runUnavailable = 0;
   const staleBefore = new Date(Date.now() - config.reanalyzeMinutes * 60_000).toISOString();
   const rows = db
     .prepare(
@@ -377,7 +382,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     const secs = Math.max(1, (Date.now() - startedAt) / 1000);
     say(
       "info",
-      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec, ${(rpcUsage(Math.ceil(secs / 60)).throttled).toLocaleString("en-US")} rate-limited). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.`,
+      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec, ${(rpcUsage(Math.ceil(secs / 60)).throttled).toLocaleString("en-US")} rate-limited). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.${runUnavailable ? ` ${runUnavailable.toLocaleString("en-US")} older transactions were too old for the RPC to return (Shyft keeps ~2-3 days).` : ""}`,
     );
   }
   return done;

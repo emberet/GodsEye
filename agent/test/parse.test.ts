@@ -186,3 +186,15 @@ test("every swap carries its USD value at settlement", () => {
   const noPrice = parseSwap(swapTx({ solDelta: -2.000005, tokenBefore: 0, tokenAfter: 10 }), WALLET)!;
   assert.equal(noPrice.usdAmount, null);
 });
+
+test("history coverage starts at the oldest transaction the RPC actually returned", async () => {
+  const { readCoverage } = await import("../src/chain/history");
+  // newest first: the RPC returned the 3 newest, not the 2 oldest (too old for it to keep)
+  const c = readCoverage(["s5", "s4", "s3", "s2", "s1"], [{}, {}, {}, null, null]);
+  assert.equal(c.oldestRead, "s3");
+  assert.equal(c.unavailable, 2);
+  assert.equal(c.rpcRanOut, false);
+  const gone = readCoverage(Array.from({ length: 30 }, (_, i) => `s${i}`), [{}, ...Array(29).fill(null)]);
+  assert.equal(gone.rpcRanOut, true);
+  assert.equal(gone.oldestRead, "s0");
+});

@@ -169,8 +169,27 @@ export interface WalletHistory {
   oldestSignature: string | null;
   /** Transactions read this time. */
   read: number;
-  /** True if nothing more needs reading back: the wallet's first transaction or the day target was reached. */
+  /** True if nothing more needs reading back: the wallet's first transaction or the day target was reached,
+   * or the RPC no longer has the older transactions (Shyft only keeps ~2-3 days). */
   historyDone: boolean;
+  /** Transactions listed but not returned by the RPC (too old for it to keep): their swaps are missing. */
+  unavailable: number;
+}
+
+/**
+ * The RPC can list signatures further back than it can return transactions (Shyft keeps ~2-3 days).
+ * Coverage starts at the oldest transaction actually read, not the oldest signature listed; when nearly all
+ * listed transactions come back empty, the RPC has run out of history and reading further back is pointless.
+ * `sigs` and `txs` are aligned, newest first.
+ */
+export function readCoverage<S>(sigs: S[], txs: (unknown | null)[]): { oldestRead: S | null; unavailable: number; rpcRanOut: boolean } {
+  let oldestRead: S | null = null;
+  let unavailable = 0;
+  sigs.forEach((s, i) => {
+    if (txs[i]) oldestRead = s;
+    else unavailable++;
+  });
+  return { oldestRead, unavailable, rpcRanOut: sigs.length >= 20 && unavailable / sigs.length > 0.9 };
 }
 
 /**
@@ -185,6 +204,7 @@ export async function readWalletHistory(
   const sigs = page.sigs;
   const ok = sigs.filter((s) => !s.err);
   const txs = await fetchParsed(ok.map((s) => s.signature));
+  const { oldestRead, unavailable, rpcRanOut } = readCoverage(ok, txs);
   const swaps: ParsedSwap[] = [];
   txs.forEach((tx) => {
     if (!tx) return;
@@ -219,10 +239,11 @@ export async function readWalletHistory(
     funder,
     activityAt: t(sigs[0]),
     signaturesSeen: seen,
-    historyFrom: t(sigs.at(-1)),
+    historyFrom: t(oldestRead),
     oldestSignature: sigs.at(-1)?.signature ?? null,
     read: sigs.length,
     // Complete only when the wallet's start or the day target was reached; stopping at the cap leaves room to deepen.
-    historyDone: page.exhausted || page.reachedTime,
+    historyDone: page.exhausted || page.reachedTime || rpcRanOut,
+    unavailable,
   };
 }

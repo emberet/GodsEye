@@ -117,6 +117,19 @@ async function main() {
   // SOL's price history must be loaded before any USDC/USDT-priced swap can be valued.
   await initSolPrices(db);
   // After a P&L rule change, refresh every wallet's stats once from stored swaps — no network needed.
+  // Once: history coverage used to start at the oldest signature listed, but Shyft only returns transactions
+  // ~2-3 days old, so older ones gave no swaps. Start each wallet's coverage at its oldest stored swap instead.
+  if (getMeta(db, "history_from_fix") !== "1") {
+    const n = db
+      .prepare(
+        `UPDATE wallets SET history_from = (SELECT MIN(ts) FROM wallet_swaps s WHERE s.wallet = wallets.address)
+          WHERE last_analyzed_at IS NOT NULL
+            AND history_from < (SELECT MIN(ts) FROM wallet_swaps s WHERE s.wallet = wallets.address)`,
+      )
+      .run().changes;
+    setMeta(db, "history_from_fix", "1");
+    if (n) say("info", `Corrected how far back ${n.toLocaleString("en-US")} wallets' history really reaches (the RPC doesn't return transactions older than ~2-3 days).`);
+  }
   if (getMeta(db, "stats_version") !== STATS_VERSION) {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
     setMeta(db, "stats_version", STATS_VERSION);
