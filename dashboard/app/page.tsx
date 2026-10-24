@@ -52,7 +52,9 @@ export default function Home() {
           <div>
             <p className="k">Right now</p>
             <p className="mt-1.5 text-2xl font-extrabold leading-tight tracking-[-0.02em]">
-              {s?.live ? "Watching" : "Paused on"} {st?.walletsSeen24h ? st.walletsSeen24h.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.
+              {st?.walletsSeen24h
+                ? `${s?.live ? "Watching" : "Paused on"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
+                : `${s?.live ? "Studying" : "Paused on"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
