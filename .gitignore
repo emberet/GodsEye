@@ -14,3 +14,4 @@ dist/
 next-env.d.ts
 .DS_Store
 .claude/
+dashboard/.next-site/

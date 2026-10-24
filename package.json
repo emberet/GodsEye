@@ -12,6 +12,7 @@
     "setup": "node scripts/setup.mjs",
     "agent": "npm run agent -w agent",
     "agent:forever": "sh scripts/run-agent.sh",
+    "site:forever": "sh scripts/run-site.sh",
     "discover": "npm run discover -w agent",
     "analyze": "npm run analyze -w agent",
     "learn": "npm run learn -w agent",

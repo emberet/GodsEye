@@ -291,8 +291,18 @@ export function getProof(d: DB, limit = 50, offset = 0): ProofData {
   return { entries, total: all.length, chain: verifyProofChain(all) };
 }
 
+/** Strip what a public page must not show from a log line: IP addresses, API keys in URLs, local file paths. */
+export function redactLog(message: string): string {
+  return message
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IP hidden]")
+    .replace(/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/gi, "[IP hidden]")
+    .replace(/(api[_-]?key|token|secret)=[^\s&"']+/gi, "$1=[hidden]")
+    .replace(/\/(?:Users|home)\/[^\s/]+/g, "~");
+}
+
 export function getLogs(d: DB, limit = 40): LogRow[] {
-  return d.prepare("SELECT * FROM agent_log ORDER BY id DESC LIMIT ?").all(limit) as LogRow[];
+  const rows = d.prepare("SELECT * FROM agent_log ORDER BY id DESC LIMIT ?").all(limit) as LogRow[];
+  return rows.map((r) => ({ ...r, message: redactLog(r.message) }));
 }
 
 /** Latest rug check of every token GodsEye considered (blocked first). */

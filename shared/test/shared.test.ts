@@ -59,3 +59,14 @@ test("proof ledger detects tampering", () => {
   entries[0].payload = entries[0].payload.replace("copy_buy", "copy_sel");
   assert.equal(verifyProofChain(entries).ok, false);
 });
+
+test("public log lines hide IP addresses, keys in URLs and local paths", async () => {
+  const { redactLog } = await import("../src/dashboard-data");
+  assert.equal(
+    redactLog("Live stream error: client IP 103.51.148.168 is not whitelisted"),
+    "Live stream error: client IP [IP hidden] is not whitelisted",
+  );
+  assert.equal(redactLog("GET https://rpc.example?api_key=abc123&x=1"), "GET https://rpc.example?api_key=[hidden]&x=1");
+  assert.equal(redactLog("failed at /Users/someone/GodsEye/agent"), "failed at ~/GodsEye/agent");
+  assert.equal(redactLog("Bought 2.5 SOL of PUMP, +$1,234"), "Bought 2.5 SOL of PUMP, +$1,234");
+});
