@@ -68,7 +68,17 @@ export function detectSignal(
   return null;
 }
 
-export const returnPct = (from: number | null, to: number | null): number | null => (from && to ? (to / from - 1) * 100 : null);
+/**
+ * A move above this (1,000×) within the measuring windows is a pricing error, not a trade: prices come from
+ * swap amounts, and a mismatched token or quote unit on a tiny coin can read as billions of percent.
+ */
+export const MAX_PLAUSIBLE_RETURN_PCT = 100_000;
+
+export const returnPct = (from: number | null, to: number | null): number | null => {
+  if (!from || !to) return null;
+  const r = (to / from - 1) * 100;
+  return r > MAX_PLAUSIBLE_RETURN_PCT ? null : r;
+};
 
 /** Pure: a wallet's lead score from the 6-hour returns after its buys. */
 export function leadStats(rets: number[]): { n: number; hitRate: number | null; median: number | null } {

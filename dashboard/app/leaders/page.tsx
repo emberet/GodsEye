@@ -121,7 +121,7 @@ export default function LeadersPage() {
                 </p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground" title={l.weight_reason ?? ""}>{l.weight_reason ?? `active ${ago(l.last_activity_at)}`}</p>
               </div>
-              <div className="flex items-center gap-5">
+              <div className="flex w-full flex-wrap items-center justify-between gap-x-5 gap-y-2 sm:w-auto sm:flex-nowrap sm:justify-start">
                 <div className="text-right">
                   <p className="k">Wins</p>
                   <p className="text-lg font-extrabold num">{pc(l.win_rate_30d)}</p>

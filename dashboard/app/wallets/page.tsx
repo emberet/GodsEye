@@ -94,7 +94,11 @@ function WalletDatabase() {
           </div>
           <div>
             <p className="k">Seen live today</p>
-            <p className="mt-0.5 text-[34px] font-extrabold leading-none num">{s?.stream.walletsSeen24h.toLocaleString("en-US") ?? "—"}</p>
+            {s && !s.stream.enabled ? (
+              <p className="mt-2 text-sm font-bold text-muted-foreground">Live stream off</p>
+            ) : (
+              <p className="mt-0.5 text-[34px] font-extrabold leading-none num">{s?.stream.walletsSeen24h.toLocaleString("en-US") ?? "—"}</p>
+            )}
           </div>
         </div>
       </section>

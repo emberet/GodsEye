@@ -47,37 +47,61 @@ export default function Home() {
       {error && !s && <p className="card text-sm font-bold text-coral" role="alert">No data yet: {error}</p>}
 
       {/* At a glance: one sentence, then the four numbers that matter. */}
-      <section className="grid gap-4 lg:grid-cols-[1fr_2fr]">
-        <div className="card flex flex-col justify-between gap-4">
-          <div>
-            <p className="k">Right now</p>
-            <p className="mt-1.5 text-2xl font-extrabold leading-tight tracking-[-0.02em]">
-              {st?.walletsSeen24h
-                ? `${s?.live ? "Watching" : "Paused on"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
-                : `${s?.live ? "Studying" : "Paused on"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <span className="tag min-h-[30px] px-2.5">
-              <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.status === "connected" ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-              {st?.status === "connected" ? `${st.swapsPerSec ?? "—"} trades/sec` : st?.enabled ? st.status ?? "starting" : "stream off"}
-            </span>
-            <span className="tag min-h-[30px] px-2.5">Follow bar {bar === null ? 50 : Math.round(bar * 100)}% wins</span>
-            <span className="tag min-h-[30px] px-2.5">{s?.walletsTracked.toLocaleString("en-US") ?? "—"} studied</span>
-          </div>
+      <section className="card flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:py-5">
+        <div className="min-w-0">
+          <p className="k">Right now</p>
+          <p className="mt-1 text-2xl font-extrabold leading-tight tracking-[-0.02em] lg:text-[26px]">
+            {st?.walletsSeen24h
+              ? `${s?.live ? "Watching" : "Paused on"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
+              : `${s?.live ? "Studying" : "Paused on"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
+          </p>
         </div>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Stat tile="bg-lime" label="Your profit" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${s.wins} won · ${s.losses} lost` : undefined} />
-          <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
-          <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades today` : undefined} />
-          <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={open.length ? `${signedUsd(openPnl)} unsold` : "none open"} />
+        <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
+          <span className="tag min-h-[30px] px-2.5">
+            <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.status === "connected" ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
+            {st?.status === "connected" ? `${st.swapsPerSec ?? "—"} trades/sec` : st?.enabled ? st.status ?? "starting" : "stream off"}
+          </span>
+          <span className="tag min-h-[30px] px-2.5">Follow bar {bar === null ? 50 : Math.round(bar * 100)}% wins</span>
+          <span className="tag min-h-[30px] px-2.5">{s?.walletsTracked.toLocaleString("en-US") ?? "—"} studied</span>
         </div>
+      </section>
+
+      <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-5">
+        <Stat tile="bg-lime" label="Your profit" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${s.wins} won · ${s.losses} lost` : undefined} />
+        <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
+        <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades today` : undefined} />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={open.length ? `${signedUsd(openPnl)} unsold` : "none open"} />
       </section>
 
       <TopAlert s={s} />
 
-      <section className="grid gap-5 lg:grid-cols-3">
-        <Panel title="Smart money is buying" href="/leaders">
+      <section className="grid gap-5 lg:grid-cols-12">
+        <Panel title="Who it copies" href="/leaders" className="lg:col-span-5">
+          {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
+          {copying.map((l) => (
+            <div key={l.address} className="line">
+              <WalletDot address={l.address} tier={l.tier} className="h-10 w-10" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">
+                  <WalletLink address={l.address} />
+                </p>
+                <p className="k truncate">{(l.copy_weight * 100).toFixed(0)}% of budget · {l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`}</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <p className={cn("whitespace-nowrap text-lg font-extrabold leading-tight num", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</p>
+                <p className="k whitespace-nowrap">{weekLabel(l.history_from)}</p>
+              </div>
+              <WalletPageLink address={l.address} />
+            </div>
+          ))}
+          {open.length > 0 && (
+            <Link href="/copies" className="mt-3 flex items-center justify-between rounded-[14px] border-[2.5px] border-ink bg-panel px-3 py-2.5 text-sm font-bold hover:text-accent">
+              {open.length} open trade{open.length === 1 ? "" : "s"}
+              <span className={cn("num", pnlClass(openPnl))}>{signedUsd(openPnl)}</span>
+            </Link>
+          )}
+        </Panel>
+        <Panel title="Smart money is buying" href="/leaders" className="lg:col-span-4">
           {flows.length === 0 && <Empty>Nothing yet. Coins appear here as winning wallets trade them.</Empty>}
           {flows.map((f) => {
             const net = f.buy_usd_24h - f.sell_usd_24h;
@@ -96,34 +120,7 @@ export default function Home() {
             );
           })}
         </Panel>
-
-        <Panel title="Who it copies" href="/leaders">
-          {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
-          {copying.map((l) => (
-            <div key={l.address} className="line">
-              <WalletDot address={l.address} tier={l.tier} className="h-10 w-10" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">
-                  <WalletLink address={l.address} />
-                </p>
-                <p className="k">{(l.copy_weight * 100).toFixed(0)}% of budget · {l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`}</p>
-              </div>
-              <p className={cn("text-lg font-extrabold num", pnlClass(l.pnl_7d_usd))}>
-                {signedUsd(l.pnl_7d_usd)}
-                <span className="unit">{weekLabel(l.history_from)}</span>
-              </p>
-              <WalletPageLink address={l.address} />
-            </div>
-          ))}
-          {open.length > 0 && (
-            <Link href="/copies" className="mt-3 flex items-center justify-between rounded-[14px] border-[2.5px] border-ink bg-panel px-3 py-2.5 text-sm font-bold hover:text-accent">
-              {open.length} open trade{open.length === 1 ? "" : "s"}
-              <span className={cn("num", pnlClass(openPnl))}>{signedUsd(openPnl)}</span>
-            </Link>
-          )}
-        </Panel>
-
-        <Panel title="Signals" href="/leaders">
+        <Panel title="Signals" href="/leaders" className="lg:col-span-3">
           {signals.length === 0 ? (
             <Empty img="radar" title="Quiet">A signal fires when 3+ smart wallets buy, or dump, the same coin within an hour.</Empty>
           ) : (

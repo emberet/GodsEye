@@ -21,7 +21,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body className="antialiased">
-        <div className="mx-auto min-h-screen max-w-[1280px] px-4 pb-28 pt-4 sm:px-6 sm:pb-10 lg:px-8">
+        <div className="mx-auto min-h-screen max-w-[1440px] px-4 pb-28 pt-4 sm:px-6 sm:pb-10 lg:px-8">
           <header className="flex flex-wrap items-center gap-3">
             <Link href="/" className="flex items-center gap-2.5" aria-label="GodsEye home">
               <Logo size={52} />

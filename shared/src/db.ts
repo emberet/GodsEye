@@ -34,7 +34,7 @@ const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL" },
   positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL" },
   wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
-  smart_flows: { wallet_win_rate: "REAL" },
+  smart_flows: { wallet_win_rate: "REAL", returns_cleaned: "INTEGER NOT NULL DEFAULT 1" },
 };
 
 /** Run once, right after a column first appears. */
@@ -57,6 +57,11 @@ const AFTER_ADDING: Record<string, string> = {
   "wallets.history_done": "UPDATE wallets SET history_tx_read = 300 WHERE last_analyzed_at IS NOT NULL",
   // Every token row so far came from a GeckoTerminal launch lookup (names now come from Shyft separately).
   "token_info.launch_checked_at": "UPDATE token_info SET launch_checked_at = checked_at",
+  // Price moves above 1,000× were pricing errors (mismatched units on tiny coins): drop them once.
+  "smart_flows.returns_cleaned": `UPDATE smart_flows SET ret_1h = CASE WHEN ret_1h > 100000 THEN NULL ELSE ret_1h END,
+      ret_6h = CASE WHEN ret_6h > 100000 THEN NULL ELSE ret_6h END, ret_24h = CASE WHEN ret_24h > 100000 THEN NULL ELSE ret_24h END;
+    UPDATE smart_signals SET ret_1h = CASE WHEN ret_1h > 100000 THEN NULL ELSE ret_1h END,
+      ret_6h = CASE WHEN ret_6h > 100000 THEN NULL ELSE ret_6h END, ret_24h = CASE WHEN ret_24h > 100000 THEN NULL ELSE ret_24h END`,
   "token_info.pool_address":
     "DELETE FROM wallet_evidence WHERE kind = 'sold_before_crash'; UPDATE wallets SET last_analyzed_at = '2000-01-01T00:00:00.000Z' WHERE tier = 'insider'",
 };

@@ -60,7 +60,7 @@ export function WalletLink({ address, n = 4, className }: { address: string; n?:
       target="_blank"
       rel="noreferrer"
       title={`${address} on Solscan`}
-      className={cn("font-mono underline-offset-2 hover:text-accent hover:underline", className)}
+      className={cn("whitespace-nowrap font-mono underline-offset-2 hover:text-accent hover:underline", className)}
     >
       {shortAddr(address, n)}
     </a>

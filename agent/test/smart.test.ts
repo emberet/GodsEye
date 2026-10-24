@@ -117,3 +117,10 @@ test("non-memecoins never count as smart money: skipped when known, purged once 
   assert.equal(count("SELECT COUNT(*) n FROM smart_signals"), 0);
   assert.equal(count("SELECT COUNT(*) n FROM smart_flows WHERE mint = 'MEME'"), 1);
 });
+
+test("price moves above 1,000x are treated as pricing errors", () => {
+  assert.equal(returnPct(1, 1.5), 50);
+  assert.equal(returnPct(1, 900), 89_900);
+  assert.equal(returnPct(1, 2_000), null);
+  assert.equal(returnPct(0.000001, 50), null);
+});
