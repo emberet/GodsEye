@@ -144,6 +144,18 @@ export const config = {
   rugMaxRiskScore: envNum("RUG_MAX_RISK_SCORE", 75),
   rugAllowlist: list("RUG_ALLOWLIST"),
   rugCheckCacheHours: envNum("RUG_CHECK_CACHE_HOURS", 6),
+  /** Bundled / clustered supply check before buying (see src/market/holders.ts). */
+  holderCheckEnabled: envBool("HOLDER_CHECK_ENABLED", true),
+  /** Block if more than this % of supply was bought in the coin's first two slots (a bundled launch). */
+  bundleMaxPct: envNum("BUNDLE_MAX_PCT", 25),
+  /** Block if top holders funded by one wallet (or by the creator) hold more than this %. */
+  clusterMaxPct: envNum("CLUSTER_MAX_PCT", 15),
+  /** Block if the top-10 holders (pools left out) hold more than this %. */
+  top10MaxPct: envNum("TOP10_MAX_PCT", 50),
+  /** Block if a RugCheck insider network holds more than this %. */
+  insiderMaxPct: envNum("INSIDER_MAX_PCT", 20),
+  /** Give up (and skip the buy) if the holder check takes longer than this. */
+  holderCheckTimeoutMs: envNum("HOLDER_CHECK_TIMEOUT_MS", 8000),
 
   // ---- Misc ----
   /** Never track these wallets (exchanges, your own wallets…). */

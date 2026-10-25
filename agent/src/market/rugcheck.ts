@@ -13,6 +13,8 @@
  *   • new accounts start frozen       — you may be unable to sell
  *   • mint authority enabled          — can print more and dump (allowlist trusted bridged coins)
  *   • RugCheck risk score ≥ RUG_MAX_RISK_SCORE, or flagged as rugged/honeypot
+ *   • bundled or clustered supply (see holders.ts): too much bought in the launch slots, top holders
+ *     funded by one wallet or by the creator, top-10 holders holding too much, or a RugCheck insider network
  * WARNINGS (logged + shown, not blocking — common on legit big tokens):
  *   • top holders own a lot (often exchanges / pools) · LP not locked
  *   • transfer hook · mutable metadata
@@ -23,6 +25,7 @@ import { config } from "../config";
 import { fetchJson } from "../http";
 import { rpcUrl } from "../config";
 import { say } from "../log";
+import { describeHolders, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
 
 export interface OnchainMint {
   mintAuthority: string | null;
@@ -34,6 +37,9 @@ export interface RugCheckSummary {
   score_normalised?: number;
   risks?: { name: string; level: string; description?: string }[];
   lpLockedPct?: number;
+  /** From the full report: linked wallets RugCheck has mapped (its bubble map). */
+  insiderNetworks?: { size?: number; type?: string; currentHolding?: number }[] | null;
+  token?: { supply?: number; decimals?: number };
 }
 
 export interface RugVerdict {
@@ -97,7 +103,7 @@ async function readMint(mint: string): Promise<OnchainMint> {
 
 async function readRugCheck(mint: string): Promise<RugCheckSummary | null> {
   try {
-    return await fetchJson<RugCheckSummary>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report/summary`, { retries: 0, timeoutMs: 10_000 });
+    return await fetchJson<RugCheckSummary>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 10_000 });
   } catch {
     return null;
   }
@@ -125,9 +131,24 @@ export async function rugCheck(db: DB, mint: string, symbol: string): Promise<Ru
   } catch {
     return null; // fail closed: can't verify → don't trade it this cycle
   }
-  const v = judgeRugRisk(mint, onchain, await readRugCheck(mint), {
+  const rc = await readRugCheck(mint);
+  const v = judgeRugRisk(mint, onchain, rc, {
     blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist,
   });
+  // Bundled or clustered supply. If the holders can't be read in time, don't trade it this cycle (fail closed).
+  if (config.holderCheckEnabled && !config.rugAllowlist.includes(mint) && mint !== SOL_MINT) {
+    const m = await Promise.race([
+      measureHolders(mint, insiderPctFromReport(rc)).catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), config.holderCheckTimeoutMs)),
+    ]);
+    if (!m) return null;
+    const holderBlocks = judgeHolders(m, {
+      bundleMaxPct: config.bundleMaxPct, clusterMaxPct: config.clusterMaxPct, top10MaxPct: config.top10MaxPct, insiderMaxPct: config.insiderMaxPct,
+    });
+    v.blocks.push(...holderBlocks);
+    v.warnings.push(`Holders: ${describeHolders(m)}`);
+    if (holderBlocks.length) v.verdict = "blocked";
+  }
   db.prepare(
     `INSERT INTO rug_checks (mint, symbol, verdict, blocks, warnings, rugcheck_score, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(mint) DO UPDATE SET symbol=excluded.symbol, verdict=excluded.verdict, blocks=excluded.blocks, warnings=excluded.warnings,
