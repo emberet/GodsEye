@@ -11,6 +11,7 @@
     "learn": "tsx src/cli/learn.ts",
     "wallet": "tsx src/wallet/cli.ts",
     "status": "tsx src/cli/status.ts",
+    "stream:ips": "tsx src/cli/stream-ips.ts",
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
     "publish-dashboard": "tsx src/publish/cli.ts",

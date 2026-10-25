@@ -76,3 +76,27 @@ test("live book: live P&L, promotion of winners, eviction of idle wallets", () =
   assert.equal(book.evict(Date.now() + 120_000), 2);
   assert.equal(book.size, 0);
 });
+
+test("retryPlan: allowlist rejections retry at a steady pace, other errors back off", async () => {
+  const { retryPlan } = await import("../src/stream/stream");
+  const ip = retryPlan("failed to open subscribe stream: client IP 103.101.213.9 is not whitelisted", 32_000, 10_000);
+  assert.deepEqual(ip, { ip: "103.101.213.9", delayMs: 10_000, nextBackoffMs: 1_000 });
+  const tok = retryPlan("failed to open subscribe stream: token not found", 4_000, 10_000);
+  assert.deepEqual(tok, { ip: null, delayMs: 4_000, nextBackoffMs: 8_000 });
+  assert.equal(retryPlan("gRPC transport error", 60_000, 10_000).nextBackoffMs, 60_000);
+});
+
+test("IpHunt: logs the first rejection, then one summary per 10 minutes", async () => {
+  const { IpHunt } = await import("../src/stream/stream");
+  const h = new IpHunt();
+  const t0 = 1_000_000;
+  assert.match(h.note("1.1.1.1", t0) ?? "", /turned away IP 1\.1\.1\.1/);
+  let logged = 0;
+  for (let i = 1; i < 60; i++) if (h.note(i % 2 ? "2.2.2.2" : "1.1.1.1", t0 + i * 10_000)) logged++;
+  assert.equal(logged, 0, "quiet inside the first 10 minutes");
+  const summary = h.note("3.3.3.3", t0 + 600_000);
+  assert.match(summary ?? "", /61 tries, 3 different IPs in 10 min/);
+  assert.equal(h.reset(t0 + 660_000), "after 61 tries over 11 min");
+  assert.equal(h.reset(t0 + 700_000), null);
+  assert.match(h.note("4.4.4.4", t0 + 800_000) ?? "", /turned away/);
+});

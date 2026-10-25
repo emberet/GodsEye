@@ -49,3 +49,7 @@ export const hasWeek = (from: string | null | undefined, now = Date.now()) => !f
 export const weekLabel = (from: string | null | undefined, now = Date.now()) => (hasWeek(from, now) ? "7d" : spanLabel(from, now));
 /** A coin's chart on DexScreener. */
 export const dexscreenerToken = (mint: string) => `https://dexscreener.com/solana/${mint}`;
+
+/** Plain words for the live stream's status (the meta value the agent writes). */
+export const streamStatusLabel = (status: string | null | undefined) =>
+  status === "connected" ? "Connected" : status === "waiting_for_ip" ? "Waiting for an allowlisted IP" : status === "reconnecting" ? "Reconnecting" : status ?? "Starting";

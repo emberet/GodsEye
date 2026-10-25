@@ -103,6 +103,8 @@ export function getSummary(d: DB): Summary {
     stream: {
       enabled: getMeta(d, "stream_enabled") === "1",
       status: getMeta(d, "stream_status"),
+      ipTries: Number(getMeta(d, "stream_ip_tries") ?? 0),
+      ipDistinct: Number(getMeta(d, "stream_ip_distinct") ?? 0),
       lastAt: getMeta(d, "stream_last_at"),
       txPerSec: getMeta(d, "stream_tx_per_sec") === null ? null : Number(getMeta(d, "stream_tx_per_sec")),
       swapsPerSec: getMeta(d, "stream_swaps_per_sec") === null ? null : Number(getMeta(d, "stream_swaps_per_sec")),

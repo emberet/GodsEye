@@ -8,7 +8,7 @@ import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
 import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pct, pnlClass, shortAddr, signedUsd, weekLabel } from "@/lib/format";
+import { ago, pct, pnlClass, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -59,7 +59,7 @@ export default function Home() {
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           <span className="tag min-h-[30px] px-2.5">
             <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.status === "connected" ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-            {st?.status === "connected" ? `${st.swapsPerSec ?? "—"} trades/sec` : st?.enabled ? st.status ?? "starting" : "stream off"}
+            {st?.status === "connected" ? `${st.swapsPerSec ?? "—"} trades/sec` : st?.enabled ? streamStatusLabel(st.status).toLowerCase() : "stream off"}
           </span>
           <span className="tag min-h-[30px] px-2.5">Follow bar {bar === null ? 50 : Math.round(bar * 100)}% wins</span>
           <span className="tag min-h-[30px] px-2.5">{s?.walletsTracked.toLocaleString("en-US") ?? "—"} studied</span>

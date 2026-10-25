@@ -4,7 +4,7 @@ import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { kindLabel, TierBadge, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedSol, signedUsd } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd, streamStatusLabel } from "@/lib/format";
 import type { LiveWalletRow, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -51,10 +51,16 @@ export default function StreamPage() {
           value={
             <span className="flex items-center gap-3">
               <span className={cn("h-4 w-4 shrink-0 rounded-full border-[3px] border-ink", connected ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-              {st?.enabled ? (connected ? "Connected" : st.status ?? "Starting") : "Off"}
+              {st?.enabled ? streamStatusLabel(st.status) : "Off"}
             </span>
           }
-          sub={st?.lastAt ? `last trade ${ago(st.lastAt)}` : undefined}
+          sub={
+            st?.status === "waiting_for_ip"
+              ? `this connection's IP keeps changing · ${st.ipTries} tries from ${st.ipDistinct} IPs so far`
+              : st?.lastAt
+                ? `last trade ${ago(st.lastAt)}`
+                : undefined
+          }
           className="col-span-2 lg:col-span-1"
         />
         <Stat tile="bg-lilac" label="Memecoin trades" value={st?.swapsPerSec ?? "—"} unit="per second" sub={st?.txPerSec != null ? `${st.txPerSec} exchange transactions a second` : undefined} />

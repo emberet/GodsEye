@@ -351,4 +351,14 @@ CREATE TABLE IF NOT EXISTS param_history (
   new_value REAL NOT NULL,
   reason TEXT NOT NULL
 );
+
+-- IPs the gRPC provider turned away (agent/src/stream/stream.ts): which ones come up most, to allowlist
+CREATE TABLE IF NOT EXISTS stream_ip_seen (
+  ip TEXT PRIMARY KEY,
+  tries INTEGER NOT NULL DEFAULT 0,
+  -- distinct minutes this IP was seen in
+  minutes INTEGER NOT NULL DEFAULT 0,
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL
+);
 `;

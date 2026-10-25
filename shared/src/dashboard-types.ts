@@ -33,7 +33,11 @@ export interface Summary {
   lastDiscoveryAt: string | null;
   stream: {
     enabled: boolean;
+    /** connected | reconnecting | waiting_for_ip (the provider rejects this connection's IP) */
     status: string | null;
+    /** While waiting_for_ip: tries so far and how many different IPs they came from. */
+    ipTries: number;
+    ipDistinct: number;
     lastAt: string | null;
     txPerSec: number | null;
     swapsPerSec: number | null;

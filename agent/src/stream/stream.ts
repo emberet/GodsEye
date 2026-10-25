@@ -9,7 +9,7 @@
  *   • every wallet     → the live book: live P&L (USD at settlement) and AI/human score; wallets
  *                        making real money get promoted to full analysis
  *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
- * Reconnects on its own with backoff.
+ * Reconnects on its own: with backoff, or every STREAM_IP_RETRY_MS while the provider rejects this IP.
  */
 import { getHeapStatistics } from "node:v8";
 import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
@@ -38,6 +38,49 @@ function describe(e: unknown): string {
   return (config.grpcToken ? text.split(config.grpcToken).join("***") : text).slice(0, 240);
 }
 
+const IP_REJECTED = /client IP (\S+) is not whitelisted/;
+const HUNT_SUMMARY_MS = 10 * 60_000;
+
+/** Pure: how long to wait after a failed connect. An allowlist rejection is retried at a steady pace (the
+ *  IP changes every minute or so and one of the allowlisted ones comes up again); anything else backs off. */
+export function retryPlan(message: string, backoffMs: number, ipRetryMs: number): { ip: string | null; delayMs: number; nextBackoffMs: number } {
+  const ip = message.match(IP_REJECTED)?.[1] ?? null;
+  if (ip) return { ip, delayMs: ipRetryMs, nextBackoffMs: 1_000 };
+  return { ip: null, delayMs: backoffMs, nextBackoffMs: Math.min(60_000, backoffMs * 2) };
+}
+
+/** Pure: counts rejected IPs while waiting for an allowlisted one, and says what's worth logging. */
+export class IpHunt {
+  tries = 0;
+  private ips = new Set<string>();
+  private since = 0;
+  private lastSummary = 0;
+
+  get distinct(): number {
+    return this.ips.size;
+  }
+
+  /** Returns a line to log: the first rejection, then a summary every 10 minutes; otherwise null. */
+  note(ip: string, now: number): string | null {
+    const first = this.tries === 0;
+    if (first) this.since = this.lastSummary = now;
+    this.tries++;
+    this.ips.add(ip);
+    if (first) return `Live stream: Shyft turned away IP ${ip} (not on the allowlist). Retrying every ${Math.round(config.streamIpRetryMs / 1000)}s until an allowlisted IP comes up; quiet until then, with a summary every 10 min.`;
+    if (now - this.lastSummary < HUNT_SUMMARY_MS) return null;
+    this.lastSummary = now;
+    return `Live stream: still waiting for an allowlisted IP — ${this.tries} tries, ${this.ips.size} different IPs in ${Math.round((now - this.since) / 60_000)} min, none allowed. \`npm run stream:ips\` shows which come up most.`;
+  }
+
+  /** Clears the count; returns how the wait went, if there was one. */
+  reset(now: number): string | null {
+    const out = this.tries ? `after ${this.tries} tries over ${Math.max(1, Math.round((now - this.since) / 60_000))} min` : null;
+    this.tries = 0;
+    this.ips.clear();
+    return out;
+  }
+}
+
 export function streamConfigured(): boolean {
   return !!config.grpcUrl;
 }
@@ -48,6 +91,7 @@ export class LiveStream {
   private pendingSwaps: ParsedSwap[] = [];
   private stats = { txs: 0, swaps: 0, since: Date.now() };
   private retryMs = 1_000;
+  private hunt = new IpHunt();
   private stopped = false;
   private timers: NodeJS.Timeout[] = [];
   readonly smart: SmartMoney;
@@ -105,8 +149,10 @@ export class LiveStream {
       });
       await client.connect();
       const stream = await client.subscribe(this.request());
-      say("info", `Live stream connected (${new URL(config.grpcUrl).host}): watching every DEX swap on Solana.`);
+      const waited = this.hunt.reset(Date.now());
+      say("info", `Live stream connected (${new URL(config.grpcUrl).host})${waited ? ` ${waited} of waiting for an allowlisted IP` : ""}: watching every DEX swap on Solana.`);
       setMeta(this.db, "stream_status", "connected");
+      setMeta(this.db, "stream_ip_tries", 0);
       this.retryMs = 1_000;
       let id = 0;
       ping = setInterval(() => {
@@ -122,14 +168,42 @@ export class LiveStream {
       });
       say("warn", "Live stream ended; reconnecting.");
     } catch (e) {
-      say("warn", `Live stream error: ${describe(e)}. Reconnecting in ${Math.round(this.retryMs / 1000)}s.`);
-    } finally {
+      const message = describe(e);
+      const plan = retryPlan(message, this.retryMs, config.streamIpRetryMs);
+      this.retryMs = plan.nextBackoffMs;
+      if (plan.ip) {
+        this.recordIp(plan.ip);
+        const line = this.hunt.note(plan.ip, Date.now());
+        if (line) say("warn", line);
+        setMeta(this.db, "stream_status", "waiting_for_ip");
+        setMeta(this.db, "stream_ip_tries", this.hunt.tries);
+        setMeta(this.db, "stream_ip_distinct", this.hunt.distinct);
+      } else {
+        say("warn", `Live stream error: ${message}. Reconnecting in ${Math.round(plan.delayMs / 1000)}s.`);
+        setMeta(this.db, "stream_status", "reconnecting");
+      }
       if (ping) clearInterval(ping);
-      setMeta(this.db, "stream_status", "reconnecting");
+      await new Promise((r) => setTimeout(r, plan.delayMs));
+      void this.connect();
+      return;
     }
+    if (ping) clearInterval(ping);
+    setMeta(this.db, "stream_status", "reconnecting");
     await new Promise((r) => setTimeout(r, this.retryMs));
     this.retryMs = Math.min(60_000, this.retryMs * 2);
     void this.connect();
+  }
+
+  /** Remembers an IP the provider turned away (counted once per minute for `npm run stream:ips`). */
+  private recordIp(ip: string): void {
+    const now = nowIso();
+    this.db
+      .prepare(
+        `INSERT INTO stream_ip_seen (ip, tries, minutes, first_seen, last_seen) VALUES (?, 1, 1, ?, ?)
+         ON CONFLICT(ip) DO UPDATE SET tries = tries + 1,
+           minutes = minutes + (substr(last_seen, 1, 16) <> substr(excluded.last_seen, 1, 16)), last_seen = excluded.last_seen`,
+      )
+      .run(ip, now, now);
   }
 
   private onUpdate(u: SubscribeUpdate): void {

@@ -26,6 +26,9 @@ export const config = {
   /** e.g. https://grpc.ny.shyft.to — empty = no stream, GodsEye samples pools and polls instead. */
   grpcUrl: envStr("GRPC_URL"),
   grpcToken: envStr("GRPC_TOKEN"),
+  /** When the provider rejects this connection's IP (allowlist), try again this often: a home connection's
+   *  IP keeps changing, and the stream holds on once it gets in from an allowlisted one. */
+  streamIpRetryMs: envNum("STREAM_IP_RETRY_MS", 10_000),
   /** Programs whose swaps are streamed (default: the memecoin venues + Jupiter). */
   streamPrograms: list("STREAM_PROGRAMS"),
   /** Promote a live wallet to full analysis once it has realized this much profit (USD at settlement) on the stream… */
