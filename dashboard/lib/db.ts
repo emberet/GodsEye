@@ -1,9 +1,10 @@
 import "server-only";
-import { openDb, type DB } from "@godseye/shared/db";
+import { openDbReadonly, type DB } from "@godseye/shared/db";
 
-// One connection per server process (survives hot reloads in dev).
+// One read-only connection per server process (survives hot reloads in dev). The website never writes:
+// the agent owns the database, its schema and its migrations.
 const g = globalThis as unknown as { __godseyeDb?: DB };
 export function db(): DB {
-  if (!g.__godseyeDb) g.__godseyeDb = openDb();
+  if (!g.__godseyeDb) g.__godseyeDb = openDbReadonly();
   return g.__godseyeDb;
 }

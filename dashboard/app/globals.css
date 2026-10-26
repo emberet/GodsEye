@@ -46,6 +46,11 @@
     outline: 3px solid #d4ec00;
     outline-offset: 2px;
   }
+  /* Selects sit inside a pill: ring the pill, not the bare select. */
+  .pill:has(select:focus-visible) {
+    outline: 3px solid #d4ec00;
+    outline-offset: 2px;
+  }
   select option {
     background: #24242b;
     color: #fffbe6;

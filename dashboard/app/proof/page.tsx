@@ -5,6 +5,7 @@ import { COPYING_LINKS, SubNav } from "@/components/nav";
 import { Window } from "@/components/window";
 import { Badge } from "@/components/ui/badge";
 import { usePoll } from "@/lib/use-poll";
+import { DataState } from "@/components/data-state";
 import { dt } from "@/lib/format";
 import type { ProofData, ProofRow } from "@/lib/types";
 
@@ -16,7 +17,7 @@ async function sha256Hex(text: string): Promise<string> {
 
 export default function ProofPage() {
   const [page, setPage] = useState(0);
-  const { data } = usePoll<ProofData>(`/api/proof?limit=25&offset=${page * 25}`, 30_000);
+  const { data, error, stale, updatedAt } = usePoll<ProofData>(`/api/proof?limit=25&offset=${page * 25}`, 30_000);
   const [checked, setChecked] = useState<Record<number, boolean>>({});
 
   const verify = async (e: ProofRow) => {
@@ -34,6 +35,7 @@ export default function ProofPage() {
           </Badge>
         )}
       </PageHeader>
+      <DataState error={error} stale={stale} updatedAt={updatedAt} what="the proof ledger" />
       <Window title="Ledger">
         <p className="text-sm text-muted-foreground">
           Each buy, sell and safety exit is written down with a fingerprint before it runs, and each fingerprint includes the one before it, so changing any old entry breaks
@@ -49,9 +51,12 @@ export default function ProofPage() {
                 <span className="text-muted-foreground">{dt(e.committed_at)}</span>
                 <code className="min-w-0 flex-1 truncate font-mono text-xs text-accent">{e.hash}</code>
                 <button
+                  type="button"
+                  aria-label={`Check entry #${e.id}`}
                   className="btn min-h-[36px] px-4"
                   onClick={(ev) => {
                     ev.preventDefault();
+                    ev.stopPropagation();
                     void verify(e);
                   }}
                 >
@@ -69,13 +74,13 @@ export default function ProofPage() {
           ))}
         </div>
         <div className="mt-3 flex items-center justify-center gap-3 text-sm">
-          <button className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
+          <button type="button" className="btn" disabled={page === 0} onClick={() => setPage((p) => Math.max(0, p - 1))}>
             Newer
           </button>
           <span className="text-muted-foreground">
             page {page + 1} / {Math.max(1, Math.ceil((data?.total ?? 0) / 25))}
           </span>
-          <button className="btn" disabled={(page + 1) * 25 >= (data?.total ?? 0)} onClick={() => setPage((p) => p + 1)}>
+          <button type="button" className="btn" disabled={(page + 1) * 25 >= (data?.total ?? 0)} onClick={() => setPage((p) => p + 1)}>
             Older
           </button>
         </div>

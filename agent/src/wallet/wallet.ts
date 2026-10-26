@@ -20,6 +20,7 @@ export function walletFile(): string {
 }
 
 export function loadOrCreateWallet(db?: DB): { keypair: Keypair; created: boolean } {
+  if (process.env.GODSEYE_TEST === "1") throw new Error("Tests must never load or create the agent wallet.");
   const file = walletFile();
   let keypair: Keypair;
   let created = false;
@@ -35,6 +36,12 @@ export function loadOrCreateWallet(db?: DB): { keypair: Keypair; created: boolea
     if (created) setMeta(db, "wallet_created_at", new Date().toISOString());
   }
   return { keypair, created };
+}
+
+/** Tokens of `mint` held by `owner`, in UI units (both token programs). */
+export async function walletTokenBalance(owner: PublicKey, mint: string): Promise<number> {
+  const res = await connection().getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(mint) });
+  return res.value.reduce((s, a) => s + Number((a.account.data.parsed as { info: { tokenAmount: { uiAmount: number | null } } }).info.tokenAmount.uiAmount ?? 0), 0);
 }
 
 export async function walletBalanceSol(pubkey: PublicKey): Promise<number> {

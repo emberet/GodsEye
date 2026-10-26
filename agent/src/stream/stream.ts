@@ -119,6 +119,7 @@ export class LiveStream {
     this.stopped = true;
     for (const t of this.timers) clearInterval(t);
     this.flush();
+    setMeta(this.db, "stream_status", "stopped");
   }
 
   private request(): SubscribeRequest {

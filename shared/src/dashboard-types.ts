@@ -1,24 +1,33 @@
 // Shapes of the dashboard's data feeds (used by the website and by GodsEye when publishing).
 import type { Tier, WalletKind } from "./constants";
 
+/** waiting_for_ip = the gRPC provider rejects this connection's IP (allowlist). */
+export type StreamStatus = "connected" | "reconnecting" | "waiting_for_ip" | "stopped";
+
 export interface Summary {
   live: boolean;
   heartbeat: string | null;
   agentStatus: string | null;
-  copyMode: "real" | "paper";
+  /** null = the agent hasn't reported its mode yet (shown as unknown, never assumed). */
+  copyMode: "real" | "paper" | null;
   paused: boolean;
   wallet: { pubkey: string | null; balanceSol: number | null; checkedAt: string | null };
   closedPositions: number;
   wins: number;
   losses: number;
+  /** Share of closed copies that made money, 0–1 (null before the first close). Current mode only. */
   winRate: number | null;
   realizedPnlSol: number;
   todayPnlSol: number;
   unrealizedPnlSol: number;
-  /** COWBOT's own results in USD at settlement (unrealized at today's SOL price). */
-  realizedPnlUsd: number;
-  todayPnlUsd: number;
+  /** GodsEye's own results in USD at settlement (unrealized at today's SOL price), current mode only, after
+   *  recorded fees. null when a dollar value is unknown. "today" is the UTC day. */
+  realizedPnlUsd: number | null;
+  todayPnlUsd: number | null;
   unrealizedPnlUsd: number | null;
+  /** Network fees, tips and rent paid on closed copies (SOL), and how many closed real copies have no fee record. */
+  feesSol: number;
+  feesUnrecorded: number;
   /** SOL's USD price now (from the agent). */
   solUsd: number | null;
   openPositions: number;
@@ -33,8 +42,9 @@ export interface Summary {
   lastDiscoveryAt: string | null;
   stream: {
     enabled: boolean;
-    /** connected | reconnecting | waiting_for_ip (the provider rejects this connection's IP) */
-    status: string | null;
+    status: StreamStatus | null;
+    /** Connected, the agent is live and a trade arrived in the last 2 minutes: the only time to show it as live. */
+    healthy: boolean;
     /** While waiting_for_ip: tries so far and how many different IPs they came from. */
     ipTries: number;
     ipDistinct: number;
@@ -202,7 +212,10 @@ export interface CopyTrade {
   token_amount: number | null;
   price_sol: number | null;
   signature: string | null;
+  /** Shown publicly: IPs, keys and paths are stripped. */
   error: string | null;
+  /** Network fees, tips and rent this trade cost (SOL); null = not recorded. */
+  fee_sol: number | null;
   position_id: number | null;
   latency_ms: number | null;
   created_at: string;
@@ -224,6 +237,8 @@ export interface Position {
   cost_usd: number | null;
   proceeds_usd: number;
   pnl_usd: number | null;
+  /** Fees, tips and rent paid (SOL), already taken out of pnl_sol / pnl_usd; null = not recorded. */
+  fee_sol: number | null;
   entry_price_sol: number;
   last_price_sol: number | null;
   last_price_ts: string | null;
@@ -247,7 +262,7 @@ export interface WalletDetail {
   group: WalletRow[];
   copies: CopyTrade[];
   copyPnlSol: number;
-  copyPnlUsd: number;
+  copyPnlUsd: number | null;
   copyClosed: number;
   /** Smart-money status and what its buys did next (null if never considered). */
   smart: SmartWalletRow | null;
@@ -279,7 +294,7 @@ export interface Leader {
   win_rate_30d: number | null;
   closed_30d: number | null;
   copy_pnl_sol: number;
-  copy_pnl_usd: number;
+  copy_pnl_usd: number | null;
   copy_closed: number;
   last_activity_at: string | null;
   /** Where this wallet's stats start: the oldest transaction GodsEye read. Stats labelled "30 days" only cover from here. */

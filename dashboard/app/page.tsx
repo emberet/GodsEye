@@ -8,7 +8,8 @@ import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
 import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pct, pnlClass, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
+import { ago, dexscreenerToken, pct, pnlClass, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
+import { DataState } from "@/components/data-state";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +31,7 @@ function Panel({ title, href, children, className }: { title: string; href?: str
 }
 
 export default function Home() {
-  const { data: s, error } = usePoll<Summary>("/api/summary", 10_000);
+  const { data: s, error, stale, updatedAt } = usePoll<Summary>("/api/summary", 10_000);
   const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
   const { data: copies } = usePoll<CopiesData>("/api/copies", 10_000);
   const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 15_000);
@@ -40,11 +41,12 @@ export default function Home() {
   const open = copies?.open ?? [];
   const st = s?.stream;
   const bar = leaders?.followBar?.value ?? smart?.followBar?.value ?? null;
-  const openPnl = open.reduce((t, p) => t + (p.unrealized_usd ?? 0), 0);
+  // Unknown if any open trade can't be valued in USD (never shown as $0).
+  const openPnl = s?.unrealizedPnlUsd ?? null;
 
   return (
     <>
-      {error && !s && <p className="card text-sm font-bold text-coral" role="alert">No data yet: {error}</p>}
+      <DataState error={error} stale={stale} updatedAt={updatedAt} what="GodsEye's status" />
 
       {/* At a glance: one sentence, then the four numbers that matter. */}
       <section className="card flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:py-5">
@@ -52,25 +54,30 @@ export default function Home() {
           <p className="k">Right now</p>
           <p className="mt-1 text-2xl font-extrabold leading-tight tracking-[-0.02em] lg:text-[26px]">
             {st?.walletsSeen24h
-              ? `${s?.live ? "Watching" : "Paused on"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
-              : `${s?.live ? "Studying" : "Paused on"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
+              ? `${s?.live ? "Watching" : "Offline. Last watched"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
+              : `${s?.live ? "Studying" : "Offline. Last studied"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           <span className="tag min-h-[30px] px-2.5">
-            <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.status === "connected" ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-            {st?.status === "connected" ? `${st.swapsPerSec ?? "—"} trades/sec` : st?.enabled ? streamStatusLabel(st.status).toLowerCase() : "stream off"}
+            <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.healthy ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
+            {st?.healthy ? `${st.swapsPerSec ?? "—"} trades/sec` : !st?.enabled ? "stream off" : !s?.live ? "stream offline" : st.status === "connected" ? "stream quiet" : streamStatusLabel(st.status).toLowerCase()}
           </span>
-          <span className="tag min-h-[30px] px-2.5">Follow bar {bar === null ? 50 : Math.round(bar * 100)}% wins</span>
+          <span className="tag min-h-[30px] px-2.5">{bar === null ? "Follow bar: default 50% wins" : `Follow bar ${Math.round(bar * 100)}% wins`}</span>
           <span className="tag min-h-[30px] px-2.5">{s?.walletsTracked.toLocaleString("en-US") ?? "—"} studied</span>
         </div>
       </section>
 
       <section className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-5">
-        <Stat tile="bg-lime" label="Your profit" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${s.wins} won · ${s.losses} lost` : undefined} />
+        <Stat
+          tile="bg-lime"
+          label={`Realized profit${s?.copyMode === "paper" ? " (paper)" : ""}`}
+          value={signedUsd(s?.realizedPnlUsd ?? null)}
+          sub={s ? `all time, ${s.feesUnrecorded ? `fees not recorded on ${s.feesUnrecorded}` : "after fees"} · ${s.wins} won · ${s.losses} lost` : undefined}
+        />
         <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
-        <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades today` : undefined} />
-        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={open.length ? `${signedUsd(openPnl)} unsold` : "none open"} />
+        <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades, last 24h` : undefined} />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={open.length ? `${signedUsd(openPnl)} unrealized` : "none open"} />
       </section>
 
       <TopAlert s={s} />
@@ -85,7 +92,7 @@ export default function Home() {
                 <p className="text-sm font-semibold">
                   <WalletLink address={l.address} />
                 </p>
-                <p className="k truncate">{(l.copy_weight * 100).toFixed(0)}% of budget · {l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`}</p>
+                <p className="k truncate">{(l.copy_weight * 100).toFixed(0)}% of budget · {l.win_rate_30d === null ? "no closed trades" : `${Math.round(l.win_rate_30d * 100)}% of ${l.closed_30d ?? 0} won (30d)`}</p>
               </div>
               <div className="shrink-0 text-right">
                 <p className={cn("whitespace-nowrap text-lg font-extrabold leading-tight num", pnlClass(l.pnl_7d_usd))}>{signedUsd(l.pnl_7d_usd)}</p>
@@ -101,13 +108,13 @@ export default function Home() {
             </Link>
           )}
         </Panel>
-        <Panel title="Smart money is buying" href="/leaders" className="lg:col-span-4">
+        <Panel title="Smart money flows · net 24h" href="/leaders" className="lg:col-span-4">
           {flows.length === 0 && <Empty>Nothing yet. Coins appear here as winning wallets trade them.</Empty>}
           {flows.map((f) => {
             const net = f.buy_usd_24h - f.sell_usd_24h;
             const up = net >= 0;
             return (
-              <a key={f.mint} href={`https://dexscreener.com/solana/${f.mint}`} target="_blank" rel="noreferrer" className="line hover:text-accent">
+              <a key={f.mint} href={dexscreenerToken(f.mint)} target="_blank" rel="noreferrer" className="line hover:text-accent" aria-label={`${f.symbol ?? shortAddr(f.mint)} on DexScreener (opens in a new tab)`}>
                 <span className={cn("dot h-10 w-10 font-black", up ? "bg-lime" : "bg-coral")} aria-hidden>
                   {up ? <TrendingUp size={18} strokeWidth={2.6} /> : <TrendingDown size={18} strokeWidth={2.6} />}
                 </span>
@@ -137,7 +144,7 @@ export default function Home() {
                     </p>
                     <p className="k">{g.wallet_count} wallets {g.kind === "accumulate" ? "bought" : "dumped"} · {ago(g.ts)}</p>
                   </div>
-                  <p className={cn("text-lg font-extrabold num", pnlClass(r))}>{r === null ? <span className="text-sm text-muted-foreground">measuring</span> : pct(r, 0)}</p>
+                  <p className={cn("text-lg font-extrabold num", pnlClass(r))}>{r === null ? <span className="text-sm text-muted-foreground">measuring</span> : <>{pct(r, 0)}<span className="ml-1 text-xs font-bold text-muted-foreground">{g.ret_6h !== null ? "6h" : "1h"}</span></>}</p>
                 </div>
               );
             })

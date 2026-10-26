@@ -1,5 +1,5 @@
 "use client";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, LabelList } from "recharts";
 import type { Performance } from "@/lib/types";
 
 const WIN = "#D4EC00";
@@ -58,6 +58,8 @@ export function MonthlyChart({ data }: { data: Performance }) {
           {data.monthly.map((m) => (
             <Cell key={m.month} fill={m.returnPct >= 0 ? WIN : LOSS} />
           ))}
+          {/* The number on each bar, so gain vs loss doesn't rest on colour alone. */}
+          <LabelList dataKey="returnPct" position="top" fill="#FFFBE6" fontSize={11} formatter={(v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

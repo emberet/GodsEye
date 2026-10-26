@@ -69,3 +69,24 @@ export function swap(p: Partial<SwapLite> & Pick<SwapLite, "ts" | "side" | "sol_
 export const iso = (msAgo: number, now = Date.now()) => new Date(now - msAgo).toISOString();
 export const H = 3_600_000;
 export const D = 24 * H;
+
+/** Replaces fetch for one test: `handler` gets the URL and parsed JSON body and returns a Response, a JSON
+ *  value (sent as 200), or undefined (the call fails as unexpected). Call `restore()` when done. */
+export function stubFetch(handler: (url: string, body: unknown) => Response | object | undefined | Promise<Response | object | undefined>) {
+  const calls: { url: string; body: unknown }[] = [];
+  const previous = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    let body: unknown;
+    try {
+      body = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+    } catch {
+      body = init?.body;
+    }
+    calls.push({ url, body });
+    const out = await handler(url, body);
+    if (out === undefined) throw new Error(`unexpected fetch in test: ${url}`);
+    return out instanceof Response ? out : new Response(JSON.stringify(out), { status: 200, headers: { "content-type": "application/json" } });
+  }) as typeof fetch;
+  return { calls, restore: () => void (globalThis.fetch = previous) };
+}

@@ -18,12 +18,12 @@ export function runLearning(db: DB): string[] {
   const rows = db
     .prepare(
       `SELECT w.address, w.tier, w.is_fresh, w.copy_weight, s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.closed_30d, s.win_rate_30d,
-              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?), 0) copy_pnl,
-              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.closed_at >= ?) copy_closed,
+              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?), 0) copy_pnl,
+              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?) copy_closed,
               sw.lead_n, sw.lead_median_6h
          FROM wallets w JOIN wallet_stats s ON s.wallet = w.address LEFT JOIN smart_wallets sw ON sw.address = w.address`,
     )
-    .all(since14, since14) as {
+    .all(config.copyMode, since14, config.copyMode, since14) as {
     address: string; tier: Tier; is_fresh: number; copy_weight: number; pnl_7d_sol: number; pnl_30d_sol: number; pnl_7d_usd: number | null; pnl_30d_usd: number | null;
     closed_30d: number; win_rate_30d: number | null; copy_pnl: number; copy_closed: number; lead_n: number | null; lead_median_6h: number | null;
   }[];

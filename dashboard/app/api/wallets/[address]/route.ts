@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { hosted, missingHostedSetup, walletFeed } from "@/lib/data";
+import { apiRoute } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(_req: Request, { params }: { params: { address: string } }) {
+async function get(_req: Request, { params }: { params: { address: string } }) {
   const notSetUp = missingHostedSetup();
   if (notSetUp) return notSetUp;
   const address = params.address;
@@ -14,3 +15,5 @@ export async function GET(_req: Request, { params }: { params: { address: string
   const d = getWalletDetail(address);
   return d ? NextResponse.json(d) : NextResponse.json({ error: "GodsEye hasn't analyzed this wallet yet." }, { status: 404 });
 }
+
+export const GET = apiRoute(get);

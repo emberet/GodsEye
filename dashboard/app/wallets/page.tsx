@@ -117,7 +117,7 @@ function WalletDatabase() {
         <span className="hidden flex-1 lg:block" />
         <label className="pill pr-2">
           <span className="sr-only">Bots or humans</span>
-          <select value={kind} onChange={(e) => set({ kind: e.target.value })} className="cursor-pointer bg-transparent outline-none">
+          <select value={kind} onChange={(e) => set({ kind: e.target.value })} className="cursor-pointer bg-transparent focus-visible:outline-none">
             {KINDS.map((k) => (
               <option key={k.v} value={k.v}>{k.label}</option>
             ))}
@@ -125,7 +125,7 @@ function WalletDatabase() {
         </label>
         <label className="pill pr-2">
           <span className="sr-only">Sort</span>
-          <select value={sort} onChange={(e) => set({ sort: e.target.value })} className="cursor-pointer bg-transparent outline-none">
+          <select value={sort} onChange={(e) => set({ sort: e.target.value })} className="cursor-pointer bg-transparent focus-visible:outline-none">
             {SORTS.map((o) => (
               <option key={o.v} value={o.v}>{o.label}</option>
             ))}
@@ -177,9 +177,9 @@ function WalletDatabase() {
 
       {pages > 1 && (
         <nav className="flex items-center justify-center gap-3" aria-label="Pages">
-          <button type="button" disabled={page === 0} onClick={() => set({ page: String(page - 1) })} className="btn">Newer</button>
+          <button type="button" disabled={page === 0} onClick={() => set({ page: String(page - 1) })} className="btn">Previous</button>
           <span className="text-sm text-muted-foreground num">Page {page + 1} of {pages}</span>
-          <button type="button" disabled={page + 1 >= pages} onClick={() => set({ page: String(page + 1) })} className="btn">More</button>
+          <button type="button" disabled={page + 1 >= pages} onClick={() => set({ page: String(page + 1) })} className="btn">Next</button>
         </nav>
       )}
 

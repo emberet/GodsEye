@@ -9,15 +9,14 @@ import { Stat, Stats } from "@/components/stat";
 import { RugChecks } from "@/components/rug-checks";
 import { TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, pct, pnlClass, signedSol, signedUsd, solscanTx, weekLabel } from "@/lib/format";
+import { ago, COPY_STATUS_LABEL as STATUS_LABEL, COPY_STATUS_STYLE as STATUS, dollars, pct, pnlClass, signedSol, signedUsd, solscanTx, weekLabel, winRateLabel } from "@/lib/format";
+import { DataState } from "@/components/data-state";
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<string, string> = { filled: "bg-lime text-ink", failed: "bg-coral text-ink", pending: "bg-sun text-ink", skipped: "" };
-const STATUS_LABEL: Record<string, string> = { filled: "Done", failed: "Failed", pending: "Sending", skipped: "Skipped" };
 
 export default function CopiesPage() {
-  const { data } = usePoll<CopiesData>("/api/copies", 10_000);
+  const { data, error, stale, updatedAt } = usePoll<CopiesData>("/api/copies", 10_000);
   const { data: s } = usePoll<Summary>("/api/summary", 10_000);
   const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
   const [allTrades, setAllTrades] = useState(false);
@@ -33,17 +32,28 @@ export default function CopiesPage() {
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
 
+      <DataState error={error} stale={stale} updatedAt={updatedAt} what="copy trades" />
+
       <Stats>
-        <Stat tile="bg-lime" label="Profit from copying" value={signedUsd(s?.realizedPnlUsd ?? null)} sub={s ? `${s.wins} won · ${s.losses} lost · today ${signedUsd(s.todayPnlUsd)}` : undefined} />
-        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} not yet sold` : undefined} />
-        <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : undefined} />
-        <Stat tile="bg-lilac" label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub="Moves on its own as copies win or lose" />
+        <Stat
+          tile="bg-lime"
+          label={`Realized profit${s?.copyMode === "paper" ? " (paper)" : ""}`}
+          value={signedUsd(s?.realizedPnlUsd ?? null)}
+          sub={s ? `all time${s.feesUnrecorded ? `, fees not recorded on ${s.feesUnrecorded}` : ", after fees"} · ${s.wins} won · ${s.losses} lost · today (UTC) ${signedUsd(s.todayPnlUsd)}` : undefined}
+        />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.openPositions ? (s.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} unrealized` : "value unknown") : undefined} />
+        {s?.copyMode === "paper" ? (
+          <Stat tile="bg-sun" label="Paper trading" value="No real SOL" sub="Fills are simulated with live quotes" />
+        ) : (
+          <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : "not checked yet"} />
+        )}
+        <Stat tile="bg-lilac" label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub={bar === null ? "Default: not learned yet" : "Moves on its own as copies win or lose"} />
       </Stats>
 
       <TopAlert s={s} />
 
       <section className="grid gap-5 lg:grid-cols-2">
-        <Window title="Open trades" right={open.length > 0 && <span className="text-muted-foreground num">{signedUsd(open.reduce((t, p) => t + (p.unrealized_usd ?? 0), 0))}</span>}>
+        <Window title="Open trades" right={open.length > 0 && <span className="text-muted-foreground num">{signedUsd(s?.unrealizedPnlUsd ?? null)}</span>}>
           {open.length === 0 && (
             <Empty img="wallet" title="No open trades">
               When a wallet below buys a memecoin, GodsEye buys a small copy and shows it here.
@@ -78,7 +88,7 @@ export default function CopiesPage() {
                   <WalletLink address={l.address} />
                   <TierBadge tier={l.tier} />
                 </p>
-                <p className="k mt-0.5">{l.win_rate_30d === null ? "—" : `${Math.round(l.win_rate_30d * 100)}% won`} · {signedUsd(l.pnl_7d_usd)} {weekLabel(l.history_from) === "7d" ? "this week" : weekLabel(l.history_from)}</p>
+                <p className="k mt-0.5">{winRateLabel(l.win_rate_30d, l.closed_30d)} (30d) · {signedUsd(l.pnl_7d_usd)} {weekLabel(l.history_from) === "7d" ? "this week" : weekLabel(l.history_from)}</p>
               </div>
               <div className="w-28 sm:w-40">
                 <div className="flex justify-between text-xs">
@@ -138,7 +148,7 @@ export default function CopiesPage() {
                 <TokenLink mint={p.mint} symbol={p.symbol} />
               </p>
               <p className="k">
-                {dollars(p.cost_usd)} in · {dollars(p.proceeds_usd)} out · {p.exit_reason} · {ago(p.closed_at)}
+                {dollars(p.cost_usd)} in · {dollars(p.proceeds_usd)} out{p.mode === "real" ? (p.fee_sol === null ? " · fees not recorded" : ` · ${p.fee_sol.toFixed(4)} SOL fees`) : ""} · {p.exit_reason} · {ago(p.closed_at)}
               </p>
             </div>
             <div className="text-right" title={`${signedSol(p.pnl_sol)} SOL`}>

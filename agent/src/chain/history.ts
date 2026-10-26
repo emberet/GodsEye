@@ -9,7 +9,7 @@ import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
 import { solUsdAt } from "../market/solprice";
 import { noteThrottled, takeRpc } from "./rpc-budget";
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+import { backoff as sleep } from "../backoff";
 
 /**
  * Newest transaction format GodsEye reads. Solana now has version-1

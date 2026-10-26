@@ -18,6 +18,10 @@
  * Skips that are about GodsEye's own state (no SOL, paused, limits) repeat for
  * every leader buy, so they're logged and recorded at most once per 10 minutes.
  * Every decision is written to the proof ledger before it's executed.
+ *
+ * Limits (budget, open positions, daily loss) count only positions in the current mode, and buys still
+ * in flight count against the budget: the final check and the reservation of a buy happen under one
+ * lock, so two leader buys of different tokens can't both spend the same room.
  */
 import fs from "node:fs";
 import { commitProof, dataPath, type DB, getMeta, isNonMemecoinSymbol, NON_MEMECOIN_MINTS, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
@@ -45,6 +49,8 @@ interface PositionRow {
   proceeds_sol: number;
   cost_usd: number | null;
   proceeds_usd: number;
+  /** Network fees, tips and token-account rent paid so far (SOL); null = not recorded (paper, or opened before fees were tracked). */
+  fee_sol: number | null;
   entry_price_sol: number;
   last_price_sol: number | null;
   opened_at: string;
@@ -66,6 +72,8 @@ export function isPaused(db: DB): boolean {
 
 export class CopyEngine {
   private locks = new Map<string, Promise<unknown>>();
+  /** Serialises the last limit check + reservation of every buy (see the note at the top). */
+  private buyGate: Promise<unknown> = Promise.resolve();
   private sellFailures = new Map<number, { count: number; until: number }>();
   /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
   private quiet = new Map<string, { until: number; held: number }>();
@@ -84,6 +92,12 @@ export class CopyEngine {
     const prev = this.locks.get(mint) ?? Promise.resolve();
     const next = prev.then(fn, fn);
     this.locks.set(mint, next.catch(() => undefined));
+    return next;
+  }
+
+  private withBuyGate<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.buyGate.then(fn, fn);
+    this.buyGate = next.catch(() => undefined);
     return next;
   }
 
@@ -135,6 +149,33 @@ export class CopyEngine {
     return sol;
   }
 
+  /** How much this buy may spend under GodsEye's own limits, or null (skip recorded) if it may not. Counts only
+   *  positions and in-flight buys in the current mode. */
+  private async roomFor(swap: ParsedSwap, weight: number, symbol: string): Promise<number | null> {
+    const mode = this.executor.mode;
+    if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true), null;
+    const today = new Date().toISOString().slice(0, 10);
+    const lossToday = (this.db.prepare("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { s: number }).s;
+    if (lossToday <= -config.dailyLossLimitSol) return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true), null;
+    const held = this.db
+      .prepare("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN tokens_bought > 0 THEN cost_sol * token_amount / tokens_bought ELSE cost_sol END),0) c FROM positions WHERE status='open' AND mode = ?")
+      .get(mode) as { n: number; c: number };
+    const flying = this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(size_sol),0) c FROM copy_trades WHERE side='buy' AND status='pending' AND mode = ?").get(mode) as { n: number; c: number };
+    if (held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
+
+    let size = copySize(weight, config);
+    if (size <= 0) return null;
+    size = Math.min(size, config.copyBudgetSol - held.c - flying.c);
+    if (size < config.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true), null;
+    if (mode === "real" && this.wallet) {
+      const balance = (await this.walletSol()) - flying.c;
+      if (balance - config.walletReserveSol < size) {
+        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to ${short(this.wallet.toBase58())} to start copying`, true), null;
+      }
+    }
+    return size;
+  }
+
   private async copyBuy(swap: ParsedSwap, seenAt: number): Promise<void> {
     const leader = this.db.prepare("SELECT copy_weight FROM wallets WHERE address = ?").get(swap.wallet) as { copy_weight: number } | undefined;
     const weight = leader?.copy_weight ?? 0;
@@ -156,24 +197,8 @@ export class CopyEngine {
     // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
     if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
-    // 3) GodsEye's own state
-    if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true);
-    const today = new Date().toISOString().slice(0, 10);
-    const lossToday = (this.db.prepare("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND closed_at >= ?").get(`${today}T00:00:00.000Z`) as { s: number }).s;
-    if (lossToday <= -config.dailyLossLimitSol) return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true);
-    const open = this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(cost_sol * token_amount / tokens_bought),0) c FROM positions WHERE status='open'").get() as { n: number; c: number };
-    if (open.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true);
-
-    let size = copySize(weight, config);
-    if (size <= 0) return;
-    size = Math.min(size, config.copyBudgetSol - open.c);
-    if (size < config.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true);
-    if (this.executor.mode === "real" && this.wallet) {
-      const balance = await this.walletSol();
-      if (balance - config.walletReserveSol < size) {
-        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to ${short(this.wallet.toBase58())} to start copying`, true);
-      }
-    }
+    // 3) GodsEye's own state (a quick look first, so the rug check isn't spent on a buy that can't happen)
+    if ((await this.roomFor(swap, weight, symbol)) === null) return;
     // 4) The token itself (also blocks tokens that can still be minted — most bridged tokens)
     if (config.rugCheckEnabled) {
       const v = await rugCheck(this.db, swap.mint, symbol);
@@ -181,26 +206,34 @@ export class CopyEngine {
       if (v.verdict === "blocked") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${v.blocks.join("; ")}`);
     }
 
+    // 5) Check the limits again and reserve the buy, under the buy gate.
+    const reserved = await this.withBuyGate(async () => {
+      const size = await this.roomFor(swap, weight, symbol);
+      if (size === null) return null;
+      const row = this.db
+        .prepare(
+          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, created_at)
+           VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?)`,
+        )
+        .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, nowIso());
+      return row.changes === 0 ? null : { size, copyId: Number(row.lastInsertRowid) }; // 0 = already handled this leader trade
+    });
+    if (!reserved) return;
+    const { size, copyId } = reserved;
     const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
-    const row = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, proof_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?, ?)`,
-      )
-      .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, proof.id, nowIso());
-    if (row.changes === 0) return; // already handled this leader trade
-    const copyId = Number(row.lastInsertRowid);
+    this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
       const fill = await this.executor.buy(swap.mint, size);
       const pos = this.db
         .prepare(
-          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate)
-           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?))`,
+          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate)
+           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?))`,
         )
-        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.priceSol, fill.priceSol, nowIso(), nowIso(), swap.wallet);
+        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.feeSol ?? null, fill.priceSol, fill.priceSol, nowIso(), nowIso(), swap.wallet);
       this.db
-        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
-        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
+        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
+        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
+      this.balance = null; // the wallet just spent SOL
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
@@ -218,15 +251,16 @@ export class CopyEngine {
 
   private async sellPosition(pos: PositionRow, tokens: number, all: boolean, reason: string, leaderSwap?: ParsedSwap): Promise<boolean> {
     const symbol = pos.symbol ?? symbolOf(this.db, pos.mint);
-    const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
     const row = this.db
       .prepare(
-        `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, proof_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'sell', ?, 'pending', ?, ?, ?, ?, ?)`,
+        `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, created_at)
+         VALUES (?, ?, ?, ?, ?, 'sell', ?, 'pending', ?, ?, ?, ?)`,
       )
-      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, proof.id, nowIso());
-    if (row.changes === 0) return false;
+      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
+    if (row.changes === 0) return false; // already handled this leader trade
     const copyId = Number(row.lastInsertRowid);
+    const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
+    this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
       const fill = await this.executor.sell(pos.mint, tokens, all);
       const remaining = all ? 0 : Math.max(0, pos.token_amount - fill.tokenAmount);
@@ -235,11 +269,14 @@ export class CopyEngine {
       const proceedsUsd = pos.proceeds_usd + (fillUsd ?? 0);
       const usdKnown = pos.cost_usd !== null && fillUsd !== null;
       const closed = remaining <= pos.tokens_bought * 0.01;
-      this.db.prepare("UPDATE positions SET token_amount=?, proceeds_sol=?, proceeds_usd=?, cost_usd=?, last_price_sol=?, last_price_ts=? WHERE id=?")
-        .run(remaining, proceeds, proceedsUsd, usdKnown ? pos.cost_usd : null, fill.priceSol, nowIso(), pos.id);
+      // Fees stay "not recorded" for a position whose buy fee wasn't recorded (never half-counted).
+      const fees = pos.fee_sol === null ? null : pos.fee_sol + (fill.feeSol ?? 0);
+      this.db.prepare("UPDATE positions SET token_amount=?, proceeds_sol=?, proceeds_usd=?, cost_usd=?, fee_sol=?, last_price_sol=?, last_price_ts=? WHERE id=?")
+        .run(remaining, proceeds, proceedsUsd, usdKnown ? pos.cost_usd : null, fees, fill.priceSol, nowIso(), pos.id);
       if (closed) {
-        const pnl = proceeds - pos.cost_sol;
-        const pnlUsd = usdKnown ? proceedsUsd - (pos.cost_usd as number) : null;
+        const feeUsd = fees === null ? 0 : (usdOf(fees) ?? null);
+        const pnl = proceeds - pos.cost_sol - (fees ?? 0);
+        const pnlUsd = usdKnown && feeUsd !== null ? proceedsUsd - (pos.cost_usd as number) - feeUsd : null;
         // % return in USD when known (SOL's own price move between entry and exit isn't trading profit).
         const pct = pnlUsd !== null && pos.cost_usd ? (pnlUsd / pos.cost_usd) * 100 : pos.cost_sol > 0 ? (pnl / pos.cost_sol) * 100 : 0;
         this.db.prepare("UPDATE positions SET status='closed', token_amount=0, closed_at=?, exit_reason=?, pnl_sol=?, pnl_usd=?, pnl_pct=? WHERE id=?").run(nowIso(), reason, pnl, pnlUsd, pct, pos.id);
@@ -249,8 +286,8 @@ export class CopyEngine {
         say("trade", `Sold ${fill.tokenAmount.toPrecision(4)} ${symbol} for ${fill.solAmount.toFixed(4)} SOL — ${reason}.`);
       }
       this.db
-        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, signature=?, latency_ms=?, filled_at=? WHERE id=?")
-        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.signature, leaderSwap ? Date.now() - Date.parse(leaderSwap.ts) : null, nowIso(), copyId);
+        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, latency_ms=?, filled_at=? WHERE id=?")
+        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, leaderSwap ? Date.now() - Date.parse(leaderSwap.ts) : null, nowIso(), copyId);
       this.sellFailures.delete(pos.id);
       return true;
     } catch (e) {
@@ -266,7 +303,7 @@ export class CopyEngine {
 
   /** Every minute: price open positions, exit on stop-loss / take-profit / max hold, refresh the wallet balance. */
   async managePositions(): Promise<void> {
-    const open = this.db.prepare("SELECT * FROM positions WHERE status='open'").all() as PositionRow[];
+    const open = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mode = ?").all(this.executor.mode) as PositionRow[];
     if (this.executor.mode === "real" && this.wallet) {
       const bal = await walletBalanceSol(this.wallet).catch(() => null);
       if (bal !== null) {
@@ -285,8 +322,9 @@ export class CopyEngine {
     if (!solUsd) return;
     for (const pos of open) {
       const usd = prices.get(pos.mint)?.priceUsd;
-      if (!usd) continue;
+      if (!usd || !(pos.tokens_bought > 0)) continue;
       const price = usd / solUsd;
+      if (!Number.isFinite(price) || price <= 0) continue;
       this.db.prepare("UPDATE positions SET last_price_sol=?, last_price_ts=? WHERE id=?").run(price, nowIso(), pos.id);
       const heldCost = pos.cost_sol * (pos.token_amount / pos.tokens_bought);
       const pct = heldCost > 0 ? ((pos.token_amount * price - heldCost) / heldCost) * 100 : 0;

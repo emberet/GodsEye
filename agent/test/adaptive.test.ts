@@ -67,3 +67,27 @@ test("before 6-hour results exist, it learns from 1-hour shadow results", () => 
   assert.equal(adaptThresholds(db), 0.55);
   assert.match((db.prepare("SELECT reason FROM learning_params").get() as { reason: string }).reason, /1h results/);
 });
+
+test("learning loop: weights stay between 0 and 1, add up to at most the whole budget, and only go to eligible wallets", async () => {
+  const { runLearning } = await import("../src/learning/loop");
+  const db = openDb(":memory:");
+  const now = new Date().toISOString();
+  const add = (address: string, tier: string, pnl: number, winRate: number, closed: number) => {
+    db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier, last_analyzed_at) VALUES (?, ?, 'test', ?, ?)").run(address, now, tier, now);
+    db.prepare(
+      `INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_7d_usd, pnl_30d_usd, closed_7d, closed_30d, wins_30d, win_rate_30d)
+       VALUES (?, ?, 100, 50, 100, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(address, now, pnl, pnl * 2, pnl * 2, pnl * 150, pnl * 300, closed, closed, Math.round(closed * winRate), winRate);
+  };
+  for (let i = 0; i < 12; i++) add(`P${i}`, "proven", 1 + i, 0.55 + i * 0.02, 30 + i);
+  add("LOSER", "proven", -5, 0.3, 40);
+  add("BOT", "unproven", 50, 0.9, 2);
+  runLearning(db);
+  const w = db.prepare("SELECT address, copy_weight FROM wallets").all() as { address: string; copy_weight: number }[];
+  const total = w.reduce((s, r) => s + r.copy_weight, 0);
+  assert.ok(total <= 1 + 1e-9, `weights add up to ${total}`);
+  for (const r of w) assert.ok(r.copy_weight >= 0 && r.copy_weight <= 1, `${r.address} ${r.copy_weight}`);
+  assert.equal(w.find((r) => r.address === "LOSER")!.copy_weight, 0, "a losing wallet isn't copied");
+  assert.equal(w.find((r) => r.address === "BOT")!.copy_weight, 0, "an unproven wallet isn't copied");
+  assert.ok(w.some((r) => r.copy_weight > 0), "someone qualifies");
+});

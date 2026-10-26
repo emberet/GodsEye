@@ -5,20 +5,22 @@ import { Empty, Window } from "@/components/window";
 import { Stat, Stats } from "@/components/stat";
 import { EquityChart, MonthlyChart, RollingWinRateChart } from "@/components/charts/perf-charts";
 import { usePoll } from "@/lib/use-poll";
+import { DataState } from "@/components/data-state";
 import { dollars, dt, pct, pnlClass } from "@/lib/format";
 import type { Performance } from "@/lib/types";
 
 export default function PerformancePage() {
-  const { data } = usePoll<Performance>("/api/performance", 60_000);
+  const { data, error, stale, updatedAt } = usePoll<Performance>("/api/performance", 60_000);
   const empty = !data || data.equity.length <= 1;
   const last = data?.equity.at(-1);
   return (
     <>
-      <PageHeader title="Results" back="/copies" kicker="How copying has gone, in dollars, counting closed trades only.">
+      <PageHeader title="Results" back="/copies" kicker="How copying has gone in the current mode, in dollars at settlement, counting closed trades only (open trades and deposits aren't included).">
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
+      <DataState error={error} stale={stale} updatedAt={updatedAt} what="results" />
       <Stats>
-        <Stat label="Money in the account" value={last ? dollars(last.equity) : "—"} sub={`started with ${dollars(data?.startingCapitalUsd ?? null)}`} />
+        <Stat label="Start + closed P&L" value={last ? dollars(last.equity) : "—"} sub={`started with ${dollars(data?.startingCapitalUsd ?? null)} · not the wallet balance`} />
         <Stat label="Total return" value={pct(last && data?.startingCapitalUsd ? (last.cumPnl / data.startingCapitalUsd) * 100 : null, 1)} valueClass={pnlClass(last?.cumPnl)} />
         <Stat
           label="Worst drop from a high"

@@ -9,7 +9,8 @@ import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { Addr, KindBadge, kindLabel, TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dollars, dt, hasWeek, pnlClass, shortAddr, signedSol, signedUsd, solscanAccount, solscanTx, spanLabel } from "@/lib/format";
+import { ago, dollars, dt, hasWeek, pnlClass, shortAddr, signedSol, signedUsd, solscanAccount, solscanTx, spanLabel, COPY_STATUS_LABEL, COPY_STATUS_STYLE } from "@/lib/format";
+import { DataState } from "@/components/data-state";
 import type { WalletDetail } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -31,10 +32,19 @@ const age = (s: number | null) => (s === null ? "—" : s < 60 ? `${Math.round(s
 const pctOf = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n * 100)}`);
 
 export default function WalletPage({ params }: { params: { address: string } }) {
-  const { data, error } = usePoll<WalletDetail>(`/api/wallets/${params.address}`, 30_000);
+  const { data, error, status, stale, updatedAt } = usePoll<WalletDetail>(`/api/wallets/${params.address}`, 30_000);
   const [allSwaps, setAllSwaps] = useState(false);
 
-  if (error) {
+  // "Not studied" only when the API says so (404); a failed refresh keeps the page and says so.
+  if (error && !data && status !== 404) {
+    return (
+      <>
+        <PageHeader title="Wallet" back="/wallets" kicker={<span className="font-mono">{shortAddr(params.address, 6)}</span>} />
+        <DataState error={error} stale={false} updatedAt={null} what="this wallet" />
+      </>
+    );
+  }
+  if (error && !data) {
     return (
       <>
         <PageHeader title="Wallet" back="/wallets" kicker={<span className="font-mono">{shortAddr(params.address, 6)}</span>} />
@@ -206,9 +216,9 @@ export default function WalletPage({ params }: { params: { address: string } }) 
               {data.copies.length === 0 && <p className="py-2 text-sm text-muted-foreground">None yet.</p>}
               {data.copies.slice(0, 8).map((c) => (
                 <div key={c.id} className="line text-sm">
-                  <span className={cn("tag", c.status === "filled" ? "bg-lime text-ink" : c.status === "failed" ? "bg-coral text-ink" : "")}>{c.status}</span>
+                  <span className={cn("tag", COPY_STATUS_STYLE[c.status])}>{COPY_STATUS_LABEL[c.status] ?? c.status}</span>
                   <span className="min-w-0 flex-1 truncate">
-                    {c.side} <TokenLink mint={c.mint} symbol={c.symbol} />
+                    {c.side === "buy" ? "Buy" : "Sell"} <TokenLink mint={c.mint} symbol={c.symbol} />
                     {c.reason && <span className="text-muted-foreground"> · {c.reason}</span>}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground">{ago(c.created_at)}</span>

@@ -4,14 +4,15 @@ import { COPYING_LINKS, SubNav } from "@/components/nav";
 import { Empty, Window } from "@/components/window";
 import { KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, pnlClass, signedSol, signedUsd, weekLabel } from "@/lib/format";
+import { ago, pnlClass, signedSol, signedUsd, weekLabel, winRateLabel } from "@/lib/format";
+import { DataState } from "@/components/data-state";
 import type { LeadersData, SmartMoneyData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const pc = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n * 100)}%`);
 
 export default function LeadersPage() {
-  const { data } = usePoll<LeadersData>("/api/leaders", 30_000);
+  const { data, error, stale, updatedAt } = usePoll<LeadersData>("/api/leaders", 30_000);
   const { data: smart } = usePoll<SmartMoneyData>("/api/smart", 30_000);
   const score = (kind: "accumulate" | "exit", h: "1h" | "6h" | "24h") => smart?.scorecard.find((x) => x.kind === kind && x.horizon === h);
   const measured = (smart?.wallets ?? []).filter((w) => w.lead_n > 0).slice(0, 8);
@@ -24,6 +25,8 @@ export default function LeadersPage() {
       <PageHeader title="Who it copies" back="/copies" kicker="Re-checked every 15 minutes. Only wallets with a real track record make the cut.">
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
+
+      <DataState error={error} stale={stale} updatedAt={updatedAt} what="who GodsEye copies" />
 
       <section className="grid gap-5 lg:grid-cols-[1fr_1.4fr]">
         <div className="card">
@@ -123,8 +126,11 @@ export default function LeadersPage() {
               </div>
               <div className="flex w-full flex-wrap items-center justify-between gap-x-5 gap-y-2 sm:w-auto sm:flex-nowrap sm:justify-start">
                 <div className="text-right">
-                  <p className="k">Wins</p>
-                  <p className="text-lg font-extrabold num">{pc(l.win_rate_30d)}</p>
+                  <p className="k">Wins, 30d</p>
+                  <p className="text-lg font-extrabold num" title={winRateLabel(l.win_rate_30d, l.closed_30d)}>
+                    {pc(l.win_rate_30d)}
+                    <span className="unit">{l.closed_30d ? `of ${l.closed_30d}` : "none closed"}</span>
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="k">{weekLabel(l.history_from) === "7d" ? "Its week" : `Its profit, ${weekLabel(l.history_from)}`}</p>

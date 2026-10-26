@@ -24,7 +24,8 @@ import { currentLeaders, runLearning } from "./learning/loop";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
 import { LeaderWatcher } from "./copy/watcher";
-import { loadOrCreateWallet } from "./wallet/wallet";
+import { loadOrCreateWallet, walletTokenBalance } from "./wallet/wallet";
+import { reconcile, recoverPending } from "./copy/recovery";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
@@ -76,12 +77,22 @@ const learn = () =>
     const leaders = runLearning(db);
     await watcher.sync(leaders);
   });
+const STARTED_AT = nowIso();
+const heldTokens = (mint: string) => walletTokenBalance(keypair.publicKey, mint);
+let lastReconcile = 0;
 const positions = () =>
   job("positions", async () => {
     heartbeat();
     await refreshLiveSolPrice();
     setMeta(db, "sol_usd_now", solUsdAt(Date.now()) ?? "");
+    // Trades left pending by an earlier run, or stuck for 10+ minutes in this one.
+    const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+    await recoverPending(db, { before: cutoff < STARTED_AT ? STARTED_AT : cutoff, held: heldTokens });
     await engine.managePositions();
+    if (config.copyMode === "real" && Date.now() - lastReconcile > 30 * 60_000) {
+      lastReconcile = Date.now();
+      await reconcile(db, heldTokens);
+    }
   });
 const poll = () => job("leader poll", () => watcher.poll(), false);
 
@@ -163,6 +174,7 @@ async function main() {
 function shutdown() {
   say("info", "Stopped.");
   live?.stop();
+  setMeta(db, "stream_status", "stopped");
   heartbeat("stopped");
   db.close();
   process.exit(0);

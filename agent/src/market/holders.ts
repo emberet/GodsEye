@@ -13,6 +13,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import { rpcUrl } from "../config";
+import { backoff } from "../backoff";
 import { findFunder, type TokenBalanceLike, type TxLike } from "../chain/parse";
 
 export interface HolderMetrics {
@@ -73,7 +74,7 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
       return json.result as T;
     } catch (e) {
       if (attempt >= 1) throw e;
-      await new Promise((r) => setTimeout(r, 400));
+      await backoff(400);
     }
   }
 }

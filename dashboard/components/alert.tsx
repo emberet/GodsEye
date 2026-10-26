@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { AlertTriangle, Check, Copy } from "lucide-react";
 import type { Summary } from "@/lib/types";
+import { ago } from "@/lib/format";
 
 /** The single most important thing to know right now, as a yellow block. Nothing shows when all is well. */
 export function TopAlert({ s }: { s: Summary | null }) {
@@ -9,7 +10,7 @@ export function TopAlert({ s }: { s: Summary | null }) {
   if (!s) return null;
   const empty = s.copyMode === "real" && s.wallet.balanceSol !== null && s.wallet.balanceSol < 0.01;
   const msg = !s.live
-    ? "GodsEye isn't running. Start the agent to resume watching and copying."
+    ? `GodsEye isn't running${s.heartbeat ? ` (last seen ${ago(s.heartbeat)})` : ""}. Nothing is being watched or copied, and the numbers below are from then.`
     : s.paused
       ? "Copying is paused. Open trades still sell on their stop-loss and take-profit."
       : empty

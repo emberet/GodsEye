@@ -2,7 +2,7 @@
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
 import { Empty, Window } from "@/components/window";
-import { Addr, KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
+import { KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
 import { ago, pnlClass, signedUsd } from "@/lib/format";
 import type { WalletGroup } from "@/lib/types";
@@ -30,7 +30,6 @@ export default function GroupsPage() {
             right={<span className="text-muted-foreground">{g.size} wallet{g.size === 1 ? "" : "s"} · newest {ago(g.newest_at)}</span>}
           >
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <Addr address={g.funder} />
               {g.funder_tier && <TierBadge tier={g.funder_tier} />}
               {g.likely_exchange && <span className="tag bg-sun text-ink">Probably an exchange</span>}
               <span className="tag">{g.ai} bots</span>
@@ -45,7 +44,7 @@ export default function GroupsPage() {
                   <WalletLink address={m.address} />
                   <TierBadge tier={m.tier} />
                   <KindBadge kind={m.kind} score={null} />
-                  <span className={cn("ml-auto text-lg font-extrabold num", pnlClass(m.pnl_30d_usd))}>{signedUsd(m.pnl_30d_usd)}</span>
+                  <span className={cn("ml-auto text-lg font-extrabold num", pnlClass(m.pnl_30d_usd))} title="Realized profit, last 30 days (as far back as GodsEye has read)">{signedUsd(m.pnl_30d_usd)}<span className="unit">30d</span></span>
                   <WalletPageLink address={m.address} />
                 </div>
               ))}

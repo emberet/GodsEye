@@ -4,6 +4,7 @@ import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { kindLabel, TierBadge, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
+import { DataState } from "@/components/data-state";
 import { ago, pnlClass, signedSol, signedUsd, streamStatusLabel } from "@/lib/format";
 import type { LiveWalletRow, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -25,10 +26,11 @@ export default function StreamPage() {
   const [kind, setKind] = useState<"all" | "ai" | "human" | "unknown">("all");
   const [more, setMore] = useState(false);
   const { data: s } = usePoll<Summary>("/api/summary", 10_000);
-  const { data, error } = usePoll<LiveWalletRow[]>(`/api/stream?sort=${sort}&kind=${kind}&limit=200`, 15_000);
+  const { data, error, stale, updatedAt } = usePoll<LiveWalletRow[]>(`/api/stream?sort=${sort}&kind=${kind}&limit=200`, 15_000);
   const st = s?.stream;
   const rows = (data ?? []).slice(0, more ? 200 : 25);
-  const connected = st?.status === "connected";
+  // Green only when trades are really arriving: connected, agent alive, a trade in the last 2 minutes.
+  const connected = !!st?.healthy;
 
   return (
     <>
@@ -51,12 +53,12 @@ export default function StreamPage() {
           value={
             <span className="flex items-center gap-3">
               <span className={cn("h-4 w-4 shrink-0 rounded-full border-[3px] border-ink", connected ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-              {st?.enabled ? streamStatusLabel(st.status) : "Off"}
+              {!st?.enabled ? "Off" : !s?.live ? "Agent offline" : st.status === "connected" && !connected ? "Quiet" : st.status === "waiting_for_ip" ? "Waiting for IP" : streamStatusLabel(st.status)}
             </span>
           }
           sub={
             st?.status === "waiting_for_ip"
-              ? `this connection's IP keeps changing · ${st.ipTries} tries from ${st.ipDistinct} IPs so far`
+              ? `Shyft only accepts allowlisted IPs and this connection's keeps changing · ${st.ipTries} tries from ${st.ipDistinct} IPs so far`
               : st?.lastAt
                 ? `last trade ${ago(st.lastAt)}`
                 : undefined
@@ -64,7 +66,7 @@ export default function StreamPage() {
           className="col-span-2 lg:col-span-1"
         />
         <Stat tile="bg-lilac" label="Memecoin trades" value={st?.swapsPerSec ?? "—"} unit="per second" sub={st?.txPerSec != null ? `${st.txPerSec} exchange transactions a second` : undefined} />
-        <Stat tile="bg-sun" label="Wallets seen today" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub={st ? `${st.walletsSeenTotal.toLocaleString("en-US")} in the last 30 days` : undefined} />
+        <Stat tile="bg-sun" label="Wallets seen, last 24h" value={st?.walletsSeen24h.toLocaleString("en-US") ?? "—"} sub={st ? `${st.walletsSeenTotal.toLocaleString("en-US")} in the last 30 days` : undefined} />
       </section>
 
       <Window
@@ -80,7 +82,7 @@ export default function StreamPage() {
             </div>
             <label className="pill pr-2">
               <span className="sr-only">Sort</span>
-              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="cursor-pointer bg-transparent outline-none">
+              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="cursor-pointer bg-transparent focus-visible:outline-none">
                 {SORTS.map((o) => (
                   <option key={o.v} value={o.v}>{o.label}</option>
                 ))}
@@ -91,8 +93,8 @@ export default function StreamPage() {
       >
         <p className="text-sm text-muted-foreground">Profit from trades GodsEye has watched live. Wallets that make $100+ over 3+ trades and win at least half get a full check.</p>
         <div className="mt-2">
-          {error && <p className="py-3 text-sm text-loss">{error}</p>}
-          {!error && rows.length === 0 && <Empty img="radar" title={data ? "Nobody yet" : "Loading…"}>{data ? "Wallets appear as the stream sees them trade." : "Fetching live wallets."}</Empty>}
+          <DataState error={error} stale={stale} updatedAt={updatedAt} what="live wallets" />
+          {(!error || stale) && rows.length === 0 && <Empty img="radar" title={data ? "Nobody yet" : "Loading…"}>{data ? "Wallets appear as the stream sees them trade." : "Fetching live wallets."}</Empty>}
           {rows.map((w, i) => {
             const status = w.tier ? null : w.promoted ? "Checking now" : "Not checked";
             const row = (

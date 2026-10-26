@@ -1,5 +1,6 @@
 /** Opens the shared SQLite database (data/godseye.db by default). */
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { repoRoot } from "./env";
@@ -17,6 +18,9 @@ export function dbFilePath(): string {
 }
 
 export function openDb(file = dbFilePath()): DB {
+  // Tests only ever use in-memory or temp-folder databases, never the agent's real one.
+  if (process.env.GODSEYE_TEST === "1" && file !== ":memory:" && !path.resolve(file).startsWith(fs.realpathSync(os.tmpdir())) && !path.resolve(file).startsWith(os.tmpdir()))
+    throw new Error(`Tests must not open a database outside the temp folder: ${file}`);
   if (file !== ":memory:") fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new Database(file);
   db.pragma("journal_mode = WAL"); // lets the dashboard read while the agent writes
@@ -26,13 +30,22 @@ export function openDb(file = dbFilePath()): DB {
   return db;
 }
 
+/** Opens the database for reading only (the website): no folder creation, no schema changes, no writes.
+ *  Throws if the file doesn't exist yet (the agent creates it). */
+export function openDbReadonly(file = dbFilePath()): DB {
+  const db = new Database(file, { readonly: true, fileMustExist: true });
+  db.pragma("busy_timeout = 5000");
+  return db;
+}
+
 /** Columns added after a table was first created (CREATE TABLE IF NOT EXISTS won't add them). */
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallets: { tx_per_hour: "REAL", history_from: "TEXT", history_oldest_sig: "TEXT", history_tx_read: "INTEGER NOT NULL DEFAULT 0", history_done: "INTEGER NOT NULL DEFAULT 0" },
   wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL" },
   token_info: { pool_address: "TEXT", launch_checked_at: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL" },
-  positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL" },
+  positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL", fee_sol: "REAL" },
+  copy_trades: { fee_sol: "REAL" },
   wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
   smart_flows: { wallet_win_rate: "REAL", returns_cleaned: "INTEGER NOT NULL DEFAULT 1" },
 };

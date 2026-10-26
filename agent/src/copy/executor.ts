@@ -10,7 +10,7 @@ import { connection } from "../rpc";
 import { jupiterQuote, jupiterSwapTx, type JupQuote } from "../market/jupiter";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
-import { parseSwap } from "../chain/parse";
+import { parseSwap, tradeCostSol } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
 import { simulateCheck, staticCheck } from "./verify";
 
@@ -19,6 +19,8 @@ export interface Fill {
   solAmount: number;
   tokenAmount: number;
   priceSol: number;
+  /** Network fee, tips and token-account rent this trade cost, in SOL (undefined = not known, e.g. paper). */
+  feeSol?: number;
 }
 
 export interface Executor {
@@ -37,6 +39,7 @@ async function decimalsOf(mint: string): Promise<number> {
 const fillFromQuote = (side: "buy" | "sell", q: JupQuote, decimals: number, signature: string | null): Fill => {
   const sol = Number(side === "buy" ? q.inAmount : q.outAmount) / LAMPORTS_PER_SOL;
   const tokens = Number(side === "buy" ? q.outAmount : q.inAmount) / 10 ** decimals;
+  if (!(tokens > 0) || !(sol > 0)) throw new Error(`quote has no ${tokens > 0 ? "SOL" : "tokens"} on one side`);
   return { signature, solAmount: sol, tokenAmount: tokens, priceSol: sol / tokens };
 };
 
@@ -55,7 +58,9 @@ export class PaperExecutor implements Executor {
 
 export class RealExecutor implements Executor {
   mode = "real" as const;
-  constructor(private keypair: Keypair) {}
+  constructor(private keypair: Keypair) {
+    if (process.env.GODSEYE_TEST === "1") throw new Error("Tests must never build a real executor (it signs and sends transactions).");
+  }
 
   private async heldAtomic(mint: string): Promise<bigint> {
     const res = await connection().getParsedTokenAccountsByOwner(this.keypair.publicKey, { mint: new PublicKey(mint) });
@@ -86,8 +91,9 @@ export class RealExecutor implements Executor {
     // Record what really happened, not what the quote said.
     const landed = await fetchParsedOne(signature);
     const parsed = landed ? parseSwap(landed, wallet.toBase58(), { solUsdAt }) : null;
-    if (parsed && parsed.mint === mint) return { signature, solAmount: parsed.solAmount, tokenAmount: parsed.tokenAmount, priceSol: parsed.priceSol };
-    return fillFromQuote(side, quote, await decimalsOf(mint), signature);
+    const feeSol = landed ? tradeCostSol(landed, wallet.toBase58(), side, parsed && parsed.mint === mint ? parsed.solAmount : null) : undefined;
+    if (parsed && parsed.mint === mint) return { signature, solAmount: parsed.solAmount, tokenAmount: parsed.tokenAmount, priceSol: parsed.priceSol, feeSol: feeSol ?? undefined };
+    return { ...fillFromQuote(side, quote, await decimalsOf(mint), signature), feeSol: feeSol ?? undefined };
   }
 
   async buy(mint: string, sol: number): Promise<Fill> {

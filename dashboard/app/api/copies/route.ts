@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { feed, hosted, missingHostedSetup } from "@/lib/data";
+import { apiRoute } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET() {
+async function get() {
   const notSetUp = missingHostedSetup();
   if (notSetUp) return notSetUp;
   if (hosted()) return feed("copies");
@@ -12,3 +13,5 @@ export async function GET() {
   const { getCopies } = await import("@/lib/queries");
   return NextResponse.json(getCopies());
 }
+
+export const GET = apiRoute(get);

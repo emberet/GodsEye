@@ -1,3 +1,5 @@
+import { backoff } from "./backoff";
+
 /** Small fetch helper: timeouts + a retry, so one flaky API doesn't stop GodsEye. */
 export async function fetchJson<T = unknown>(
   url: string,
@@ -28,7 +30,7 @@ export async function fetchJson<T = unknown>(
       lastErr = e;
     }
     // Rate-limited? Wait longer before trying again.
-    if (attempt < retries) await new Promise((r) => setTimeout(r, (rateLimited ? 6000 : 1500) * (attempt + 1)));
+    if (attempt < retries) await backoff((rateLimited ? 6000 : 1500) * (attempt + 1));
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }

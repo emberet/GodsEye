@@ -7,7 +7,7 @@
  */
 import { type DB, getMeta } from "./db";
 import { HEARTBEAT_STALE_MINUTES, isNonMemecoinSymbol, TIERS, WALLET_KINDS, type Tier, type WalletKind } from "./constants";
-import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate } from "./stats";
+import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
   LearnedParam, ParamChange, SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
@@ -50,6 +50,18 @@ function withUnrealized(p: Position, solUsd: number | null): Position {
   };
 }
 
+/** The agent's trading mode, or null if it hasn't reported one. Money figures cover the current mode only. */
+const modeOf = (d: DB): "real" | "paper" | null => {
+  const m = getMeta(d, "copy_mode");
+  return m === "paper" || m === "real" ? m : null;
+};
+const tradingMode = (d: DB) => modeOf(d) ?? "real";
+
+/** A copy trade as shown publicly: error text and reasons can carry RPC URLs, keys or IPs. */
+const publicTrade = (t: CopyTrade): CopyTrade => ({ ...t, error: t.error ? redactLog(t.error) : null, reason: t.reason ? redactLog(t.reason) : null });
+
+const STREAM_FRESH_MS = 2 * 60_000;
+
 const solUsdNow = (d: DB) => {
   const v = Number(getMeta(d, "sol_usd_now"));
   return Number.isFinite(v) && v > 0 ? v : null;
@@ -59,20 +71,30 @@ export function getSummary(d: DB): Summary {
   const hb = getMeta(d, "heartbeat");
   const status = getMeta(d, "agent_status");
   const solUsd = solUsdNow(d);
-  const closed = d.prepare("SELECT pnl_sol, pnl_usd, closed_at FROM positions WHERE status='closed'").all() as { pnl_sol: number; pnl_usd: number | null; closed_at: string }[];
-  const open = (d.prepare("SELECT * FROM positions WHERE status='open'").all() as Position[]).map((p) => withUnrealized(p, solUsd));
-  const usdOf = (t: { pnl_sol: number; pnl_usd: number | null }) => t.pnl_usd ?? t.pnl_sol * (solUsd ?? 0);
+  const mode = tradingMode(d);
+  const closed = d.prepare("SELECT pnl_sol, pnl_usd, fee_sol, closed_at FROM positions WHERE status='closed' AND mode = ?").all(mode) as {
+    pnl_sol: number; pnl_usd: number | null; fee_sol: number | null; closed_at: string;
+  }[];
+  const open = (d.prepare("SELECT * FROM positions WHERE status='open' AND mode = ?").all(mode) as Position[]).map((p) => withUnrealized(p, solUsd));
+  // USD at settlement; without it, today's SOL price; without that, unknown.
+  const usdOf = (t: { pnl_sol: number; pnl_usd: number | null }): number | null => t.pnl_usd ?? (solUsd ? t.pnl_sol * solUsd : null);
+  const sumUsd = (rows: typeof closed) => (rows.some((t) => usdOf(t) === null) ? null : rows.reduce((s, t) => s + (usdOf(t) as number), 0));
+  const won = (t: { pnl_sol: number; pnl_usd: number | null }) => (t.pnl_usd ?? t.pnl_sol) > 0;
   const today = new Date().toISOString().slice(0, 10);
   const tierCounts = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<Tier, number>;
   for (const r of d.prepare("SELECT tier, COUNT(*) n FROM wallets GROUP BY tier").all() as { tier: Tier; n: number }[]) tierCounts[r.tier] = r.n;
   const kindCounts = Object.fromEntries(WALLET_KINDS.map((k) => [k, 0])) as Record<WalletKind, number>;
   for (const r of d.prepare("SELECT kind, COUNT(*) n FROM wallets GROUP BY kind").all() as { kind: WalletKind; n: number }[]) kindCounts[r.kind] = r.n;
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  const live = isLive(hb, status);
+  const streamStatus = getMeta(d, "stream_status") as Summary["stream"]["status"];
+  const streamLast = getMeta(d, "stream_last_at");
+  const closedToday = closed.filter((t) => t.closed_at.startsWith(today));
   return {
-    live: isLive(hb, status),
+    live,
     heartbeat: hb,
     agentStatus: status,
-    copyMode: getMeta(d, "copy_mode") === "paper" ? "paper" : "real",
+    copyMode: modeOf(d),
     paused: getMeta(d, "copy_paused_effective") === "1" || getMeta(d, "copy_paused") === "1",
     wallet: {
       pubkey: getMeta(d, "wallet_pubkey"),
@@ -80,19 +102,21 @@ export function getSummary(d: DB): Summary {
       checkedAt: getMeta(d, "wallet_balance_checked_at"),
     },
     closedPositions: closed.length,
-    wins: closed.filter((t) => usdOf(t) > 0).length,
-    losses: closed.filter((t) => usdOf(t) <= 0).length,
-    winRate: winRate(closed.map((t) => ({ pnl_sol: usdOf(t) }))),
+    wins: closed.filter(won).length,
+    losses: closed.filter((t) => !won(t)).length,
+    winRate: closed.length ? closed.filter(won).length / closed.length : null,
     realizedPnlSol: closed.reduce((s, t) => s + t.pnl_sol, 0),
-    todayPnlSol: closed.filter((t) => t.closed_at.startsWith(today)).reduce((s, t) => s + t.pnl_sol, 0),
+    todayPnlSol: closedToday.reduce((s, t) => s + t.pnl_sol, 0),
     unrealizedPnlSol: open.reduce((s, p) => s + (p.unrealized_sol ?? 0), 0),
-    realizedPnlUsd: closed.reduce((s, t) => s + usdOf(t), 0),
-    todayPnlUsd: closed.filter((t) => t.closed_at.startsWith(today)).reduce((s, t) => s + usdOf(t), 0),
+    realizedPnlUsd: sumUsd(closed),
+    todayPnlUsd: sumUsd(closedToday),
+    feesSol: closed.reduce((s, t) => s + (t.fee_sol ?? 0), 0),
+    feesUnrecorded: mode === "real" ? closed.filter((t) => t.fee_sol === null).length : 0,
     unrealizedPnlUsd: open.some((p) => p.unrealized_usd === null) ? null : open.reduce((s, p) => s + (p.unrealized_usd ?? 0), 0),
     solUsd,
     openPositions: open.length,
     maxPositions: num(getMeta(d, "max_positions"), 5),
-    copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND created_at >= ?").get(`${today}T00:00:00.000Z`) as { n: number }).n,
+    copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND mode = ? AND created_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { n: number }).n,
     walletsTracked: (d.prepare("SELECT COUNT(*) n FROM wallets").get() as { n: number }).n,
     leaders: (d.prepare("SELECT COUNT(*) n FROM wallets WHERE copy_weight > 0").get() as { n: number }).n,
     freshWallets24h: (d.prepare("SELECT COUNT(*) n FROM wallets WHERE is_fresh = 1 AND first_seen_at >= ?").get(dayAgo) as { n: number }).n,
@@ -102,7 +126,8 @@ export function getSummary(d: DB): Summary {
     lastDiscoveryAt: getMeta(d, "last_discovery_at"),
     stream: {
       enabled: getMeta(d, "stream_enabled") === "1",
-      status: getMeta(d, "stream_status"),
+      status: streamStatus,
+      healthy: live && streamStatus === "connected" && !!streamLast && Date.now() - Date.parse(streamLast) < STREAM_FRESH_MS,
       ipTries: Number(getMeta(d, "stream_ip_tries") ?? 0),
       ipDistinct: Number(getMeta(d, "stream_ip_distinct") ?? 0),
       lastAt: getMeta(d, "stream_last_at"),
@@ -189,8 +214,11 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
   const group = wallet.funder
     ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
     : [];
-  const copies = d.prepare("SELECT * FROM copy_trades WHERE leader = ? ORDER BY created_at DESC LIMIT 50").all(address) as CopyTrade[];
-  const cp = d.prepare("SELECT COALESCE(SUM(pnl_sol),0) s, COALESCE(SUM(pnl_usd),0) u, COUNT(*) n FROM positions WHERE leader = ? AND status='closed'").get(address) as { s: number; u: number; n: number };
+  const mode = tradingMode(d);
+  const copies = (d.prepare("SELECT * FROM copy_trades WHERE leader = ? AND mode = ? ORDER BY created_at DESC LIMIT 50").all(address, mode) as CopyTrade[]).map(publicTrade);
+  const cp = d
+    .prepare("SELECT COALESCE(SUM(pnl_sol),0) s, CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END u, COUNT(*) n FROM positions WHERE leader = ? AND status='closed' AND mode = ?")
+    .get(address, mode) as { s: number; u: number | null; n: number };
   return {
     wallet,
     stats,
@@ -232,18 +260,19 @@ const followBar = (d: DB): LearnedParam | null =>
   (d.prepare("SELECT * FROM learning_params WHERE key = 'follow_min_win_rate'").get() as LearnedParam | undefined) ?? null;
 
 export function getLeaders(d: DB): LeadersData {
+  const mode = tradingMode(d);
   const leaders = d
     .prepare(
       `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at, w.history_from,
               s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d,
-              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_sol,
-              COALESCE((SELECT SUM(pnl_usd) FROM positions p WHERE p.leader = w.address AND p.status='closed'),0) copy_pnl_usd,
-              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed') copy_closed
+              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode),0) copy_pnl_sol,
+              (SELECT CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode) copy_pnl_usd,
+              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode) copy_closed
          FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address
-        WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions)
+        WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions WHERE mode = @mode)
         ORDER BY w.copy_weight DESC, copy_pnl_sol DESC LIMIT 100`,
     )
-    .all() as Leader[];
+    .all({ mode }) as Leader[];
   const changes = d.prepare("SELECT * FROM weight_history ORDER BY ts DESC LIMIT 100").all() as WeightChange[];
   return {
     leaders, changes, budgetSol: num(getMeta(d, "copy_budget_sol"), 0),
@@ -254,11 +283,12 @@ export function getLeaders(d: DB): LeadersData {
 
 export function getCopies(d: DB): CopiesData {
   const solUsd = solUsdNow(d);
-  const open = (d.prepare("SELECT * FROM positions WHERE status='open' ORDER BY opened_at DESC").all() as Position[]).map((p) => withUnrealized(p, solUsd));
-  const closed = d.prepare("SELECT * FROM positions WHERE status='closed' ORDER BY closed_at DESC LIMIT 500").all() as Position[];
-  const trades = d
-    .prepare(`SELECT c.*, p.hash AS proof_hash FROM copy_trades c LEFT JOIN proof_ledger p ON p.id = c.proof_id ORDER BY c.created_at DESC LIMIT 300`)
-    .all() as CopyTrade[];
+  const mode = tradingMode(d);
+  const open = (d.prepare("SELECT * FROM positions WHERE status='open' AND mode = ? ORDER BY opened_at DESC").all(mode) as Position[]).map((p) => withUnrealized(p, solUsd));
+  const closed = d.prepare("SELECT * FROM positions WHERE status='closed' AND mode = ? ORDER BY closed_at DESC LIMIT 500").all(mode) as Position[];
+  const trades = (d
+    .prepare(`SELECT c.*, p.hash AS proof_hash FROM copy_trades c LEFT JOIN proof_ledger p ON p.id = c.proof_id WHERE c.mode = ? ORDER BY c.created_at DESC LIMIT 300`)
+    .all(mode) as CopyTrade[]).map(publicTrade);
   return { open, closed, trades };
 }
 
@@ -266,7 +296,7 @@ export function getPerformance(d: DB): Performance {
   const solUsd = solUsdNow(d) ?? 0;
   const start = num(getMeta(d, "starting_balance_usd"), num(getMeta(d, "starting_balance_sol"), num(getMeta(d, "copy_budget_sol"), 0)) * solUsd);
   // Charts are in USD at settlement; "pnl_sol" here carries the USD figure so the shared stats helpers can be reused.
-  const trades = (d.prepare("SELECT closed_at AS exit_ts, COALESCE(pnl_usd, pnl_sol * ?) AS pnl_sol, pnl_pct FROM positions WHERE status='closed' ORDER BY closed_at").all(solUsd) as {
+  const trades = (d.prepare("SELECT closed_at AS exit_ts, COALESCE(pnl_usd, pnl_sol * ?) AS pnl_sol, COALESCE(pnl_pct, 0) AS pnl_pct FROM positions WHERE status='closed' AND mode = ? ORDER BY closed_at").all(solUsd, tradingMode(d)) as {
     exit_ts: string; pnl_sol: number; pnl_pct: number;
   }[]);
   const equity = equityCurve(trades, start);
@@ -288,8 +318,10 @@ export function getPerformance(d: DB): Performance {
 }
 
 export function getProof(d: DB, limit = 50, offset = 0): ProofData {
+  const safe = (n: number, def: number, max: number) => (Number.isFinite(n) ? Math.min(max, Math.max(0, Math.floor(n))) : def);
+  // Verified in full every time: an edited row anywhere must show, and the ledger only grows by one row per copy.
   const all = d.prepare("SELECT * FROM proof_ledger ORDER BY id").all() as ProofEntry[];
-  const entries = d.prepare("SELECT * FROM proof_ledger ORDER BY id DESC LIMIT ? OFFSET ?").all(limit, offset) as ProofEntry[];
+  const entries = d.prepare("SELECT * FROM proof_ledger ORDER BY id DESC LIMIT ? OFFSET ?").all(safe(limit, 50, 200) || 50, safe(offset, 0, 1e9)) as ProofEntry[];
   return { entries, total: all.length, chain: verifyProofChain(all) };
 }
 

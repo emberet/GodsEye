@@ -15,7 +15,7 @@
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
     "publish-dashboard": "tsx src/publish/cli.ts",
-    "test": "tsx --test test/*.test.ts",
+    "test": "tsx --import ../shared/test/setup.ts --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
@@ -28,6 +28,7 @@
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/node-cron": "^3.0.11",
+    "fast-check": "^3.23.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

@@ -53,3 +53,11 @@ export const dexscreenerToken = (mint: string) => `https://dexscreener.com/solan
 /** Plain words for the live stream's status (the meta value the agent writes). */
 export const streamStatusLabel = (status: string | null | undefined) =>
   status === "connected" ? "Connected" : status === "waiting_for_ip" ? "Waiting for an allowlisted IP" : status === "reconnecting" ? "Reconnecting" : status ?? "Starting";
+
+/** Copy-trade statuses in plain words (same everywhere a trade is listed). */
+export const COPY_STATUS_LABEL: Record<string, string> = { filled: "Done", failed: "Failed", pending: "Sending", skipped: "Skipped" };
+export const COPY_STATUS_STYLE: Record<string, string> = { filled: "bg-lime text-ink", failed: "bg-coral text-ink", pending: "bg-sun text-ink", skipped: "" };
+
+/** "62% of 48 closed" — a win rate always comes with how many trades it rests on. */
+export const winRateLabel = (rate: number | null | undefined, closed: number | null | undefined) =>
+  rate === null || rate === undefined || !closed ? "no closed trades" : `${Math.round(rate * 100)}% of ${closed} won`;

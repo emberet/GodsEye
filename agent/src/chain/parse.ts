@@ -144,6 +144,29 @@ export function routedSolLamports(tx: TxLike, wallet: string): number | null {
 }
 
 /**
+ * What a trade cost on top of its price: the wallet's whole SOL change minus the swap's SOL amount — the
+ * network fee, priority fee, Jito tips and token-account rent. `solAmount` is the parsed swap's SOL side
+ * (null if unknown: then only the network fee and tips are counted). Never negative.
+ */
+export function tradeCostSol(tx: TxLike, wallet: string, side: "buy" | "sell", solAmount: number | null): number | null {
+  const meta = tx.meta;
+  if (!meta) return null;
+  const keys = tx.transaction.message.accountKeys.map((k) => k.pubkey.toString());
+  const idx = keys.indexOf(wallet);
+  if (idx < 0) return null;
+  if (solAmount === null) {
+    let tips = 0;
+    keys.forEach((k, i) => {
+      if (JITO_TIP_ACCOUNTS.has(k)) tips += Math.max(0, meta.postBalances[i] - meta.preBalances[i]);
+    });
+    return idx === 0 ? (meta.fee + tips) / 1e9 : 0;
+  }
+  const change = (meta.postBalances[idx] - meta.preBalances[idx]) / 1e9; // what the wallet's SOL really did
+  const cost = side === "buy" ? -change - solAmount : solAmount - change;
+  return Math.max(0, cost);
+}
+
+/**
  * The swaps `wallet` made in this transaction: one for a memecoin bought or
  * sold against SOL / USDC / USDT, two for a memecoin ↔ memecoin swap that
  * settled through SOL, none otherwise.
