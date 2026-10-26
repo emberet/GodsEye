@@ -13,11 +13,14 @@
  *   • new accounts start frozen       — you may be unable to sell
  *   • mint authority enabled          — can print more and dump (allowlist trusted bridged coins)
  *   • RugCheck risk score ≥ RUG_MAX_RISK_SCORE, or flagged as rugged/honeypot
+ *   • liquidity not locked: less than LP_MIN_LOCKED_PCT of the pools' liquidity (by USD) is locked or burned,
+ *     so whoever added it can pull it (pump.fun curves and graduated pools count as locked)
  *   • bundled or clustered supply (see holders.ts): too much bought in the launch slots, top holders
  *     funded by one wallet or by the creator, top-10 holders holding too much, or a RugCheck insider network
  * WARNINGS (logged + shown, not blocking — common on legit big tokens):
- *   • top holders own a lot (often exchanges / pools) · LP not locked
+ *   • top holders own a lot (often exchanges / pools)
  *   • transfer hook · mutable metadata
+ *   • liquidity lock unknown (RugCheck has no pool data yet)
  * If Solana can't be read, the token is skipped this cycle (fail closed).
  */
 import { type DB, nowIso, SOL_MINT } from "@godseye/shared";
@@ -37,6 +40,8 @@ export interface RugCheckSummary {
   score_normalised?: number;
   risks?: { name: string; level: string; description?: string }[];
   lpLockedPct?: number;
+  /** Pools RugCheck found, with how much of each one's liquidity is locked or burned. */
+  markets?: { marketType?: string; lp?: { lpLockedPct?: number; quoteUSD?: number; baseUSD?: number } | null }[] | null;
   /** From the full report: linked wallets RugCheck has mapped (its bubble map). */
   insiderNetworks?: { size?: number; type?: string; currentHolding?: number }[] | null;
   token?: { supply?: number; decimals?: number };
@@ -49,12 +54,25 @@ export interface RugVerdict {
   rugcheckScore: number | null;
 }
 
+/**
+ * Share of the coin's pool liquidity that's locked or burned (%), weighted by each pool's USD liquidity;
+ * a plain average when RugCheck has no USD values. null = no pool data.
+ */
+export function lockedLiquidityPct(rc: RugCheckSummary | null): number | null {
+  const pools = (rc?.markets ?? []).filter((m) => m.lp && typeof m.lp.lpLockedPct === "number");
+  if (!pools.length) return null;
+  const weight = (m: (typeof pools)[number]) => Math.max(0, (m.lp!.quoteUSD ?? 0) + (m.lp!.baseUSD ?? 0));
+  const total = pools.reduce((s, m) => s + weight(m), 0);
+  const pct = (m: (typeof pools)[number]) => Math.min(100, Math.max(0, m.lp!.lpLockedPct as number));
+  return total > 0 ? pools.reduce((s, m) => s + pct(m) * weight(m), 0) / total : pools.reduce((s, m) => s + pct(m), 0) / pools.length;
+}
+
 /** Pure decision logic (easy to test). */
 export function judgeRugRisk(
   mint: string,
   onchain: OnchainMint,
   rc: RugCheckSummary | null,
-  opts: { blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[] },
+  opts: { blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[]; minLockedPct?: number },
 ): RugVerdict {
   const blocks: string[] = [];
   const warnings: string[] = [];
@@ -74,6 +92,12 @@ export function judgeRugRisk(
   const score = typeof rc?.score_normalised === "number" ? rc.score_normalised : null;
   if (rc) {
     if (score !== null && score >= opts.maxRiskScore && !trusted) blocks.push(`RugCheck risk score ${score}/100`);
+    const minLocked = opts.minLockedPct ?? 0;
+    const locked = lockedLiquidityPct(rc);
+    if (minLocked > 0 && !trusted) {
+      if (locked === null) warnings.push("liquidity lock unknown (RugCheck has no pool data yet)");
+      else if (locked < minLocked) blocks.push(`liquidity not locked: only ${Math.round(locked)}% of the pool liquidity is locked or burned (needs ${minLocked}%)`);
+    }
     for (const r of rc.risks ?? []) {
       const n = r.name.toLowerCase();
       if (/rugged|honeypot|scam/.test(n) && !trusted) blocks.push(`RugCheck: ${r.name}`);
@@ -133,7 +157,7 @@ export async function rugCheck(db: DB, mint: string, symbol: string): Promise<Ru
   }
   const rc = await readRugCheck(mint);
   const v = judgeRugRisk(mint, onchain, rc, {
-    blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist,
+    blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist, minLockedPct: config.lpMinLockedPct,
   });
   // Bundled or clustered supply. If the holders can't be read in time, don't trade it this cycle (fail closed).
   if (config.holderCheckEnabled && !config.rugAllowlist.includes(mint) && mint !== SOL_MINT) {

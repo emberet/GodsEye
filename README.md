@@ -93,6 +93,7 @@ npm run setup          # creates .env — open it and add HELIUS_API_KEY at leas
 | `npm run analyze` | Analyze the next batch of wallets once. |
 | `npm run analyze -- <address>` | Add any wallet and analyze it now (prints its tier, AI/human reasons, evidence). |
 | `npm run learn` | Run the learning loop once and print the weights. |
+| `npm run replay` | What would copying each leader have earned at a 1–120 s delay, with fees and price impact? Read-only; `-- <address>`, `-- --top 30`, `--delays`, `--size`, `--fee-bps`, `--depth`, `--until-days`. Model and limits: `agent/src/replay/model.ts`. |
 | `npm test` | Run the tests. |
 
 ### Going live, in order

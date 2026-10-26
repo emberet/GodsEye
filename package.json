@@ -16,6 +16,7 @@
     "discover": "npm run discover -w agent",
     "analyze": "npm run analyze -w agent",
     "learn": "npm run learn -w agent",
+    "replay": "npm run replay -w agent --",
     "wallet": "npm run wallet -w agent",
     "status": "npm run status -w agent",
     "stream:ips": "npm run stream:ips -w agent",

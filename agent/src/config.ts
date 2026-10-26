@@ -145,6 +145,8 @@ export const config = {
   rugCheckEnabled: envBool("RUG_CHECK_ENABLED", true),
   rugBlockMintAuthority: envBool("RUG_BLOCK_MINT_AUTHORITY", true),
   rugMaxRiskScore: envNum("RUG_MAX_RISK_SCORE", 75),
+  /** Skip coins whose pool liquidity isn't at least this % locked or burned (liquidity-weighted across pools; 0 = off). */
+  lpMinLockedPct: envNum("LP_MIN_LOCKED_PCT", 90),
   rugAllowlist: list("RUG_ALLOWLIST"),
   rugCheckCacheHours: envNum("RUG_CHECK_CACHE_HOURS", 6),
   /** Bundled / clustered supply check before buying (see src/market/holders.ts). */
