@@ -154,6 +154,8 @@ export interface WalletStats {
   avg_buy_sol: number | null;
   avg_buy_usd: number | null;
   avg_hold_minutes: number | null;
+  median_hold_sec: number | null;
+  same_block_round_trips: number;
   early_buys: number;
   early_buy_rate: number | null;
   first_trade_at: string | null;

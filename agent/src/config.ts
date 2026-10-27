@@ -66,6 +66,18 @@ export const config = {
   smartSignalMinUsd: envNum("SMART_SIGNAL_MIN_USD", 500),
   /** A wallet whose buys have this median 6-hour return (%) or worse, over ≥ 10 measured buys, stops counting as smart. */
   smartDropMedianRet6h: envNum("SMART_DROP_MEDIAN_RET_6H", -15),
+  /** Bot gate: not smart money if its median hold is under this many seconds… */
+  smartBotMinHoldSec: envNum("SMART_BOT_MIN_HOLD_SEC", 15),
+  /** …or it makes more than this many transactions an hour… */
+  smartBotMaxTxPerHour: envNum("SMART_BOT_MAX_TX_PER_HOUR", 20),
+  /** …or more than this many of its positions were bought and sold in the same block (30 days). */
+  smartBotMaxSameBlock: envNum("SMART_BOT_MAX_SAME_BLOCK", 0),
+  /** Copy gate: copying it in the copy-fill replay must have a positive median return, over at least this many copies… */
+  smartReplayMinCopies: envNum("SMART_REPLAY_MIN_COPIES", 10),
+  /** …with the tape seeing other swaps near at least this share of entries (otherwise the replay can't tell). */
+  smartReplayMinCoverage: envNum("SMART_REPLAY_MIN_COVERAGE", 0.5),
+  /** Delay to replay at, seconds, until GodsEye has real copies to measure its own delay from. */
+  smartReplayDelaySec: envNum("SMART_REPLAY_DELAY_SEC", 5),
 
   // ---- Discovery: finding wallets worth watching ----
   discoverCron: envStr("DISCOVER_CRON", "*/30 * * * *"),

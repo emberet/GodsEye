@@ -25,6 +25,8 @@ export interface SwapLite {
   venue: string | null;
   jito_tip: number;
   token_age_sec: number | null;
+  /** Block the swap landed in (optional: older callers don't pass it). */
+  slot?: number;
 }
 
 export interface ClosedPosition {
@@ -43,6 +45,9 @@ export interface ClosedPosition {
   lastSellPriceSol: number;
   /** True if the first buy of this position was "early" (soon after the token launched). */
   earlyEntry: boolean;
+  /** Blocks of the first buy and the closing sell, when known. */
+  openedSlot?: number;
+  closedSlot?: number;
 }
 
 export interface RealizedEvent {
@@ -67,7 +72,7 @@ export const positionWon = (c: ClosedPosition): boolean => (c.pnlUsd ?? c.pnlSol
 export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
   const sorted = [...swaps].sort((a, b) => a.ts.localeCompare(b.ts) || (a.side === "buy" ? -1 : 1));
   type St = {
-    qty: number; cost: number; costUsd: number; usdKnown: boolean; peak: number; openedAt: string;
+    qty: number; cost: number; costUsd: number; usdKnown: boolean; peak: number; openedAt: string; openedSlot?: number;
     accCost: number; accProceeds: number; accCostUsd: number; accProceedsUsd: number; early: boolean;
   };
   const state = new Map<string, St>();
@@ -80,7 +85,7 @@ export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
     if (s.side === "buy") {
       if (!st || st.qty <= 0) {
         st = {
-          qty: 0, cost: 0, costUsd: 0, usdKnown: true, peak: 0, openedAt: s.ts,
+          qty: 0, cost: 0, costUsd: 0, usdKnown: true, peak: 0, openedAt: s.ts, openedSlot: s.slot,
           accCost: 0, accProceeds: 0, accCostUsd: 0, accProceedsUsd: 0, early: s.token_age_sec !== null && s.token_age_sec <= earlyBuySeconds,
         };
         state.set(s.mint, st);
@@ -127,6 +132,8 @@ export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
         lastSellSignature: s.signature,
         lastSellPriceSol: s.price_sol,
         earlyEntry: st.early,
+        openedSlot: st.openedSlot,
+        closedSlot: s.slot,
       });
       state.delete(s.mint);
     }
@@ -155,6 +162,10 @@ export interface ComputedStats {
   avg_buy_sol: number | null;
   avg_buy_usd: number | null;
   avg_hold_minutes: number | null;
+  /** Median seconds from a position's first buy to its closing sell (30 days). Under 15 s is a bot. */
+  median_hold_sec: number | null;
+  /** Closed positions (30 days) bought and fully sold in the same block: no human does that. */
+  same_block_round_trips: number;
   early_buys: number;
   early_buy_rate: number | null;
   first_trade_at: string | null;
@@ -180,6 +191,8 @@ export function computeStats(swaps: SwapLite[], r: Realized, now: number, earlyB
   const aged = swaps.filter((s) => s.side === "buy" && s.token_age_sec !== null);
   const early = aged.filter((s) => (s.token_age_sec as number) <= earlyBuySeconds);
   const holds = closed30.map((c) => (Date.parse(c.closedAt) - Date.parse(c.openedAt)) / 60_000);
+  const holdSecs = [...holds].sort((a, b) => a - b).map((m) => m * 60);
+  const mid = holdSecs.length >> 1;
   const ts = swaps.map((s) => s.ts).sort();
   const ev7 = r.events.filter((e) => e.ts >= d7);
   const ev30 = r.events.filter((e) => e.ts >= d30);
@@ -201,6 +214,8 @@ export function computeStats(swaps: SwapLite[], r: Realized, now: number, earlyB
     avg_buy_sol: buys30.length ? sum(buys30.map((s) => s.sol_amount)) / buys30.length : null,
     avg_buy_usd: buys30Usd.length ? sum(buys30Usd.map((s) => s.usd_amount as number)) / buys30Usd.length : null,
     avg_hold_minutes: holds.length ? sum(holds) / holds.length : null,
+    median_hold_sec: holdSecs.length ? (holdSecs.length % 2 ? holdSecs[mid] : (holdSecs[mid - 1] + holdSecs[mid]) / 2) : null,
+    same_block_round_trips: closed30.filter((c) => c.openedSlot !== undefined && c.openedSlot === c.closedSlot).length,
     early_buys: early.length,
     early_buy_rate: aged.length >= 3 ? early.length / aged.length : null,
     first_trade_at: ts[0] ?? null,

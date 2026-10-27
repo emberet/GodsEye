@@ -1,6 +1,6 @@
 /** Feeds the copy-fill replay (model.ts) from the database: a leader's stored swaps, and every stored swap in the same tokens as the price tape. */
 import { type DB, isNonMemecoinSymbol, NON_MEMECOIN_MINTS } from "@godseye/shared";
-import { DEFAULT_PARAMS, type Episode, type LeaderSwap, type Obs, type ReplayParams, simulateMint, Tape, median } from "./model";
+import { DEFAULT_PARAMS, type Episode, type LeaderSwap, MAX_PLAUSIBLE_RETURN_PCT, type Obs, type ReplayParams, simulateMint, Tape, median } from "./model";
 import { type Summary, summarize } from "./summary";
 
 interface SwapRow {
@@ -23,6 +23,8 @@ export interface WalletReplay {
   ideal: Episode[];
   /** Episodes per delay. */
   real: Map<number, Episode[]>;
+  /** Positions dropped because a return on either side was above MAX_PLAUSIBLE_RETURN_PCT (a pricing error). */
+  implausible: number;
 }
 
 /** When the stored data ends (newest stored swap). */
@@ -55,7 +57,7 @@ export function replayWallet(db: DB, wallet: string, delays: number[], base: Par
   const symbolOf = db.prepare("SELECT symbol FROM token_info WHERE mint = ?");
   const tapeRows = db.prepare("SELECT signature, ts, side, sol_amount, price_sol FROM wallet_swaps WHERE mint = ? AND ts >= ? AND ts <= ? ORDER BY ts, slot, id");
 
-  const result: WalletReplay = { wallet, ideal: [], real: new Map(delays.map((d) => [d, []])) };
+  const result: WalletReplay = { wallet, ideal: [], real: new Map(delays.map((d) => [d, []])), implausible: 0 };
   for (const [mint, swaps] of byMint) {
     if (NON_MEMECOIN_MINTS.has(mint)) continue;
     const symbol = (symbolOf.get(mint) as { symbol: string | null } | undefined)?.symbol;
@@ -76,6 +78,13 @@ export function replayWallet(db: DB, wallet: string, delays: number[], base: Par
     }));
     result.ideal.push(...simulateMint(tape, mint, leader, endT, { ...params, ideal: true }));
     for (const d of delays) result.real.get(d)!.push(...simulateMint(tape, mint, leader, endT, { ...params, ideal: false, delaySec: d }));
+  }
+  // One mispriced swap can read as millions of percent and swamp every average: drop that position on both sides, at every delay.
+  const bad = new Set([result.ideal, ...result.real.values()].flat().filter((e) => !(e.retPct <= MAX_PLAUSIBLE_RETURN_PCT)).map((e) => e.entrySignature));
+  if (bad.size) {
+    result.implausible = bad.size;
+    result.ideal = result.ideal.filter((e) => !bad.has(e.entrySignature));
+    for (const [d, eps] of result.real) result.real.set(d, eps.filter((e) => !bad.has(e.entrySignature)));
   }
   return result;
 }

@@ -3,6 +3,11 @@ import assert from "node:assert/strict";
 import { openDb } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import { detectSignal, leadStats, returnPct, SmartMoney } from "../src/smart/smart-money";
+import { botReason, copyReason, refreshCopyReplays } from "../src/smart/copy-check";
+
+/** A copy replay that passes the copy gate (median +5% over 20 copies, well covered). */
+const copyable = (db: ReturnType<typeof openDb>, wallet: string, median = 5, n = 20, coverage = 0.9) =>
+  db.prepare("INSERT OR REPLACE INTO copy_replays (wallet, delay_sec, n, coverage, median_ret_pct, computed_at) VALUES (?, 5, ?, ?, ?, ?)").run(wallet, n, coverage, median, new Date().toISOString());
 
 const cfg = { wallets: 3, windowMinutes: 60, minUsd: 500 };
 const T = Date.parse("2026-10-19T00:00:00Z");
@@ -45,6 +50,7 @@ test("end to end: smart wallets converge → signal → price measured 1h later 
   for (const w of ["A", "B", "C", "D"]) {
     db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier) VALUES (?, ?, 'test', 'proven')").run(w, now);
     db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_30d_usd, closed_7d, closed_30d, wins_30d, win_rate_30d) VALUES (?, ?, 40, 10, 40, 1, 5, 5, 500, 5, 20, 12, 0.6)").run(w, now);
+    copyable(db, w);
   }
   const sm = new SmartMoney(db, null);
   assert.equal(sm.refresh().active, 4);
@@ -88,6 +94,7 @@ test("non-memecoins never count as smart money: skipped when known, purged once 
   for (const w of ["A", "B", "C"]) {
     db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier) VALUES (?, ?, 'test', 'proven')").run(w, now);
     db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_30d_usd, closed_7d, closed_30d, wins_30d, win_rate_30d) VALUES (?, ?, 40, 10, 40, 1, 5, 5, 500, 5, 20, 12, 0.6)").run(w, now);
+    copyable(db, w);
   }
   const named = (mint: string, symbol: string) => db.prepare("INSERT INTO token_info (mint, symbol, checked_at) VALUES (?, ?, ?)").run(mint, symbol, now);
   const sm = new SmartMoney(db, null);
@@ -123,4 +130,65 @@ test("price moves above 1,000x are treated as pricing errors", () => {
   assert.equal(returnPct(1, 900), 89_900);
   assert.equal(returnPct(1, 2_000), null);
   assert.equal(returnPct(0.000001, 50), null);
+});
+
+const bCfg = { minHoldSec: 15, maxTxPerHour: 20, maxSameBlock: 0 };
+const rCfg = { minCopies: 10, minCoverage: 0.5 };
+
+test("bot gate: seconds-long holds, high frequency or same-block round trips; unknowns don't count against a wallet", () => {
+  const human = { median_hold_sec: 600, tx_per_hour: 3, same_block_round_trips: 0 };
+  assert.equal(botReason(human, bCfg), null);
+  assert.equal(botReason({ median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null }, bCfg), null);
+  assert.match(botReason({ ...human, median_hold_sec: 8 }, bCfg)!, /median hold 8 s/);
+  assert.equal(botReason({ ...human, median_hold_sec: 15 }, bCfg), null);
+  assert.match(botReason({ ...human, tx_per_hour: 180 }, bCfg)!, /180 transactions an hour/);
+  assert.match(botReason({ ...human, same_block_round_trips: 1 }, bCfg)!, /same block 1 time$/);
+});
+
+test("copy gate: needs a replay, enough copies, enough tape, and a positive median", () => {
+  const ok = { delay_sec: 5, n: 20, coverage: 0.9, median_ret_pct: 3 };
+  assert.equal(copyReason(ok, rCfg), null);
+  assert.match(copyReason(null, rCfg)!, /waiting/);
+  assert.match(copyReason({ ...ok, n: 4 }, rCfg)!, /only 4 copyable buys/);
+  assert.match(copyReason({ ...ok, coverage: 0.02 }, rCfg)!, /too few other swaps/);
+  assert.match(copyReason({ ...ok, median_ret_pct: -3.2 }, rCfg)!, /5 s late made a median −3\.2%/);
+  assert.match(copyReason({ ...ok, median_ret_pct: 0 }, rCfg)!, /median/);
+});
+
+test("smart money: profitable bots and wallets copying loses on are left out, with the reason", () => {
+  const db = openDb(":memory:");
+  const now = new Date().toISOString();
+  const add = (w: string, hold: number, tph: number) => {
+    db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier, tx_per_hour) VALUES (?, ?, 'test', 'proven', ?)").run(w, now, tph);
+    db.prepare("INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_30d_usd, closed_7d, closed_30d, wins_30d, win_rate_30d, median_hold_sec) VALUES (?, ?, 40, 10, 40, 1, 5, 5, 500, 5, 20, 12, 0.6, ?)").run(w, now, hold);
+  };
+  add("GOOD", 900, 2);
+  copyable(db, "GOOD");
+  add("SCALPER", 8, 2);
+  copyable(db, "SCALPER");
+  add("LOSES", 900, 2);
+  copyable(db, "LOSES", -3);
+  add("UNREPLAYED", 900, 2);
+  const r = new SmartMoney(db, null).refresh();
+  assert.deepEqual([r.active, r.bots, r.uncopyable], [1, 1, 2]);
+  const why = new Map((db.prepare("SELECT address, active, reason FROM smart_wallets").all() as { address: string; active: number; reason: string }[]).map((x) => [x.address, x]));
+  assert.equal(why.get("GOOD")!.active, 1);
+  assert.match(why.get("GOOD")!.reason, /copying it 5 s late made a median \+5\.0%/);
+  assert.match(why.get("SCALPER")!.reason, /^bot: median hold 8 s/);
+  assert.match(why.get("LOSES")!.reason, /median −3\.0%/);
+  assert.match(why.get("UNREPLAYED")!.reason, /waiting for its copy replay/);
+});
+
+test("copy replays: missing ones are replayed and stored; fresh ones are left alone", async () => {
+  const db = openDb(":memory:");
+  const t0 = Date.now() - 3_600_000;
+  const ins = db.prepare("INSERT INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol) VALUES (?, ?, ?, ?, 'MEME', ?, ?, ?, ?, ?)");
+  // The leader buys 1 SOL at 0.001, others trade it up, the leader sells at 0.002
+  ins.run("L", "b", 1, new Date(t0).toISOString(), "buy", 1000, 0, 1, 0.001);
+  for (let i = 0; i < 20; i++) ins.run("X", `x${i}`, 2 + i, new Date(t0 + (i + 1) * 3_000).toISOString(), "buy", 10, 0, 0.01 * (1 + i / 20), 0.001 * (1 + i / 20));
+  ins.run("L", "s", 99, new Date(t0 + 120_000).toISOString(), "sell", 1000, 1000, 2, 0.002);
+  assert.equal(await refreshCopyReplays(db, ["L"], { budgetMs: 10_000 }), 1);
+  const row = db.prepare("SELECT n, delay_sec, implausible FROM copy_replays WHERE wallet = 'L'").get() as { n: number; delay_sec: number; implausible: number };
+  assert.deepEqual([row.n, row.delay_sec, row.implausible], [1, 5, 0]);
+  assert.equal(await refreshCopyReplays(db, ["L"], { budgetMs: 10_000 }), 0);
 });

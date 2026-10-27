@@ -7,7 +7,8 @@
  *          (learning/adaptive.ts), not a Lucky streak or Quitter
  *        • wallets winning big on the live stream right now: ≥ SMART_LIVE_MIN_PNL_USD realized
  *          over ≥ SMART_LIVE_MIN_CLOSED closed trades, win rate ≥ the follow bar + 5 points
- *      …minus wallets whose buys tend to go down afterwards (learned, see 3).
+ *      …minus wallets whose buys tend to go down afterwards (learned, see 3), and minus bots and
+ *      wallets that copying wouldn't have paid on (the bot gate and copy gate, see copy-check.ts).
  *   2. Every memecoin trade a smart wallet makes on the live stream is recorded (smart_flows).
  *      Non-memecoins (stablecoins, majors, wrapped/bridged tokens, tokenized stocks) are left out:
  *      skipped on arrival when already known, and purged once a new token's name shows what it is.
@@ -28,6 +29,8 @@ import type { ParsedSwap } from "../chain/parse";
 import type { LiveBook } from "../stream/live-book";
 import { cachedTokenInfo, symbolOf, tokenInfo } from "../market/tokens";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "../learning/adaptive";
+import { MAX_PLAUSIBLE_RETURN_PCT } from "../replay/model";
+import { botCfg, botReason, botSigns, copyReason, replayCfg, storedReplays } from "./copy-check";
 
 export const HORIZONS = [
   { col: "ret_1h", bit: 1, ms: 3_600_000 },
@@ -68,11 +71,7 @@ export function detectSignal(
   return null;
 }
 
-/**
- * A move above this (1,000×) within the measuring windows is a pricing error, not a trade: prices come from
- * swap amounts, and a mismatched token or quote unit on a tiny coin can read as billions of percent.
- */
-export const MAX_PLAUSIBLE_RETURN_PCT = 100_000;
+export { MAX_PLAUSIBLE_RETURN_PCT };
 
 export const returnPct = (from: number | null, to: number | null): number | null => {
   if (!from || !to) return null;
@@ -242,17 +241,10 @@ export class SmartMoney {
     return r ? { usd: r.price_usd, ts: Date.parse(r.ts), firstSeen: Date.parse(r.first_seen_at) } : null;
   }
 
-  /** Recompute who counts as smart money, with each wallet's learned lead score. */
-  refresh(): { active: number; dropped: number } {
-    this.purgeNonMemecoins();
-    const ts = nowIso();
+  /** Wallets with the track record to be smart money, before the lead score, bot and copy gates. */
+  candidates(): Map<string, { source: "analyzed" | "live"; pnl: number; closed: number; win: number }> {
     // The win-rate bar is learned (learning/adaptive.ts), not fixed.
     const bar = getParam(this.db, FOLLOW_MIN_WIN_RATE, config.followWinRateStart);
-    const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
-    const lead = new Map<string, number[]>();
-    for (const r of this.db.prepare("SELECT wallet, ret_6h FROM smart_flows WHERE side = 'buy' AND ret_6h IS NOT NULL AND ts >= ?").all(since14) as { wallet: string; ret_6h: number }[]) {
-      (lead.get(r.wallet) ?? lead.set(r.wallet, []).get(r.wallet)!).push(r.ret_6h);
-    }
     const candidates = new Map<string, { source: "analyzed" | "live"; pnl: number; closed: number; win: number }>();
     const analyzed = this.db
       .prepare(
@@ -265,8 +257,27 @@ export class SmartMoney {
     for (const w of this.book?.smartCandidates(config.smartLiveMinPnlUsd, config.smartLiveMinClosed, Math.min(1, bar + 0.05)) ?? []) {
       if (!candidates.has(w.address)) candidates.set(w.address, { source: "live", pnl: w.pnlUsd, closed: w.closed, win: w.wins / w.closed });
     }
+    return candidates;
+  }
+
+  /** Recompute who counts as smart money, with each wallet's learned lead score. */
+  refresh(): { active: number; dropped: number; bots: number; uncopyable: number } {
+    this.purgeNonMemecoins();
+    const ts = nowIso();
+    const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    const lead = new Map<string, number[]>();
+    for (const r of this.db.prepare("SELECT wallet, ret_6h FROM smart_flows WHERE side = 'buy' AND ret_6h IS NOT NULL AND ts >= ?").all(since14) as { wallet: string; ret_6h: number }[]) {
+      (lead.get(r.wallet) ?? lead.set(r.wallet, []).get(r.wallet)!).push(r.ret_6h);
+    }
+    const candidates = this.candidates();
+    const signs = botSigns(this.db, [...candidates.keys()]);
+    const replays = storedReplays(this.db);
+    const bCfg = botCfg();
+    const rCfg = replayCfg();
     const next = new Map<string, { source: "analyzed" | "live"; winRate: number }>();
     let dropped = 0;
+    let bots = 0;
+    let uncopyable = 0;
     const up = this.db.prepare(
       `INSERT INTO smart_wallets (address, source, pnl_usd, closed, win_rate, lead_n, lead_hit_rate, lead_median_6h, active, reason, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -278,12 +289,19 @@ export class SmartMoney {
       for (const [address, c] of candidates) {
         const l = leadStats(lead.get(address) ?? []);
         const buysTops = l.n >= LEAD_MIN_N && l.median !== null && l.median <= config.smartDropMedianRet6h;
+        const bot = buysTops ? null : botReason(signs.get(address) ?? { median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null }, bCfg);
+        const noCopy = buysTops || bot ? null : copyReason(replays.get(address) ?? null, rCfg);
+        const replay = replays.get(address);
         const reason = buysTops
           ? `its buys are down a median ${Math.round(l.median!)}% six hours later (${l.n} measured) — follows, doesn't lead`
-          : `${c.source === "analyzed" ? "track record" : "winning live"}: +$${Math.round(c.pnl).toLocaleString("en-US")} over ${c.closed} trades, ${Math.round(c.win * 100)}% wins`;
+          : bot ?? noCopy ??
+            `${c.source === "analyzed" ? "track record" : "winning live"}: +$${Math.round(c.pnl).toLocaleString("en-US")} over ${c.closed} trades, ${Math.round(c.win * 100)}% wins; copying it ${replay!.delay_sec} s late made a median +${replay!.median_ret_pct!.toFixed(1)}%`;
+        const ok = !buysTops && !bot && !noCopy;
         if (buysTops) dropped++;
-        else next.set(address, { source: c.source, winRate: c.win });
-        up.run(address, c.source, c.pnl, c.closed, c.win, l.n, l.hitRate, l.median, buysTops ? 0 : 1, reason, ts);
+        else if (bot) bots++;
+        else if (noCopy) uncopyable++;
+        if (ok) next.set(address, { source: c.source, winRate: c.win });
+        up.run(address, c.source, c.pnl, c.closed, c.win, l.n, l.hitRate, l.median, ok ? 1 : 0, reason, ts);
       }
       // Wallets that no longer qualify at all
       const keep = [...candidates.keys()];
@@ -292,7 +310,7 @@ export class SmartMoney {
     const added = [...next.keys()].filter((a) => !this.smart.has(a)).length;
     this.smart = next;
     setMeta(this.db, "smart_wallets_active", next.size);
-    if (added) say("learn", `Smart money: ${next.size} wallets (${added} new)${dropped ? `, ${dropped} dropped for buying tops` : ""}.`);
-    return { active: next.size, dropped };
+    if (added) say("learn", `Smart money: ${next.size} wallets (${added} new)${dropped ? `, ${dropped} dropped for buying tops` : ""}${bots ? `, ${bots} bots left out` : ""}${uncopyable ? `, ${uncopyable} not worth copying (or not replayed yet)` : ""}.`);
+    return { active: next.size, dropped, bots, uncopyable };
   }
 }

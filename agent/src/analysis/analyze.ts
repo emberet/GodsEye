@@ -141,21 +141,21 @@ export function recomputeStats(db: DB, address: string, now = Date.now()) {
   const drop = symbolsNow.filter((x) => isNonMemecoinSymbol(x.symbol)).map((x) => x.mint);
   if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
   const swaps = db
-    .prepare("SELECT signature, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
+    .prepare("SELECT signature, slot, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
     .all(address) as SwapLite[];
   const r = realize(swaps, config.earlyBuySeconds);
   const stats = computeStats(swaps, r, now, config.earlyBuySeconds);
   db.prepare(
     `INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_7d_usd, pnl_30d_usd, pnl_all_usd,
-        closed_7d, closed_30d, wins_30d, win_rate_30d, best_trade_share, avg_buy_sol, avg_buy_usd, avg_hold_minutes, early_buys, early_buy_rate, first_trade_at, last_trade_at)
+        closed_7d, closed_30d, wins_30d, win_rate_30d, best_trade_share, avg_buy_sol, avg_buy_usd, avg_hold_minutes, median_hold_sec, same_block_round_trips, early_buys, early_buy_rate, first_trade_at, last_trade_at)
      VALUES (@wallet, @computed_at, @swaps_total, @swaps_7d, @swaps_30d, @pnl_7d_sol, @pnl_30d_sol, @pnl_all_sol, @pnl_7d_usd, @pnl_30d_usd, @pnl_all_usd,
-        @closed_7d, @closed_30d, @wins_30d, @win_rate_30d, @best_trade_share, @avg_buy_sol, @avg_buy_usd, @avg_hold_minutes, @early_buys, @early_buy_rate, @first_trade_at, @last_trade_at)
+        @closed_7d, @closed_30d, @wins_30d, @win_rate_30d, @best_trade_share, @avg_buy_sol, @avg_buy_usd, @avg_hold_minutes, @median_hold_sec, @same_block_round_trips, @early_buys, @early_buy_rate, @first_trade_at, @last_trade_at)
      ON CONFLICT(wallet) DO UPDATE SET computed_at=excluded.computed_at, swaps_total=excluded.swaps_total, swaps_7d=excluded.swaps_7d, swaps_30d=excluded.swaps_30d,
         pnl_7d_sol=excluded.pnl_7d_sol, pnl_30d_sol=excluded.pnl_30d_sol, pnl_all_sol=excluded.pnl_all_sol,
         pnl_7d_usd=excluded.pnl_7d_usd, pnl_30d_usd=excluded.pnl_30d_usd, pnl_all_usd=excluded.pnl_all_usd,
         closed_7d=excluded.closed_7d, closed_30d=excluded.closed_30d, wins_30d=excluded.wins_30d, win_rate_30d=excluded.win_rate_30d,
         best_trade_share=excluded.best_trade_share, avg_buy_sol=excluded.avg_buy_sol, avg_buy_usd=excluded.avg_buy_usd,
-        avg_hold_minutes=excluded.avg_hold_minutes, early_buys=excluded.early_buys, early_buy_rate=excluded.early_buy_rate,
+        avg_hold_minutes=excluded.avg_hold_minutes, median_hold_sec=excluded.median_hold_sec, same_block_round_trips=excluded.same_block_round_trips, early_buys=excluded.early_buys, early_buy_rate=excluded.early_buy_rate,
         first_trade_at=excluded.first_trade_at, last_trade_at=excluded.last_trade_at`,
   ).run({ wallet: address, computed_at: nowIso(), ...stats });
   return { swaps, r, stats };

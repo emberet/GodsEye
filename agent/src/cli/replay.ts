@@ -72,7 +72,7 @@ for (const w of wallets) {
   results.push(r);
   if (!args.includes("--json")) {
     const tier = (db.prepare("SELECT tier FROM wallets WHERE address = ?").get(w) as { tier: string } | undefined)?.tier ?? "not in database";
-    console.log(`\n${w}  (${tier})  ${r.ideal.length} positions`);
+    console.log(`\n${w}  (${tier})  ${r.ideal.length} positions${r.implausible ? ` (${r.implausible} left out: a return above 1,000×, a pricing error)` : ""}`);
     console.log(r.ideal.length ? formatTable(summarizeWallet(r)) : "  no copyable buys in this period");
   }
 }
@@ -80,7 +80,7 @@ const pooled = pool(results, delays);
 const cal = calibration(db);
 
 if (args.includes("--json")) {
-  console.log(JSON.stringify({ params: { ...DEFAULT_PARAMS, ...params }, endsAt: new Date(endT).toISOString(), pooled, wallets: results.map((r) => ({ wallet: r.wallet, summaries: summarizeWallet(r) })), calibration: cal }, null, 2));
+  console.log(JSON.stringify({ params: { ...DEFAULT_PARAMS, ...params }, endsAt: new Date(endT).toISOString(), pooled, wallets: results.map((r) => ({ wallet: r.wallet, implausible: r.implausible, summaries: summarizeWallet(r) })), calibration: cal }, null, 2));
 } else {
   console.log(`\nALL ${wallets.length} WALLETS TOGETHER`);
   console.log(formatTable(pooled));

@@ -242,3 +242,24 @@ test("tier reasons don't claim 30 days: stats only cover the trades GodsEye has 
   }
   assert.match(tierOf(trades(4, () => 0.5)).reason, /closed trades seen so far/);
 });
+
+test("bot signs: median hold in seconds, and positions bought and sold in the same block", () => {
+  const at = (sec: number) => new Date(NOW - H + sec * 1000).toISOString();
+  const swaps = [
+    // held 5 s, same block
+    swap({ ts: at(0), side: "buy", sol_amount: 1, token_amount: 100, mint: "A", slot: 10 }),
+    swap({ ts: at(5), side: "sell", sol_amount: 1.1, token_amount: 100, mint: "A", slot: 10 }),
+    // held 60 s
+    swap({ ts: at(100), side: "buy", sol_amount: 1, token_amount: 100, mint: "B", slot: 20 }),
+    swap({ ts: at(160), side: "sell", sol_amount: 1.1, token_amount: 100, mint: "B", slot: 170 }),
+    // held 600 s
+    swap({ ts: at(200), side: "buy", sol_amount: 1, token_amount: 100, mint: "C", slot: 30 }),
+    swap({ ts: at(800), side: "sell", sol_amount: 1.1, token_amount: 100, mint: "C", slot: 1500 }),
+  ];
+  const s = computeStats(swaps, realize(swaps, 600), NOW, 600);
+  assert.equal(s.median_hold_sec, 60);
+  assert.equal(s.same_block_round_trips, 1);
+  // Swaps without a slot (older callers) never count as same-block
+  const noSlot = swaps.map(({ slot: _slot, ...x }) => x);
+  assert.equal(computeStats(noSlot, realize(noSlot, 600), NOW, 600).same_block_round_trips, 0);
+});

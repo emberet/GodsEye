@@ -129,6 +129,9 @@ CREATE TABLE IF NOT EXISTS wallet_stats (
   avg_buy_sol REAL,
   avg_buy_usd REAL,
   avg_hold_minutes REAL,
+  -- median seconds from first buy to closing sell, and positions bought and sold in the same block (30 days): bot signs
+  median_hold_sec REAL,
+  same_block_round_trips INTEGER NOT NULL DEFAULT 0,
   early_buys INTEGER NOT NULL DEFAULT 0,
   early_buy_rate REAL,
   first_trade_at TEXT,
@@ -282,6 +285,23 @@ CREATE TABLE IF NOT EXISTS smart_wallets (
   active INTEGER NOT NULL DEFAULT 1,
   reason TEXT,
   updated_at TEXT NOT NULL
+);
+
+-- What copying each smart-money candidate would have earned at GodsEye's real delay (copy-fill replay, agent/src/smart/copy-check.ts)
+CREATE TABLE IF NOT EXISTS copy_replays (
+  wallet TEXT PRIMARY KEY,
+  delay_sec REAL NOT NULL,
+  -- copies replayed, and of those the share where the tape saw other swaps nearby (low = can't tell)
+  n INTEGER NOT NULL,
+  coverage REAL,
+  median_ret_pct REAL,
+  mean_ret_pct REAL,
+  win_rate REAL,
+  -- the leader's own mean return on the same positions
+  leader_ret_pct REAL,
+  -- positions left out because a return read above 1,000x (a pricing error)
+  implausible INTEGER NOT NULL DEFAULT 0,
+  computed_at TEXT NOT NULL
 );
 
 -- Every memecoin trade a smart wallet made (from the live stream), and what the price did next

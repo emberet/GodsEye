@@ -243,3 +243,18 @@ test("database: only leader trades before the cut-off are replayed, but exits st
   assert.equal(late.ideal.length, 1);
   db.close();
 });
+
+test("database: a position whose return reads above 1,000× is a pricing error and is left out on both sides", () => {
+  const db = openDb(":memory:");
+  swapRow(db, "leader", "OK", 0, "buy", 1, 1);
+  swapRow(db, "other", "OK", 3, "buy", 1.2, 0.01);
+  swapRow(db, "leader", "OK", 100, "sell", 1.5, 1, 0.5);
+  swapRow(db, "leader", "GLITCH", 0, "buy", 1, 1);
+  swapRow(db, "other", "GLITCH", 3, "buy", 1, 0.01);
+  swapRow(db, "leader", "GLITCH", 100, "sell", 5_000, 1, 0.5); // a mismatched unit: 5,000×
+  const r = replayWallet(db, "leader", [5], { feeBps: 0, txCostSol: 0, defaultDepthSol: 1e9 }, { endT: T0 + 7200_000 });
+  assert.equal(r.implausible, 1);
+  assert.deepEqual(r.ideal.map((e) => e.mint), ["OK"]);
+  assert.deepEqual(r.real.get(5)!.map((e) => e.mint), ["OK"]);
+  db.close();
+});

@@ -90,6 +90,13 @@ export const DEFAULT_PARAMS: ReplayParams = {
   ideal: false,
 };
 
+/**
+ * A return above this (1,000×) is a pricing error, not a trade: prices come from swap amounts, and a
+ * mismatched token or quote unit on a tiny coin can read as millions of percent. The replay drops such
+ * positions, and the smart-money lead score ignores such moves.
+ */
+export const MAX_PLAUSIBLE_RETURN_PCT = 100_000;
+
 /** Price impact is capped here (size ÷ depth) so one bad depth estimate can't invent a 100× move. */
 const MAX_IMPACT = 3;
 const MIN_DEPTH = 1;
