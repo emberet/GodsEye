@@ -1,0 +1,11 @@
+# /etc/systemd/system/godseye-quant.service  (example; adjust paths and user)
+[Unit]
+Description=GodsEye offline quant job (skill stats + sizing params)
+
+[Service]
+Type=oneshot
+User=godseye
+WorkingDirectory=/opt/GodsEye/quant
+Environment=GODSEYE_DB_PATH=data/godseye.db
+ExecStart=/opt/GodsEye/quant/.venv/bin/python -m quant.run
+Nice=10
