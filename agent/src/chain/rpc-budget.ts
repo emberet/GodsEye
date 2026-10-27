@@ -2,7 +2,9 @@
  * A steady cap on how fast GodsEye reads wallet history over RPC, so analysis never bursts past the
  * provider's requests-per-second limit (Shyft's plans are priced by RPC requests/second, not credits).
  * Every transaction inside a batch counts as one request. Copy-trading calls (watcher, executor) are
- * not metered: they must never wait behind history reads.
+ * never delayed: they must never wait behind history reads. Instead a share of the budget
+ * (RPC_COPY_RESERVE, default 20%) is set aside for them: history reads are paced at the remaining share,
+ * and slow down further while copy-engine calls (noteCopyRpc) run above their reserve.
  */
 import { config } from "../config";
 
@@ -22,9 +24,38 @@ export function noteThrottled(): void {
   for (const k of throttledPerMinute.keys()) if (k < m - 60) throttledPerMinute.delete(k);
 }
 
-/** Wait for room for `n` requests, then count them. Spreads requests evenly at RPC_MAX_RPS. */
+/** Copy-engine RPC calls in the current and previous second (sliding window for the reserve guard). */
+let copyWindow = { sec: 0, cur: 0, prev: 0 };
+
+/** Count copy-engine RPC calls (never delayed; they only reduce the room left for analysis). */
+export function noteCopyRpc(n = 1, now = Date.now()): void {
+  const sec = Math.floor(now / 1000);
+  if (sec !== copyWindow.sec) copyWindow = { sec, cur: 0, prev: sec - copyWindow.sec === 1 ? copyWindow.cur : 0 };
+  copyWindow.cur += n;
+}
+
+/** Copy-engine calls per second right now (the busier of this and the last second). */
+export function copyRpcRate(now = Date.now()): number {
+  const sec = Math.floor(now / 1000);
+  if (sec === copyWindow.sec) return Math.max(copyWindow.cur, copyWindow.prev);
+  if (sec - copyWindow.sec === 1) return copyWindow.cur;
+  return 0;
+}
+
+/**
+ * Requests per second analysis may use: RPC_MAX_RPS minus the copy reserve, minus whatever copy
+ * calls currently use beyond that reserve. Never below 1 (analysis slows down, it never stops forever).
+ */
+export function analysisRate(maxRps: number, reserve: number, copyRps: number): number {
+  const max = Math.max(1, maxRps);
+  const reserved = max * reserve;
+  const overflow = Math.max(0, copyRps - reserved);
+  return Math.max(1, max - reserved - overflow);
+}
+
+/** Wait for room for `n` requests, then count them. Spreads history reads evenly at the analysis share of RPC_MAX_RPS. */
 export async function takeRpc(n: number): Promise<void> {
-  const rate = Math.max(1, config.rpcMaxRps);
+  const rate = analysisRate(config.rpcMaxRps, config.rpcCopyReserve, copyRpcRate());
   const now = Date.now();
   const start = Math.max(now, nextFree);
   nextFree = start + (n * 1000) / rate;
