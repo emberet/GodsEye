@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Requests for the same URL within this window share one fetch (the summary feeds several components). */
 const SHARE_MS = 2_000;
+/** Failed refreshes in a row before last good data is flagged as stale. */
+const STALE_AFTER = 2;
 const shared = new Map<string, { at: number; promise: Promise<unknown> }>();
 
 async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
@@ -26,6 +28,7 @@ async function getJson<T>(url: string, signal: AbortSignal): Promise<T> {
  *   • a response for a URL the component has moved away from (filters changed) is dropped
  *   • polling pauses while the tab is hidden and catches up when it's shown again
  *   • after errors it backs off (up to 4× the interval) and keeps the last good data, flagged as stale
+ *     once STALE_AFTER refreshes in a row have failed (one dropped request isn't worth a warning)
  */
 export function usePoll<T>(url: string, intervalMs = 10_000) {
   const [data, setData] = useState<T | null>(null);
@@ -34,6 +37,7 @@ export function usePoll<T>(url: string, intervalMs = 10_000) {
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const current = useRef(url);
   const failures = useRef(0);
+  const hasData = useRef(false);
   current.current = url;
 
   const load = useCallback(async () => {
@@ -43,6 +47,7 @@ export function usePoll<T>(url: string, intervalMs = 10_000) {
       const json = await getJson<T>(url, ctrl.signal);
       if (current.current !== url) return;
       failures.current = 0;
+      hasData.current = true;
       setData(json);
       setError(null);
       setStatus(200);
@@ -50,6 +55,7 @@ export function usePoll<T>(url: string, intervalMs = 10_000) {
     } catch (e) {
       if (current.current !== url) return;
       failures.current++;
+      if (hasData.current && failures.current < STALE_AFTER) return;
       setError((e as Error).name === "AbortError" ? "The request timed out" : (e as Error).message);
       setStatus((e as { status?: number }).status ?? null);
     } finally {
@@ -63,6 +69,7 @@ export function usePoll<T>(url: string, intervalMs = 10_000) {
     setError(null);
     setStatus(null);
     failures.current = 0;
+    hasData.current = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     const tick = async () => {
