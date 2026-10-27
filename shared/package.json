@@ -8,13 +8,15 @@
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
     "./db": "./src/db.ts",
+    "./quant-schema": "./src/quant-schema.ts",
     "./env": "./src/env.ts",
     "./proof": "./src/proof.ts",
     "./stats": "./src/stats.ts",
     "./dashboard-data": "./src/dashboard-data.ts",
     "./dashboard-types": "./src/dashboard-types.ts",
     "./snapshot-store": "./src/snapshot-store.ts",
-    "./public-view": "./src/public-view.ts"
+    "./public-view": "./src/public-view.ts",
+    "./closed-trades": "./src/closed-trades.ts"
   },
   "scripts": {
     "test": "tsx --import ./test/setup.ts --test test/*.test.ts",

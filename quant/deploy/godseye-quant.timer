@@ -1,0 +1,11 @@
+# /etc/systemd/system/godseye-quant.timer  (example) then: systemctl enable --now godseye-quant.timer
+[Unit]
+Description=Run the GodsEye quant job every hour
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

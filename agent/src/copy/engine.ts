@@ -30,6 +30,7 @@ import { fmtPct, fmtSol, say, short } from "../log";
 import type { ParsedSwap } from "../chain/parse";
 import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
+import { applyQuantSizing, skillGateBlocks } from "./quant";
 import { rugCheck } from "../market/rugcheck";
 import type { ShadowLogger } from "../shadow/log";
 import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
@@ -180,6 +181,15 @@ export class CopyEngine {
     if (held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
 
     let size = copySize(weight, config);
+    if (size > 0) {
+      // optional offline quant sizing: off by default, can only reduce the size (see ./quant.ts)
+      const q = applyQuantSizing(this.db, swap.wallet, size, weight, config);
+      if (q.log) {
+        say("info", `${short(swap.wallet)}: ${q.log}`);
+        this.audit?.check(swap, "quant-size", "pass", q.log);
+      }
+      size = Math.min(size, q.size);
+    }
     if (size <= 0) {
       this.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${config.copyMinTradeSol} SOL`);
       this.audit?.finish(swap, "skipped:size");
@@ -198,7 +208,8 @@ export class CopyEngine {
 
   private async copyBuy(swap: ParsedSwap, seenAt: number): Promise<void> {
     const leader = this.db.prepare("SELECT copy_weight FROM wallets WHERE address = ?").get(swap.wallet) as { copy_weight: number } | undefined;
-    const weight = leader?.copy_weight ?? 0;
+    // QUANT_SKILL_GATE=on (default off): a 'luck' verdict from the quant job zeroes the weight
+    const weight = skillGateBlocks(this.db, swap.wallet) ? 0 : (leader?.copy_weight ?? 0);
     if (weight <= 0 || swap.solAmount < config.minLeaderBuySol) return;
     this.audit?.begin(swap, seenAt, weight); // from here on this buy is a candidate and gets a row in copy_decisions
     if (this.db.prepare("SELECT 1 FROM positions WHERE status='open' AND mint = ?").get(swap.mint)) {

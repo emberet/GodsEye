@@ -20,6 +20,8 @@ import { rpcUsage } from "./chain/rpc-budget";
 import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
+import { backfillClosedTrades } from "./analysis/closed-trades";
+import { checkpointWal, pruneHistory } from "@godseye/shared";
 import { copyCandidates, currentLeaders, runLearning } from "./learning/loop";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
@@ -122,7 +124,7 @@ async function main() {
   if (!live) say("info", "TODO: set GRPC_URL + GRPC_TOKEN in .env (Shyft, Triton, Helius or QuickNode gRPC) to watch every DEX swap live. Sampling busy pools meanwhile.");
   if (snapshotStoreConfigured()) say("info", "Publishing dashboard data to Turso after every job (for the hosted website).");
 
-  for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron })) {
+  for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron, PRUNE_CRON: config.pruneCron })) {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
   every(config.positionCron, positions);
@@ -147,6 +149,11 @@ async function main() {
       .run().changes;
     setMeta(db, "history_from_fix", "1");
     if (n) say("info", `Corrected how far back ${n.toLocaleString("en-US")} wallets' history really reaches (the RPC doesn't return transactions older than ~2-3 days).`);
+  }
+  // Once: materialise every stored round trip into closed_trades (kept up to date by analysis after that).
+  {
+    const b = backfillClosedTrades(db, config.earlyBuySeconds);
+    if (!b.skipped) say("info", `Backfilled ${b.trades.toLocaleString("en-US")} closed trades for ${b.wallets.toLocaleString("en-US")} wallets.`);
   }
   if (getMeta(db, "stats_version") !== STATS_VERSION) {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
@@ -175,8 +182,13 @@ async function main() {
     every("2-59/5 * * * *", () => void replays());
     void replays();
     live.start();
-    every("17 3 * * *", () => live.prune());
   }
+  // Daily SQLite housekeeping: retention pruning of raw swaps and stale stream activity, then a WAL checkpoint.
+  every(config.pruneCron, () => void job("housekeeping", async () => {
+    const p = pruneHistory(db, { swapsDays: config.swapsRetentionDays, activityDays: config.activityRetentionDays });
+    checkpointWal(db);
+    if (p.swaps || p.activity) say("info", `Housekeeping: pruned ${p.swaps.toLocaleString("en-US")} swaps older than ${config.swapsRetentionDays} days and ${p.activity.toLocaleString("en-US")} stale live-activity rows.`);
+  }, false));
 
   // Resume copying whoever the last learning run picked, then get the pipeline going.
   await watcher.sync(currentLeaders(db));

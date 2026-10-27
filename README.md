@@ -148,3 +148,50 @@ Vercel can't see GodsEye's database, so GodsEye publishes the dashboard data to 
 - Swap parsing works from balance changes, not DEX-specific instruction formats: `agent/src/chain/parse.ts`.
 - Pure, tested logic: `analysis/pnl.ts`, `analysis/classifier.ts`, `analysis/tiers.ts`, `learning/weights.ts`, `copy/verify.ts`.
 - Proof ledger: `hash = sha256(prev_hash + "|" + canonical_json_payload)` (`shared/src/proof.ts`).
+
+## Quant layer (Python, offline)
+
+`quant/` is an offline batch job that judges whether each wallet's record is skill or luck and writes
+fractional-Kelly sizing parameters. It never signs, never holds keys, and is never in the buy path: it reads
+the SQLite DB through a read-only (`mode=ro`) connection and writes only its own two tables
+(`wallet_skill`, `sizing_params`, declared for TypeScript in `shared/src/quant-schema.ts`) through a short
+separate write connection. It reads `closed_trades` and, if that table is missing, rebuilds the same round
+trips from `wallet_swaps`.
+
+Per wallet (30-day window, 30 closed trades minimum): binomial test of win rate against matched random
+entries in the same tokens, permutation test of entry timing within each token's window, bootstrap CI on
+median return, Deflated Sharpe Ratio given the number of wallets tested, Benjamini-Hochberg FDR across
+wallets, out-of-sample persistence (first half vs second half), Beta shrinkage of win rate, and a penalty for
+profit concentrated in one trade. `verdict = 'skill'` needs FDR significance AND persistence AND the minimum
+sample AND best-trade share <= 50%. Sizing is quarter Kelly at most (`kelly_mult <= 0.25 x kelly_full`,
+never below 0, 0 for thin or negative-edge data), with drawdown and bootstrap risk-of-ruin estimates.
+Rows are valid for 6 hours.
+
+```sh
+cd quant && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m quant.run --dry-run   # compute, write nothing
+.venv/bin/python -m quant.run             # write wallet_skill + sizing_params
+npm run quant                             # same, from the repo root
+.venv/bin/pytest -q && .venv/bin/ruff check .
+```
+
+Schedule it hourly with cron (`0 * * * * cd /opt/GodsEye/quant && .venv/bin/python -m quant.run >> ../data/quant.log 2>&1`)
+or the systemd units in `quant/deploy/`. Settings are env vars `QUANT_<NAME>` (see `quant/quant/config.py`);
+`QUANT_KELLY_FRACTION` is refused above 0.25.
+
+The agent uses the results only when you opt in:
+
+| Env | Default | Effect |
+| --- | --- | --- |
+| `QUANT_SIZING` | `off` | `shadow`: logs the quant size next to the real one, changes nothing. `on`: size = min(current size, hard cap, `COPY_MAX_TRADE_SOL`, budget x weight x `kelly_mult`) from a fresh row only, otherwise the current formula. It can only reduce a size. |
+| `QUANT_SKILL_GATE` | `off` | `on`: a leader whose verdict is `luck` gets weight 0. |
+
+### Data layer and discovery (phase 1)
+
+- **`closed_trades`** (`shared/src/schema.ts`, `shared/src/closed-trades.ts`): every closed round trip, materialised from `wallet_swaps` with the same average-cost logic as the wallet stats (`realize` in `agent/src/analysis/pnl.ts`). Backfilled once at agent startup (meta key `closed_trades_backfill_v1`; rerun any time with `npm run backfill:closed`, which only upserts, so it is idempotent), then kept current every time a wallet is analysed. Unique on `(wallet, mint, entry_ts)`, indexed on `(wallet, entry_ts)` and `(mint, entry_ts)`.
+  - Units: `wallet_swaps.ts` is ISO-8601 UTC text; `entry_ts`/`exit_ts` are **Unix epoch seconds**. `entry_sol`/`exit_sol`/`pnl_sol` in SOL, `return_pct = pnl_sol / entry_sol * 100`. `jito_tip_entry` is the opening buy's `wallet_swaps.jito_tip` flag (1/0). `token_age_sec_at_entry` is null when the launch time is unknown.
+  - Entry timing: `entry_price_rank` (0..1) is the share of the token's observed swap prices (all tracked wallets, first observation up to the exit) below the entry price; null with fewer than 5 observations. `token_prices` only stores the latest price per token, so the path comes from `wallet_swaps`. `pool_age_pct` is not stored: pool lifetime isn't observable from the data GodsEye keeps.
+  - `closed_trades` is never pruned, so round trips outlive their raw swaps.
+- **Wider discovery** (all in `.env`): `DISCOVER_POOLS=40` (was 12), `DISCOVER_MAX_NEW_PER_RUN=100` (was 25), `ANALYZE_PER_RUN=90` (was 60), `ANALYZE_CONCURRENCY=12` (was 8), stream promotion at `STREAM_PROMOTE_PNL_USD=50` over `STREAM_PROMOTE_MIN_CLOSED=2` (was $100 over 3), with hard floors of $25 and 2 trades.
+- **RPC guard** (`agent/src/chain/rpc-budget.ts`): `RPC_MAX_RPS` is unchanged. `RPC_COPY_RESERVE=0.2` keeps 20% of it for the copy engine: history reads are paced at the remaining 80%, and slow further while copy calls run above their share. Copy calls are never delayed.
+- **SQLite hygiene**: daily housekeeping at `PRUNE_CRON` deletes `wallet_swaps` older than `SWAPS_RETENTION_DAYS` (90; 0 = keep; copied wallets and open-position leaders are kept) and stale `wallet_activity` rows (`ACTIVITY_RETENTION_DAYS`), then runs a passive WAL checkpoint (also after each analysis run and the backfill). New indexes: `wallet_swaps(mint, ts)`, `wallet_swaps(ts)`, `wallet_activity(promoted, last_seen_at)`.

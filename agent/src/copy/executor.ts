@@ -10,6 +10,7 @@ import { connection } from "../rpc";
 import { jupiterQuote, jupiterSwapTx, type JupQuote } from "../market/jupiter";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
+import { noteCopyRpc } from "../chain/rpc-budget";
 import { parseSwap, tradeCostSol } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
 import { simulateCheck, staticCheck } from "./verify";
@@ -63,6 +64,7 @@ export class RealExecutor implements Executor {
   }
 
   private async heldAtomic(mint: string): Promise<bigint> {
+    noteCopyRpc();
     const res = await connection().getParsedTokenAccountsByOwner(this.keypair.publicKey, { mint: new PublicKey(mint) });
     return res.value.reduce((s, a) => s + BigInt((a.account.data.parsed as { info: { tokenAmount: { amount: string } } }).info.tokenAmount.amount), 0n);
   }
@@ -83,6 +85,7 @@ export class RealExecutor implements Executor {
     );
 
     tx.sign([this.keypair]);
+    noteCopyRpc();
     const signature = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: true, maxRetries: 3 });
     // Confirm against the blockhash the transaction was actually built with.
     const conf = await conn.confirmTransaction({ signature, blockhash: tx.message.recentBlockhash, lastValidBlockHeight: built.lastValidBlockHeight }, "confirmed");

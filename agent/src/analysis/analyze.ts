@@ -9,7 +9,8 @@
  *   5. gather evidence (creator links, sales right before a crash — see crash.ts)
  *   6. assign a tier and an AI / human verdict, with reasons
  */
-import { type DB, isNonMemecoinSymbol, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
+import { checkpointWal, type DB, deleteClosedTradesForMints, isNonMemecoinSymbol, nowIso, SOL_MINT, type Tier } from "@godseye/shared";
+import { syncClosedTrades } from "./closed-trades";
 import { config } from "../config";
 import { say, short } from "../log";
 import { mintLaunchBefore, readWalletHistory } from "../chain/history";
@@ -139,12 +140,16 @@ export function recomputeStats(db: DB, address: string, now = Date.now()) {
     .prepare("SELECT DISTINCT s.mint, t.symbol FROM wallet_swaps s JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? AND t.symbol IS NOT NULL")
     .all(address) as { mint: string; symbol: string }[];
   const drop = symbolsNow.filter((x) => isNonMemecoinSymbol(x.symbol)).map((x) => x.mint);
-  if (drop.length) db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
+  if (drop.length) {
+    db.prepare(`DELETE FROM wallet_swaps WHERE wallet = ? AND mint IN (${drop.map(() => "?").join(",")})`).run(address, ...drop);
+    deleteClosedTradesForMints(db, address, drop);
+  }
   const swaps = db
     .prepare("SELECT signature, slot, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts")
     .all(address) as SwapLite[];
   const r = realize(swaps, config.earlyBuySeconds);
   const stats = computeStats(swaps, r, now, config.earlyBuySeconds);
+  syncClosedTrades(db, address, r.closed);
   db.prepare(
     `INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, pnl_7d_usd, pnl_30d_usd, pnl_all_usd,
         closed_7d, closed_30d, wins_30d, win_rate_30d, best_trade_share, avg_buy_sol, avg_buy_usd, avg_hold_minutes, median_hold_sec, same_block_round_trips, early_buys, early_buy_rate, first_trade_at, last_trade_at)
@@ -376,6 +381,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
       say("warn", `Couldn't read further back for ${short(address)}, keeping the history it has: ${(e as Error).message.slice(0, 200)}`);
     }
   }));
+  if (done || deepened) checkpointWal(db);
   if (done || deepened) {
     const calls = rpcCallsSoFar() - callsBefore;
     const secs = Math.max(1, (Date.now() - startedAt) / 1000);

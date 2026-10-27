@@ -4,6 +4,10 @@
  */
 import { envBool, envNum, envStr, loadEnv, HARD_MAX_COPY_TRADE_SOL } from "@godseye/shared";
 
+/** Stream promotion can be loosened in .env, but never below these. */
+export const STREAM_PROMOTE_PNL_FLOOR_USD = 25;
+export const STREAM_PROMOTE_MIN_CLOSED_FLOOR = 2;
+
 loadEnv();
 
 const list = (name: string) => envStr(name).split(",").map((s) => s.trim()).filter(Boolean);
@@ -36,9 +40,9 @@ export const config = {
   streamParser: ((v) => (v === "rust" || v === "compare" ? v : "ts"))(envStr("STREAM_PARSER", "ts").toLowerCase()) as "ts" | "rust" | "compare",
   geIngestSocket: envStr("GE_INGEST_SOCKET", "/tmp/godseye-ingest.sock"),
   /** Promote a live wallet to full analysis once it has realized this much profit (USD at settlement) on the stream… */
-  streamPromotePnlUsd: envNum("STREAM_PROMOTE_PNL_USD", 100),
-  /** …over at least this many closed trades (with ≥ 50% wins). */
-  streamPromoteMinClosed: envNum("STREAM_PROMOTE_MIN_CLOSED", 3),
+  streamPromotePnlUsd: Math.max(STREAM_PROMOTE_PNL_FLOOR_USD, envNum("STREAM_PROMOTE_PNL_USD", 50)),
+  /** …over at least this many closed trades (with ≥ 50% wins). Hard floors: $25 and 2 closed trades, whatever .env says. */
+  streamPromoteMinClosed: Math.max(STREAM_PROMOTE_MIN_CLOSED_FLOOR, Math.round(envNum("STREAM_PROMOTE_MIN_CLOSED", 2))),
   /** Most wallets kept in memory at once (idle ones are forgotten first). */
   streamMaxWallets: envNum("STREAM_MAX_WALLETS", 300_000),
   /** Forget a wallet's in-memory swaps after this long without trading. */
@@ -86,17 +90,17 @@ export const config = {
   // ---- Discovery: finding wallets worth watching ----
   discoverCron: envStr("DISCOVER_CRON", "*/30 * * * *"),
   /** How many of Solana's busiest pools to read recent trades from. */
-  discoverPools: envNum("DISCOVER_POOLS", 12),
+  discoverPools: envNum("DISCOVER_POOLS", 40),
   /** Only count trades at least this big (USD) when looking for traders. */
   discoverMinTradeUsd: envNum("DISCOVER_MIN_TRADE_USD", 300),
   /** Cap on brand-new wallets added per discovery run (keeps RPC usage sane). */
-  discoverMaxNewPerRun: envNum("DISCOVER_MAX_NEW_PER_RUN", 25),
+  discoverMaxNewPerRun: envNum("DISCOVER_MAX_NEW_PER_RUN", 100),
 
   // ---- Analysis: reading each wallet's history ----
   analyzeCron: envStr("ANALYZE_CRON", "*/10 * * * *"),
-  analyzePerRun: envNum("ANALYZE_PER_RUN", 60),
+  analyzePerRun: envNum("ANALYZE_PER_RUN", 90),
   /** Wallets analyzed at the same time (each mostly waits on the network). */
-  analyzeConcurrency: envNum("ANALYZE_CONCURRENCY", 8),
+  analyzeConcurrency: envNum("ANALYZE_CONCURRENCY", 12),
   /** First look at a wallet: read back this many days of its transactions… */
   historyDays: envNum("HISTORY_DAYS", 7),
   /** …but at most this many transactions on first look (busy bots trade thousands a day): breadth first. */
@@ -107,6 +111,13 @@ export const config = {
   historyDeepenPerRun: envNum("HISTORY_DEEPEN_PER_RUN", 6),
   /** Steady cap on history RPC requests per second (each transaction in a batch counts). Keep well under your plan's limit. */
   rpcMaxRps: envNum("RPC_MAX_RPS", 75),
+  /** Share of RPC_MAX_RPS reserved for the copy engine (watcher, executor). Analysis is paced at the rest, and
+   *  also yields whenever copy-engine calls go over their reserve. Clamped to 0.05..0.9. */
+  rpcCopyReserve: Math.min(0.9, Math.max(0.05, envNum("RPC_COPY_RESERVE", 0.2))),
+  /** Delete raw wallet_swaps older than this many days (closed_trades keeps the round trips). 0 = keep forever. */
+  swapsRetentionDays: envNum("SWAPS_RETENTION_DAYS", 90),
+  /** Daily SQLite housekeeping (retention pruning, then a WAL checkpoint), UTC. */
+  pruneCron: envStr("PRUNE_CRON", "17 3 * * *"),
   /** Wallets younger than this many days count as "fresh". */
   freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
   /** Re-analyze a wallet at most this often (leaders are also updated live). */
