@@ -195,3 +195,40 @@ The agent uses the results only when you opt in:
 - **Wider discovery** (all in `.env`): `DISCOVER_POOLS=40` (was 12), `DISCOVER_MAX_NEW_PER_RUN=100` (was 25), `ANALYZE_PER_RUN=90` (was 60), `ANALYZE_CONCURRENCY=12` (was 8), stream promotion at `STREAM_PROMOTE_PNL_USD=50` over `STREAM_PROMOTE_MIN_CLOSED=2` (was $100 over 3), with hard floors of $25 and 2 trades.
 - **RPC guard** (`agent/src/chain/rpc-budget.ts`): `RPC_MAX_RPS` is unchanged. `RPC_COPY_RESERVE=0.2` keeps 20% of it for the copy engine: history reads are paced at the remaining 80%, and slow further while copy calls run above their share. Copy calls are never delayed.
 - **SQLite hygiene**: daily housekeeping at `PRUNE_CRON` deletes `wallet_swaps` older than `SWAPS_RETENTION_DAYS` (90; 0 = keep; copied wallets and open-position leaders are kept) and stale `wallet_activity` rows (`ACTIVITY_RETENTION_DAYS`), then runs a passive WAL checkpoint (also after each analysis run and the backfill). New indexes: `wallet_swaps(mint, ts)`, `wallet_swaps(ts)`, `wallet_activity(promoted, last_seen_at)`.
+
+### Backtest kernel and money flow (phase 4, Rust, offline)
+
+`rust/ingest/crates/ge-flow` (binary `ge-analyze`) reads the DB **read-only** (`mode=ro` + `query_only`) and writes
+only two new tables, `backtest_results` and `wallet_clusters` (`CREATE TABLE IF NOT EXISTS`), in one short write
+transaction at the end (`--dry-run` writes nothing). It never signs, sends or touches the network.
+
+- **Backtest** (`src/backtest.rs`): a port of the TS copy-fill replay (`agent/src/replay/model.ts`): the token's stored
+  swaps as a price tape, constant-product depth estimated from the tape, our fill `--delay` s (default 5) after the
+  leader's swap, fixed size `--size` (0.1 SOL = the `COPY_MAX_TRADE_SOL` default), DEX fee `--fee-bps` (100), an extra
+  adverse `--slippage-bps` (100) on each of our fills, 0.0005 SOL per transaction, the leader's sells mirrored
+  proportionally (>= 90% = all), and the agent's stop-loss 35% / take-profit 300% / max-hold 48 h on a one-minute grid.
+  Rug/holder checks and budget/position/daily-loss limits are not replayed. Per leader (wallets with >= 5 closed trades):
+  `n_trades`, `copy_return_pct` (sum P&L / sum cost), `copy_pnl_sol`, `ideal_return_pct` (leader's own fills, no costs),
+  `win_rate`, `max_drawdown` (**SOL**, peak-to-trough of cumulative copy P&L), and the assumptions used.
+  The tape only holds swaps GodsEye stored, so delay costs are a lower bound.
+- **Money flow** (`src/flow.rs`), per wallet in `wallet_clusters`:
+  - *follower*: >= 3 mints (and >= 30% of its mints) first bought 2-120 s after the same other wallet, and more than
+    twice as often as the reverse. `follows` names that wallet; `lead_lag_score` is the share.
+  - *sybil*: in a cluster joined by lockstep buys (>= 3 shared mints within 2 s, >= 30% of the smaller wallet's mints)
+    or by a shared `wallets.funder` (funders of more than 50 wallets, likely exchanges, are ignored). `cluster_id` is the
+    cluster's first wallet.
+  - `leader` (someone follows it) or `independent` otherwise. `independent_score` = (1 - lead_lag) x (1 - lockstep share)
+    x (0.5 if it shares a funder), 0..1.
+- **Skill model** (`quant/quant/flow.py`): with `QUANT_USE_FLOW=on` (default **off**) the quant job can only take
+  `skill` away: a follower or sybil-cluster wallet, or one without a fresh (< `QUANT_FLOW_MAX_AGE_HOURS`=48 h) positive
+  `copy_return_pct`, gets `luck`; `skill_score` is multiplied by `independent_score`. Run `ge-analyze` before the quant job.
+
+```sh
+npm run flow:dry                      # compute and print a summary, write nothing
+npm run flow                          # write backtest_results + wallet_clusters
+cd rust/ingest && cargo run --release -p ge-flow --bin ge-analyze -- --db /path/to/godseye.db --json --dry-run --delay 15 --slippage-bps 300
+QUANT_USE_FLOW=on npm run quant:dry   # see how many 'skill' verdicts survive
+```
+
+Other flags: `--days N` (only swaps from the last N days), `--min-closed 5`, `--threads N`, `--depth SOL` (fixed pool
+depth), `--follow-window 120`, `--sync-sec 2`, `--min-events 3`. Bench: `cd rust/ingest && cargo bench -p ge-flow`.

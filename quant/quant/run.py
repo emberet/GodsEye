@@ -12,6 +12,7 @@ import numpy as np
 from .config import QuantConfig
 from .data import load_closed_trades, load_swaps, price_paths
 from .db import db_path, open_ro, write_results
+from .flow import apply_flow, load_flow
 from .sizing import sizing_rows
 from .stats import analyse
 
@@ -51,9 +52,12 @@ def run(path=None, cfg: QuantConfig | None = None, now: int | None = None, dry_r
     try:
         swaps = load_swaps(con, since)
         trades, source = load_closed_trades(con, since, swaps)
+        flow = load_flow(con, t_now, cfg) if cfg.use_flow == "on" else None
     finally:
         con.close()
     skill, summary = analyse(trades, price_paths(swaps), cfg, t_now)
+    if flow is not None:
+        skill, summary["flow"] = apply_flow(skill, flow)
     skill_rows = [{c: _clean(r[c]) for c in SKILL_COLS} for r in skill.to_dict("records")] if len(skill) else []
     sizing = [{k: _clean(v) for k, v in r.items()} for r in sizing_rows(trades, cfg, t_now)]
     if not dry_run:
