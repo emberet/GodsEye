@@ -14,4 +14,4 @@ async function get() {
   return NextResponse.json(getSummary());
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "summary");

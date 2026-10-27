@@ -12,9 +12,12 @@ const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
   title: { default: "GodsEye — Sees every wallet. Copies the winners.", template: "%s · GodsEye" },
-  description: "GodsEye copy-trades the Solana wallets that are making money, AI agents and humans alike, and keeps a public database of every wallet it studies: insiders, lucky streaks, wallets that need attention, and quitters.",
+  description: "GodsEye copy-trades the Solana wallets that are making money, AI agents and humans alike, and keeps a public database of every wallet it studies: early-entry patterns, lucky streaks, wallets that need attention, and quitters.",
   openGraph: { title: "GodsEye", description: "Sees every wallet. Copies the winners." },
 };
+// Live data: let shared caches keep pages for a minute at most (not the default year for static pages).
+export const revalidate = 60;
+
 export const viewport: Viewport = { themeColor: "#17171B" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -31,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Nav />
           </header>
           <main className="mt-6 flex flex-col gap-6">{children}</main>
-          <footer className="mt-10 text-xs text-muted-foreground">Not financial advice. Wallet labels are automated reads of on-chain behaviour, not accusations.</footer>
+          <footer className="mt-10 text-xs text-muted-foreground">Not financial advice. Wallet labels are pattern heuristics from public on-chain data, not accusations. Leader results are other wallets&apos; trades, not GodsEye&apos;s, and past results do not predict future ones.</footer>
         </div>
         <BottomNav />
       </body>

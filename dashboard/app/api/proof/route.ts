@@ -15,4 +15,4 @@ async function get(req: NextRequest) {
   return NextResponse.json(getProof(limit, offset));
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "proof");

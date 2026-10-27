@@ -14,4 +14,4 @@ async function get(req: NextRequest) {
   return NextResponse.json(getLiveWallets(q));
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "stream");

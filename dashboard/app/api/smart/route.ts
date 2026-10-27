@@ -14,4 +14,4 @@ async function get() {
   return NextResponse.json(getSmartMoney());
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "smart");
