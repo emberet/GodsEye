@@ -120,6 +120,10 @@ npm run setup          # creates .env — open it and add HELIUS_API_KEY at leas
 | **Live Copies** | Open positions, every copy decision (filled / skipped / failed, with reasons and delay), closed positions, rug checks. |
 | **Performance / Proof Ledger** | Equity curve from closed copies; tamper-evident decision log you can verify in the browser. |
 
+### Run it 24/7 on your own computer
+
+No VPS needed: **[docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)** covers keeping the computer awake, starting the agent and site at boot (Windows, macOS, Linux), serving godseye.work through a Cloudflare Tunnel, and backups.
+
 ### Host it on Vercel
 
 Vercel can't see GodsEye's database, so GodsEye publishes the dashboard data to a free **Turso** database after every job (wallet pages only when they change), and the site reads it with a read-only key.
