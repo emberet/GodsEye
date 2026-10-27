@@ -76,7 +76,7 @@ export const TIERS = ["quitter", "insider", "lucky_streak", "needs_attention", "
 export type Tier = (typeof TIERS)[number];
 
 export const TIER_LABELS: Record<Tier, string> = {
-  insider: "Insider pattern",
+  insider: "Early-entry pattern",
   lucky_streak: "Lucky streak",
   needs_attention: "Needs attention",
   quitter: "Quitter",
@@ -85,7 +85,7 @@ export const TIER_LABELS: Record<Tier, string> = {
 };
 
 export const TIER_DESCRIPTIONS: Record<Tier, string> = {
-  insider: "Trades look like early or inside knowledge: buys in a token's first minutes, money from the token's creator, or sells just before a crash. The evidence is listed on each wallet's page.",
+  insider: "An automated pattern read, not an accusation: buys in a token's first minutes, money from the token's creator, or sells just before a crash. The evidence is listed on each wallet's page.",
   lucky_streak: "Profitable, but most of the profit came from one or two trades, or there are too few trades to call it skill.",
   needs_attention: "Something changed: a profitable wallet is now losing, a brand-new wallet is trading big, or it belongs to a large group of sibling wallets.",
   quitter: "Stopped trading.",

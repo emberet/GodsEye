@@ -16,4 +16,4 @@ async function get(_req: Request, { params }: { params: { address: string } }) {
   return d ? NextResponse.json(d) : NextResponse.json({ error: "GodsEye hasn't analyzed this wallet yet." }, { status: 404 });
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "wallet");

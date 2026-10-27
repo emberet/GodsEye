@@ -14,4 +14,4 @@ async function get() {
   return NextResponse.json(getWalletGroups());
 }
 
-export const GET = apiRoute(get);
+export const GET = apiRoute(get, "groups");
