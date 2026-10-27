@@ -30,7 +30,7 @@ import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
 import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
-import { refreshCopyReplays } from "./smart/copy-check";
+import { notBots, refreshCopyReplays } from "./smart/copy-check";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 /** Bump when the P&L rules change so stored stats are recomputed once at startup. */
@@ -167,7 +167,7 @@ async function main() {
     }), opts);
     // Copy gate: replay what copying each smart-money candidate would have earned, a slice at a time.
     const replays = () => job("copy replay", async () => {
-      const n = await refreshCopyReplays(db, [...live.smart.candidates().keys()], { budgetMs: 60_000 });
+      const n = await refreshCopyReplays(db, notBots(db, [...live.smart.candidates().keys()]), { budgetMs: 60_000 });
       if (n) live.smart.refresh();
     }, false);
     cron.schedule("2-59/5 * * * *", () => void replays(), opts);

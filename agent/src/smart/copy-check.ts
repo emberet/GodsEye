@@ -70,6 +70,13 @@ export function botSigns(db: DB, wallets: string[]): Map<string, BotSigns> {
   return out;
 }
 
+/** The wallets that pass the bot gate (only these are worth replaying). */
+export function notBots(db: DB, wallets: string[]): string[] {
+  const signs = botSigns(db, wallets);
+  const cfg = botCfg();
+  return wallets.filter((w) => botReason(signs.get(w) ?? { median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null }, cfg) === null);
+}
+
 export function storedReplays(db: DB): Map<string, CopyReplay> {
   const rows = db.prepare("SELECT wallet, delay_sec, n, coverage, median_ret_pct FROM copy_replays").all() as (CopyReplay & { wallet: string })[];
   return new Map(rows.map((r) => [r.wallet, r]));
