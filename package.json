@@ -31,6 +31,8 @@
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w agent && npm run typecheck -w dashboard",
     "quant": "cd quant && python3 -m quant.run",
     "quant:dry": "cd quant && python3 -m quant.run --dry-run",
+    "flow": "cd rust/ingest && cargo run --release --locked -q -p ge-flow --bin ge-analyze -- --db ../../data/godseye.db",
+    "flow:dry": "cd rust/ingest && cargo run --release --locked -q -p ge-flow --bin ge-analyze -- --db ../../data/godseye.db --dry-run",
     "backfill:closed": "npm run backfill:closed -w agent"
   },
   "engines": {

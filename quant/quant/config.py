@@ -25,6 +25,9 @@ class QuantConfig:
     kelly_fraction: float = 0.25  # hard ceiling: never above quarter Kelly
     ttl_hours: float = 6.0  # sizing rows are valid for this long
     seed: int = 7
+    # Phase 4: consume the Rust ge-analyze tables (backtest_results, wallet_clusters). off|on, default off.
+    use_flow: str = "off"
+    flow_max_age_hours: float = 48.0  # flow/backtest rows older than this count as missing
 
     @classmethod
     def from_env(cls) -> QuantConfig:
@@ -36,4 +39,6 @@ class QuantConfig:
         cfg = cls(**kw)
         if cfg.kelly_fraction > 0.25 or cfg.kelly_fraction < 0:
             raise ValueError("kelly_fraction must be within [0, 0.25]")
+        if cfg.use_flow not in ("off", "on"):
+            raise ValueError("QUANT_USE_FLOW must be off or on")
         return cfg
