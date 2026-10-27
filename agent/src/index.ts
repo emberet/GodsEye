@@ -28,6 +28,8 @@ import { loadOrCreateWallet, walletTokenBalance } from "./wallet/wallet";
 import { reconcile, recoverPending } from "./copy/recovery";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
+import { ShadowLogger } from "./shadow/log";
+import { sampleDue } from "./shadow/sampler";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 /** Bump when the P&L rules change so stored stats are recomputed once at startup. */
@@ -37,7 +39,8 @@ const db = openDb();
 attachLogDb(db);
 
 const { keypair, created } = loadOrCreateWallet(db);
-const engine = new CopyEngine(db, config.copyMode === "real" ? new RealExecutor(keypair) : new PaperExecutor(), keypair.publicKey);
+const shadow = config.shadowEnabled ? new ShadowLogger(db) : null;
+const engine = new CopyEngine(db, config.copyMode === "real" ? new RealExecutor(keypair) : new PaperExecutor(), keypair.publicKey, shadow);
 const watcher = new LeaderWatcher(db, engine);
 const live = streamConfigured() ? new LiveStream(db, watcher) : null;
 
@@ -95,6 +98,8 @@ const positions = () =>
     }
   });
 const poll = () => job("leader poll", () => watcher.poll(), false);
+/** Price, liquidity and a sell quote for the tokens the shadow log is following (shadow/sampler.ts). */
+const followShadow = () => job("shadow log", async () => void (await sampleDue(db)), false);
 
 const BANNER = `
      .-""""-.
@@ -120,6 +125,7 @@ async function main() {
   }
   const opts = { timezone: "UTC" };
   cron.schedule(config.positionCron, positions, opts);
+  if (shadow) cron.schedule("* * * * *", followShadow, opts);
   cron.schedule(config.analyzeCron, analyze, opts);
   cron.schedule(config.learnCron, learn, opts);
   cron.schedule(config.discoverCron, discover, opts);

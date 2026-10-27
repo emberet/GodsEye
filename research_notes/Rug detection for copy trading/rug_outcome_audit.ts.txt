@@ -1,0 +1,67 @@
+/** Throwaway: how often did a copyable leader entry collapse? Uses only stored wallet_swaps. */
+import { isNonMemecoinSymbol, NON_MEMECOIN_MINTS, openDbReadonly } from "@godseye/shared";
+
+const db = openDbReadonly();
+const leaders = new Set((db.prepare("SELECT address FROM wallets WHERE copy_weight > 0").all() as { address: string }[]).map((r) => r.address));
+const MIN_BUY = 0.2;
+const DELAY_MS = 5000;
+const HORIZONS = { "10m": 600_000, "60m": 3_600_000, "6h": 21_600_000 };
+type Row = { ts: string; wallet: string; side: string; sol_amount: number; price_sol: number; token_age_sec: number | null; venue: string | null };
+const mints = db.prepare("SELECT DISTINCT mint FROM wallet_swaps WHERE side='buy' AND sol_amount >= ? AND wallet IN (SELECT address FROM wallets WHERE copy_weight > 0)").all(MIN_BUY) as { mint: string }[];
+const symbolOf = db.prepare("SELECT symbol FROM token_info WHERE mint = ?");
+const tapeOf = db.prepare("SELECT ts, wallet, side, sol_amount, price_sol, token_age_sec, venue FROM wallet_swaps WHERE mint = ? ORDER BY ts, slot, id");
+const dataEnd = Date.parse((db.prepare("SELECT ts FROM wallet_swaps ORDER BY id DESC LIMIT 1").get() as { ts: string }).ts);
+
+interface Entry { mint: string; leader: string; ageSec: number | null; venue: string | null; entry: number; entryT: number; others: number; min10: number; min60: number; at60: number | null; at6h: number | null; quiet60: boolean; quiet6h: boolean; matured6h: boolean; matured60: boolean; lastObsMin: number; leaderSold: boolean; leaderSoldBelow50: boolean; lastGapMin: number }
+const out: Entry[] = [];
+let skippedNonMeme = 0, skippedNoPrice = 0;
+for (const { mint } of mints) {
+  const sym = (symbolOf.get(mint) as { symbol: string | null } | undefined)?.symbol;
+  if (NON_MEMECOIN_MINTS.has(mint) || (sym && isNonMemecoinSymbol(sym))) { skippedNonMeme++; continue; }
+  const tape = (tapeOf.all(mint) as Row[]).filter((r) => r.price_sol > 0 && r.sol_amount > 0).map((r) => ({ ...r, t: Date.parse(r.ts) }));
+  const first = tape.find((r) => r.side === "buy" && r.sol_amount >= MIN_BUY && leaders.has(r.wallet));
+  if (!first) continue;
+  const ent = tape.find((r) => r.t >= first.t + DELAY_MS && r.t <= first.t + 120_000);
+  if (!ent) { skippedNoPrice++; continue; }
+  const after = tape.filter((r) => r.t > ent.t);
+  const win = (ms: number) => after.filter((r) => r.t <= ent.t + ms);
+  const minR = (ms: number) => Math.min(1, ...win(ms).map((r) => r.price_sol / ent.price_sol));
+  const lastAt = (ms: number) => { const w = win(ms); return w.length ? w[w.length - 1].price_sol / ent.price_sol : null; };
+  const lastObs = tape[tape.length - 1];
+  out.push({
+    mint, leader: first.wallet, ageSec: first.token_age_sec, venue: first.venue, entry: ent.price_sol, entryT: ent.t,
+    others: tape.filter((r) => Math.abs(r.t - ent.t) <= 120_000 && r.wallet !== first.wallet).length,
+    min10: minR(HORIZONS["10m"]), min60: minR(HORIZONS["60m"]), at60: lastAt(HORIZONS["60m"]), at6h: lastAt(HORIZONS["6h"]),
+    quiet60: !win(HORIZONS["60m"]).some((r) => r.t > ent.t + HORIZONS["60m"] - 1_800_000), quiet6h: !win(HORIZONS["6h"]).some((r) => r.t > ent.t + HORIZONS["6h"] - 3_600_000),
+    lastObsMin: (lastObs.t - ent.t) / 60000, leaderSold: tape.some((r) => r.t > first.t && r.side === 'sell' && leaders.has(r.wallet)), leaderSoldBelow50: tape.some((r) => r.t > ent.t && r.side === 'sell' && leaders.has(r.wallet) && r.price_sol <= 0.5 * ent.price_sol), matured60: dataEnd >= ent.t + HORIZONS["60m"], matured6h: dataEnd >= ent.t + HORIZONS["6h"], lastGapMin: (dataEnd - lastObs.t) / 60000,
+  });
+}
+const pct = (n: number, d: number) => (d ? `${((100 * n) / d).toFixed(1)}%` : "—");
+const bucket = (e: Entry) => (e.ageSec === null ? "unknown" : e.ageSec < 300 ? "<5m" : e.ageSec < 1800 ? "5-30m" : e.ageSec < 21600 ? "30m-6h" : e.ageSec < 172800 ? "6h-2d" : ">2d");
+function table(name: string, groups: Map<string, Entry[]>) {
+  console.log(`\n${name}`);
+  console.log(["group", "n", "cov>=3", "min10<=50%", "min60<=50%", "min60<=10%", "end60<=10%", "end6h<=10%", "went quiet after drop(60m)"].join("\t"));
+  for (const [k, es] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+    const m60 = es.filter((e) => e.matured60);
+    const m6 = es.filter((e) => e.matured6h);
+    const dropQuiet = m60.filter((e) => e.min60 <= 0.1 && e.quiet60).length;
+    console.log([k, es.length, pct(es.filter((e) => e.others >= 3).length, es.length), pct(es.filter((e) => e.min10 <= 0.5).length, es.length), pct(m60.filter((e) => e.min60 <= 0.5).length, m60.length), pct(m60.filter((e) => e.min60 <= 0.1).length, m60.length), pct(m60.filter((e) => (e.at60 ?? 1) <= 0.1).length, m60.length), pct(m6.filter((e) => (e.at6h ?? 1) <= 0.1).length, m6.length), pct(dropQuiet, m60.filter((e) => e.min60 <= 0.1).length)].join("\t"));
+  }
+}
+const group = (f: (e: Entry) => string, es = out) => { const m = new Map<string, Entry[]>(); for (const e of es) { const k = f(e); (m.get(k) ?? m.set(k, []).get(k)!).push(e); } return m; };
+console.log(`mints with a leader buy >= ${MIN_BUY} SOL: ${mints.length}; non-memecoin skipped ${skippedNonMeme}; no entry price within 2 min ${skippedNoPrice}; entries ${out.length}; data ends ${new Date(dataEnd).toISOString()}`);
+table("ALL", group(() => "all"));
+function dead(name: string, groups: Map<string, Entry[]>) {
+  console.log(`\n${name}: tape goes silent within 60 min of entry (matured 6h only)`);
+  console.log(["group", "n", "silent<=60m", "of those: leader sold at all", "leader sold at <=50% of entry", "silent<=10m"].join("\t"));
+  for (const [k, es0] of groups) { const es = es0.filter((e) => e.matured6h); const d = es.filter((e) => e.lastObsMin <= 60); console.log([k, es.length, pct(d.length, es.length), pct(d.filter((e) => e.leaderSold).length, d.length), pct(es.filter((e) => e.leaderSoldBelow50).length, es.length), pct(es.filter((e) => e.lastObsMin <= 10).length, es.length)].join("\t")); }
+}
+dead("ALL", group(() => "all")); dead("BY AGE", group(bucket)); dead("BY VENUE", group((e) => e.venue ?? "unknown")); dead("BY COVERAGE", group((e) => (e.others >= 3 ? "covered" : "thin")));
+table("BY TOKEN AGE AT LEADER BUY", group(bucket));
+table("BY TAPE COVERAGE (other-wallet swaps within ±2 min of entry)", group((e) => (e.others >= 3 ? "covered" : "thin")));
+table("BY VENUE", group((e) => e.venue ?? "unknown"));
+table("COVERED ENTRIES ONLY, BY AGE", group(bucket, out.filter((e) => e.others >= 3)));
+const byLeader = group((e) => e.leader.slice(0, 8));
+console.log("\nTOP LEADERS BY COLLAPSE RATE (n>=15, min60<=10%, matured):");
+[...byLeader].map(([k, es]) => { const m = es.filter((e) => e.matured60); return { k, n: m.length, c: m.filter((e) => e.min60 <= 0.1).length }; }).filter((x) => x.n >= 15).sort((a, b) => b.c / b.n - a.c / a.n).slice(0, 12).forEach((x) => console.log(`${x.k}\t${x.n}\t${pct(x.c, x.n)}`));
+db.close();

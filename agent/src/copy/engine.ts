@@ -31,6 +31,7 @@ import type { ParsedSwap } from "../chain/parse";
 import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
 import { rugCheck } from "../market/rugcheck";
+import type { ShadowLogger } from "../shadow/log";
 import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
@@ -85,6 +86,8 @@ export class CopyEngine {
     private db: DB,
     private executor: Executor,
     private wallet: PublicKey | null,
+    /** Logs every copyable leader buy and what became of it, with or without SOL. Observation only (see shadow/log.ts). */
+    private shadow: ShadowLogger | null = null,
   ) {}
 
   /** One action per token at a time, so a buy and a sell can't race. */
@@ -114,6 +117,7 @@ export class CopyEngine {
    *   account — the reason is GodsEye's own state (no SOL, paused, limits): the copy-log row is throttled too
    */
   private skip(swap: ParsedSwap, weight: number, symbol: string, key: string, reason: string, account = false): void {
+    this.shadow?.setOutcome(swap, key.split(":")[0]);
     const now = Date.now();
     const q = this.quiet.get(key);
     const quiet = !!q && now < q.until;
@@ -194,6 +198,7 @@ export class CopyEngine {
       }
       return;
     }
+    this.shadow?.observe(swap, seenAt, weight, symbol); // from here on it is a copyable buy: log it and rug-screen it, whatever happens next
     // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
     if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
@@ -233,10 +238,12 @@ export class CopyEngine {
       this.db
         .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
         .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
+      this.shadow?.setOutcome(swap, "bought");
       this.balance = null; // the wallet just spent SOL
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
+      this.shadow?.setOutcome(swap, "buy_failed");
       say("error", `Copy buy of ${symbol} failed: ${(e as Error).message.slice(0, 200)}`);
     }
   }

@@ -361,4 +361,78 @@ CREATE TABLE IF NOT EXISTS stream_ip_seen (
   first_seen TEXT NOT NULL,
   last_seen TEXT NOT NULL
 );
+
+-- SHADOW LOG (agent/src/shadow/): the first copyable leader buy of every token, what the rug screen saw in it, and what the
+-- token did afterwards. Observation only: nothing here moves money or changes a copy decision, and it works with an empty wallet.
+CREATE TABLE IF NOT EXISTS shadow_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  mint TEXT NOT NULL UNIQUE,
+  symbol TEXT,
+  leader TEXT NOT NULL,
+  leader_signature TEXT NOT NULL,
+  leader_ts TEXT NOT NULL,
+  leader_weight REAL,
+  seen_at TEXT NOT NULL,
+  leader_sol REAL NOT NULL,
+  -- what the leader paid per token: the price every later sample is compared with
+  entry_price_sol REAL NOT NULL,
+  entry_price_usd REAL,
+  -- what a copy would have held (SOL), for quoting a sell at each mark
+  sim_size_sol REAL,
+  token_age_sec REAL,
+  venue TEXT,
+  -- what the copy engine did with this buy: bought · late · balance · paused · rug · unverified … (null until it decided)
+  copy_outcome TEXT,
+  -- the rug screen, run on arrival. pending · done · chain_unreadable · holders_failed · holders_timeout · queue_full · error
+  screen_status TEXT NOT NULL DEFAULT 'pending',
+  screened_at TEXT,
+  screen_ms INTEGER,
+  chain_ms INTEGER,
+  rugcheck_ms INTEGER,
+  holders_ms INTEGER,
+  -- what the screen would have decided (pass / blocked), why, and the cutoffs in force at the time (JSON)
+  verdict TEXT,
+  blocks TEXT,
+  warnings TEXT,
+  limits TEXT,
+  -- raw inputs, so cutoffs can be re-tuned later without re-reading the chain
+  mint_authority TEXT,
+  freeze_authority TEXT,
+  extensions TEXT,
+  rugcheck_ok INTEGER,
+  rugcheck_score REAL,
+  rugcheck_pools INTEGER,
+  lp_locked_pct REAL,
+  top10_pct REAL,
+  launch_bundle_pct REAL,
+  launch_buyers INTEGER,
+  cluster_pct REAL,
+  cluster_size INTEGER,
+  cluster_from_creator INTEGER,
+  insider_pct REAL
+);
+CREATE INDEX IF NOT EXISTS idx_shadow_candidates_seen ON shadow_candidates(seen_at);
+
+-- What each candidate's price, liquidity and exit looked like 1 min … 24 h later. A missing price is recorded as a result
+-- (no_price), not left as a gap: a token that stops being quoted is the rug a trade log can't see.
+CREATE TABLE IF NOT EXISTS shadow_samples (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  candidate_id INTEGER NOT NULL,
+  horizon_sec INTEGER NOT NULL,
+  sampled_at TEXT NOT NULL,
+  -- ok = priced · no_price = nobody quoted a price · missed = GodsEye wasn't running when this sample was due
+  status TEXT NOT NULL CHECK (status IN ('ok','no_price','missed')),
+  price_usd REAL,
+  price_source TEXT,
+  liquidity_usd REAL,
+  -- selling what a copy would hold, as Jupiter quotes it right then: SOL back (null = no quote; the error says why)
+  sell_quote_sol REAL,
+  sell_quote_error TEXT,
+  -- RugCheck asked again (first horizons only): how soon its report fills in for a new token
+  rugcheck_ok INTEGER,
+  rugcheck_score REAL,
+  rugcheck_pools INTEGER,
+  lp_locked_pct REAL,
+  UNIQUE (candidate_id, horizon_sec)
+);
 `;

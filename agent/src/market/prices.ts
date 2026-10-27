@@ -11,6 +11,8 @@ export interface PriceQuote {
   priceUsd: number;
   source: "jupiter" | "birdeye" | "geckoterminal";
   decimals?: number;
+  /** Pool liquidity in USD, when the source says (Jupiter does). */
+  liquidityUsd?: number;
 }
 
 export async function getPrices(mints: string[]): Promise<Map<string, PriceQuote>> {
@@ -22,7 +24,7 @@ export async function getPrices(mints: string[]): Promise<Map<string, PriceQuote
   } catch (e) {
     console.warn(`Jupiter price API unavailable: ${(e as Error).message}`);
   }
-  for (const [m, p] of jup) out.set(m, { priceUsd: p.usdPrice, source: "jupiter", decimals: p.decimals });
+  for (const [m, p] of jup) out.set(m, { priceUsd: p.usdPrice, source: "jupiter", decimals: p.decimals, liquidityUsd: p.liquidity });
 
   let missing = wanted.filter((m) => !out.has(m));
   if (missing.length) {

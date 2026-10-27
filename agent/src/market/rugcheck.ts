@@ -28,7 +28,7 @@ import { config } from "../config";
 import { fetchJson } from "../http";
 import { rpcUrl } from "../config";
 import { say } from "../log";
-import { describeHolders, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
+import { describeHolders, type HolderMetrics, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
 
 export interface OnchainMint {
   mintAuthority: string | null;
@@ -125,7 +125,7 @@ async function readMint(mint: string): Promise<OnchainMint> {
   };
 }
 
-async function readRugCheck(mint: string): Promise<RugCheckSummary | null> {
+export async function readRugCheck(mint: string): Promise<RugCheckSummary | null> {
   try {
     return await fetchJson<RugCheckSummary>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 10_000 });
   } catch {
@@ -143,43 +143,112 @@ export interface RugCheckRow {
   checked_at: string;
 }
 
+/** Everything one look at a token found: the raw inputs as well as the verdict (the shadow log keeps them all). */
+export interface Screen {
+  /** null = Solana couldn't be read. */
+  onchain: OnchainMint | null;
+  /** null = RugCheck unreachable (or not asked, because Solana couldn't be read). */
+  rc: RugCheckSummary | null;
+  holders: HolderMetrics | null;
+  /** off = holder check disabled or the coin is trusted · failed / timeout = couldn't be measured (the live path then skips the buy). */
+  holdersStatus: "ok" | "off" | "failed" | "timeout";
+  /** Judged from whatever was read; null when Solana couldn't be read. */
+  verdict: RugVerdict | null;
+  chainMs: number;
+  rugcheckMs: number;
+  holdersMs: number | null;
+}
+
+async function runScreen(mint: string): Promise<Screen> {
+  const t0 = Date.now();
+  let onchain: OnchainMint;
+  try {
+    onchain = await readMint(mint);
+  } catch {
+    return { onchain: null, rc: null, holders: null, holdersStatus: "off", verdict: null, chainMs: Date.now() - t0, rugcheckMs: 0, holdersMs: null };
+  }
+  const chainMs = Date.now() - t0;
+  const t1 = Date.now();
+  const rc = await readRugCheck(mint);
+  const rugcheckMs = Date.now() - t1;
+  const verdict = judgeRugRisk(mint, onchain, rc, {
+    blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist, minLockedPct: config.lpMinLockedPct,
+  });
+  // Bundled or clustered supply. If the holders can't be read in time, the live path doesn't trade it this cycle (fail closed).
+  let holders: HolderMetrics | null = null;
+  let holdersStatus: Screen["holdersStatus"] = "off";
+  let holdersMs: number | null = null;
+  if (config.holderCheckEnabled && !config.rugAllowlist.includes(mint) && mint !== SOL_MINT) {
+    const t2 = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outcome = await Promise.race([
+      measureHolders(mint, insiderPctFromReport(rc)).then(
+        (m) => ({ m }),
+        () => ({ m: null }),
+      ),
+      new Promise<{ m: null; timeout: true }>((r) => {
+        timer = setTimeout(() => r({ m: null, timeout: true }), config.holderCheckTimeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+    holdersMs = Date.now() - t2;
+    if (outcome.m) {
+      holders = outcome.m;
+      holdersStatus = "ok";
+      const holderBlocks = judgeHolders(holders, {
+        bundleMaxPct: config.bundleMaxPct, clusterMaxPct: config.clusterMaxPct, top10MaxPct: config.top10MaxPct, insiderMaxPct: config.insiderMaxPct,
+      });
+      verdict.blocks.push(...holderBlocks);
+      verdict.warnings.push(`Holders: ${describeHolders(holders)}`);
+      if (holderBlocks.length) verdict.verdict = "blocked";
+    } else holdersStatus = "timeout" in outcome ? "timeout" : "failed";
+  }
+  return { onchain, rc, holders, holdersStatus, verdict, chainMs, rugcheckMs, holdersMs };
+}
+
+/** Looks at a token fresh (no cache). Two callers asking about the same token at once share one look. */
+const looking = new Map<string, Promise<Screen>>();
+export function screenToken(mint: string): Promise<Screen> {
+  let p = looking.get(mint);
+  if (!p) {
+    p = runScreen(mint).finally(() => looking.delete(mint));
+    looking.set(mint, p);
+  }
+  return p;
+}
+
+/** What RugCheck's report said, in the few numbers worth keeping. */
+export function rugcheckFacts(rc: RugCheckSummary | null): { ok: boolean; score: number | null; pools: number; lockedPct: number | null } {
+  return {
+    ok: rc !== null,
+    score: typeof rc?.score_normalised === "number" ? rc.score_normalised : null,
+    pools: (rc?.markets ?? []).filter((m) => m.lp).length,
+    lockedPct: lockedLiquidityPct(rc),
+  };
+}
+
+/** Stores a finished verdict as the token's cached rug check. */
+export function saveVerdict(db: DB, mint: string, symbol: string, v: RugVerdict, announce = true): void {
+  const before = db.prepare("SELECT verdict FROM rug_checks WHERE mint = ?").get(mint) as { verdict: string } | undefined;
+  db.prepare(
+    `INSERT INTO rug_checks (mint, symbol, verdict, blocks, warnings, rugcheck_score, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(mint) DO UPDATE SET symbol=excluded.symbol, verdict=excluded.verdict, blocks=excluded.blocks, warnings=excluded.warnings,
+       rugcheck_score=excluded.rugcheck_score, checked_at=excluded.checked_at`,
+  ).run(mint, symbol, v.verdict, JSON.stringify(v.blocks), JSON.stringify(v.warnings), v.rugcheckScore, nowIso());
+  if (announce && v.verdict === "blocked" && before?.verdict !== "blocked") say("warn", `Rug check: won't trade ${symbol} — ${v.blocks.join("; ")}.`);
+}
+
 /** Checks a token (cached for RUG_CHECK_CACHE_HOURS). Returns null if Solana couldn't be read. */
 export async function rugCheck(db: DB, mint: string, symbol: string): Promise<RugVerdict | null> {
   const cached = db.prepare("SELECT * FROM rug_checks WHERE mint = ?").get(mint) as RugCheckRow | undefined;
   if (cached && Date.now() - new Date(cached.checked_at).getTime() < config.rugCheckCacheHours * 3_600_000) {
     return { verdict: cached.verdict, blocks: JSON.parse(cached.blocks), warnings: JSON.parse(cached.warnings), rugcheckScore: cached.rugcheck_score };
   }
-  let onchain: OnchainMint;
-  try {
-    onchain = await readMint(mint);
-  } catch {
-    return null; // fail closed: can't verify → don't trade it this cycle
-  }
-  const rc = await readRugCheck(mint);
-  const v = judgeRugRisk(mint, onchain, rc, {
-    blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist, minLockedPct: config.lpMinLockedPct,
-  });
-  // Bundled or clustered supply. If the holders can't be read in time, don't trade it this cycle (fail closed).
-  if (config.holderCheckEnabled && !config.rugAllowlist.includes(mint) && mint !== SOL_MINT) {
-    const m = await Promise.race([
-      measureHolders(mint, insiderPctFromReport(rc)).catch(() => null),
-      new Promise<null>((r) => setTimeout(() => r(null), config.holderCheckTimeoutMs)),
-    ]);
-    if (!m) return null;
-    const holderBlocks = judgeHolders(m, {
-      bundleMaxPct: config.bundleMaxPct, clusterMaxPct: config.clusterMaxPct, top10MaxPct: config.top10MaxPct, insiderMaxPct: config.insiderMaxPct,
-    });
-    v.blocks.push(...holderBlocks);
-    v.warnings.push(`Holders: ${describeHolders(m)}`);
-    if (holderBlocks.length) v.verdict = "blocked";
-  }
-  db.prepare(
-    `INSERT INTO rug_checks (mint, symbol, verdict, blocks, warnings, rugcheck_score, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(mint) DO UPDATE SET symbol=excluded.symbol, verdict=excluded.verdict, blocks=excluded.blocks, warnings=excluded.warnings,
-       rugcheck_score=excluded.rugcheck_score, checked_at=excluded.checked_at`,
-  ).run(mint, symbol, v.verdict, JSON.stringify(v.blocks), JSON.stringify(v.warnings), v.rugcheckScore, nowIso());
-  if (v.verdict === "blocked" && cached?.verdict !== "blocked") say("warn", `Rug check: won't trade ${symbol} — ${v.blocks.join("; ")}.`);
-  return v;
+  const s = await screenToken(mint);
+  if (!s.verdict) return null; // fail closed: can't verify → don't trade it this cycle
+  if (s.holdersStatus === "failed" || s.holdersStatus === "timeout") return null;
+  saveVerdict(db, mint, symbol, s.verdict);
+  return s.verdict;
 }
 
 /** Keeps only tokens that pass the rug check. */

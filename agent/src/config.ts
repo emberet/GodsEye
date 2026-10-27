@@ -162,6 +162,12 @@ export const config = {
   /** Give up (and skip the buy) if the holder check takes longer than this. */
   holderCheckTimeoutMs: envNum("HOLDER_CHECK_TIMEOUT_MS", 8000),
 
+  // ---- Shadow log (see src/shadow/): rug-screens and follows every copyable leader buy, with or without SOL ----
+  shadowEnabled: envBool("SHADOW_ENABLED", true),
+  /** Screens running at once, and how many may wait; beyond that a candidate is logged without a screen. */
+  shadowMaxScreens: envNum("SHADOW_MAX_SCREENS", 2),
+  shadowMaxQueue: envNum("SHADOW_MAX_QUEUE", 40),
+
   // ---- Misc ----
   /** Never track these wallets (exchanges, your own wallets…). */
   ignoreWallets: list("IGNORE_WALLETS"),
