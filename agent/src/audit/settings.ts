@@ -12,6 +12,9 @@ export const auditSettings = {
   /** Would-block limits. */
   gateMaxImpactPct: envNum("GATE_MAX_IMPACT_PCT", 3),
   gateMaxDriftPct: envNum("GATE_MAX_DRIFT_PCT", 15),
+  /** The pool(s) a buy goes through must be able to take this many times its size back before the price falls gateExitDropPct (read from chain). */
+  gateMinExitMultiple: envNum("GATE_MIN_EXIT_MULTIPLE", 3),
+  gateExitDropPct: envNum("GATE_EXIT_DROP_PCT", 20),
   /** Largest round-trip loss (buy then sell at the same size, quoted now) the gate accepts, %. */
   gateMaxRoundTripLossPct: envNum("GATE_MAX_ROUND_TRIP_LOSS_PCT", 15),
   /** Worst-case network and priority fees as a share of the trade. */

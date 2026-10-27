@@ -217,7 +217,7 @@ test("gate: a clean quote at a fair price passes every limit", () => {
   assert.ok(Math.abs(g.priceImpactPct! - 0.4) < 1e-9, "Jupiter reports a fraction: 0.004 is 0.4%");
   assert.ok(Math.abs(g.roundTripLossPct! - 7) < 1e-9);
   assert.equal(g.route, "Pump.fun Amm");
-  assert.deepEqual(g.checks.map((c) => [c.check, c.result]), [["buy_quote", "pass"], ["price_impact", "pass"], ["entry_drift", "pass"], ["sell_quote", "pass"], ["round_trip", "pass"], ["fees", "pass"]]);
+  assert.deepEqual(g.checks.map((c) => [c.check, c.result]), [["buy_quote", "pass"], ["price_impact", "pass"], ["entry_drift", "pass"], ["sell_quote", "pass"], ["round_trip", "pass"], ["exit_capacity", "na"], ["fees", "pass"]]);
 });
 
 test("gate: each limit blocks on its own, with a reason", () => {
@@ -482,7 +482,7 @@ test("the gate runs on every candidate, with an empty wallet too, and its result
   const g = JSON.parse(done.gate);
   assert.equal(g.sizeSol, 0.1);
   assert.equal(g.wouldBlock, false);
-  assert.equal(g.checks.length, 6);
+  assert.equal(g.checks.length, 7, "six off the quotes, and the exit-capacity check (not applicable without pool reads)");
 
   // Gate faster than the decision: its result is already there when the row is written.
   const fast = new CopyabilityGate(fakeDeps().deps, settings({ gateConcurrency: 4, gateMaxQueue: 10 }));

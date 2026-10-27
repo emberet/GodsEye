@@ -20,7 +20,7 @@ import { NON_MEMECOIN_MINTS, SOL_MINT, USDC_MINT, USDT_MINT } from "@godseye/sha
 import { JITO_TIP_ACCOUNTS, PLUMBING, VENUE_LABELS, VENUE_RANK } from "./programs";
 
 /** Rent locked in a new token account (refunded when it's closed). Not part of the trade. */
-export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280;
+export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280; // fallback only: parseSwaps reads the real rent from each transaction
 const DUST_TOKENS = 1e-9;
 const STABLECOINS: Record<string, "USDC" | "USDT"> = { [USDC_MINT]: "USDC", [USDT_MINT]: "USDT" };
 const MIN_SOL = 0.0001;
@@ -205,9 +205,11 @@ export function parseSwaps(tx: TxLike, wallet: string, opts: ParseOptions = {}):
   // Token accounts opened (rent paid) or closed (rent refunded) in this transaction.
   const preIdx = new Set(pre.map((b) => b.accountIndex));
   const postIdx = new Set(post.map((b) => b.accountIndex));
-  const opened = post.filter((b) => !preIdx.has(b.accountIndex) && b.mint !== SOL_MINT).length;
-  const closed = pre.filter((b) => !postIdx.has(b.accountIndex) && b.mint !== SOL_MINT).length;
-  lamports += (opened - closed) * TOKEN_ACCOUNT_RENT_LAMPORTS;
+  // The rent is what the account itself holds: it differs by account size (a Token-2022 account with extensions is bigger) and
+  // by cluster rent settings, so it is read from the transaction, not assumed. The constant is only the fallback for data without balances.
+  const rentOf = (accountIndex: number, balances: number[] | undefined): number => (balances?.[accountIndex] ?? 0) > 0 ? balances![accountIndex] : TOKEN_ACCOUNT_RENT_LAMPORTS;
+  for (const b of post) if (!preIdx.has(b.accountIndex) && b.mint !== SOL_MINT) lamports += rentOf(b.accountIndex, meta.postBalances);
+  for (const b of pre) if (!postIdx.has(b.accountIndex) && b.mint !== SOL_MINT) lamports -= rentOf(b.accountIndex, meta.preBalances);
 
   // Wrapped SOL counts as SOL.
   const wsol = deltas.get(SOL_MINT);

@@ -12,6 +12,7 @@
  *   • pausable transfers              — can stop all selling
  *   • new accounts start frozen       — you may be unable to sell
  *   • mint authority enabled          — can print more and dump (allowlist trusted bridged coins)
+ *   • transfer fee of RUG_MAX_TRANSFER_FEE_BPS or more (Token-2022: taken from every buy and sell)
  *   • RugCheck risk score ≥ RUG_MAX_RISK_SCORE, or flagged as rugged/honeypot
  *   • liquidity not locked: less than LP_MIN_LOCKED_PCT of the pools' liquidity (by USD) is locked or burned,
  *     so whoever added it can pull it (pump.fun curves and graduated pools count as locked)
@@ -19,7 +20,7 @@
  *     funded by one wallet or by the creator, top-10 holders holding too much, or a RugCheck insider network
  * WARNINGS (logged + shown, not blocking — common on legit big tokens):
  *   • top holders own a lot (often exchanges / pools)
- *   • transfer hook · mutable metadata
+ *   • transfer hook · mutable metadata · any smaller transfer fee, or an authority that can still change it
  *   • liquidity lock unknown (RugCheck has no pool data yet)
  * If Solana can't be read, the token is skipped this cycle (fail closed).
  */
@@ -29,8 +30,11 @@ import { fetchJson } from "../http";
 import { rpcUrl } from "../config";
 import { say } from "../log";
 import { describeHolders, type HolderMetrics, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
+import { profileMint, tradeTraits } from "./mint-profile";
 
 export interface OnchainMint {
+  /** The token program that owns the mint (SPL Token or Token-2022). */
+  tokenProgram?: string | null;
   mintAuthority: string | null;
   freezeAuthority: string | null;
   extensions: { extension: string; state?: Record<string, unknown> }[];
@@ -58,8 +62,14 @@ export interface RugVerdict {
  * Share of the coin's pool liquidity that's locked or burned (%), weighted by each pool's USD liquidity;
  * a plain average when RugCheck has no USD values. null = no pool data.
  */
-export function lockedLiquidityPct(rc: RugCheckSummary | null): number | null {
-  const pools = (rc?.markets ?? []).filter((m) => m.lp && typeof m.lp.lpLockedPct === "number");
+/**
+ * Pools whose liquidity is not a fungible LP token but positions (Orca Whirlpools, Raydium CLMM, Meteora DLMM): "% locked" does
+ * not describe them the way it does an AMM pool, because who owns the positions is the question, not how much LP is burned.
+ */
+export const isConcentratedMarket = (marketType: string | undefined): boolean => /clmm|whirlpool|orca|dlmm|concentrated/i.test(marketType ?? "");
+
+export function lockedLiquidityPct(rc: RugCheckSummary | null, opts: { skipConcentrated?: boolean } = {}): number | null {
+  const pools = (rc?.markets ?? []).filter((m) => m.lp && typeof m.lp.lpLockedPct === "number" && !(opts.skipConcentrated && isConcentratedMarket(m.marketType)));
   if (!pools.length) return null;
   const weight = (m: (typeof pools)[number]) => Math.max(0, (m.lp!.quoteUSD ?? 0) + (m.lp!.baseUSD ?? 0));
   const total = pools.reduce((s, m) => s + weight(m), 0);
@@ -72,7 +82,7 @@ export function judgeRugRisk(
   mint: string,
   onchain: OnchainMint,
   rc: RugCheckSummary | null,
-  opts: { blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[]; minLockedPct?: number },
+  opts: { blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[]; minLockedPct?: number; maxTransferFeeBps?: number; concentratedPools?: "block" | "warn" },
 ): RugVerdict {
   const blocks: string[] = [];
   const warnings: string[] = [];
@@ -87,16 +97,25 @@ export function judgeRugRisk(
     if (ext.extension === "defaultAccountState" && st.accountState === "frozen") blocks.push("new holders start frozen");
     if (ext.extension === "transferHook" && st.programId) warnings.push("has a transfer hook (custom code runs on every transfer)");
   }
+  // What the contract does to a trade beyond the authorities above: a transfer fee (taken from every buy and sell) and the like.
+  for (const t of tradeTraits(profileMint(onchain), { maxFeeBps: opts.maxTransferFeeBps ?? 1000 })) (t.severity === "block" ? blocks : warnings).push(t.text);
   if (trusted && blocks.length) blocks.length = 0;
 
   const score = typeof rc?.score_normalised === "number" ? rc.score_normalised : null;
   if (rc) {
     if (score !== null && score >= opts.maxRiskScore && !trusted) blocks.push(`RugCheck risk score ${score}/100`);
     const minLocked = opts.minLockedPct ?? 0;
-    const locked = lockedLiquidityPct(rc);
+    // Default: every pool counts. With concentrated pools set to "warn" they are left out of the lock figure (it doesn't describe
+    // positions) and, if they hold the liquidity, say so instead of blocking.
+    const skip = opts.concentratedPools === "warn";
+    const locked = lockedLiquidityPct(rc, { skipConcentrated: skip });
+    const concentrated = (rc?.markets ?? []).filter((m) => m.lp && isConcentratedMarket(m.marketType));
     if (minLocked > 0 && !trusted) {
-      if (locked === null) warnings.push("liquidity lock unknown (RugCheck has no pool data yet)");
-      else if (locked < minLocked) blocks.push(`liquidity not locked: only ${Math.round(locked)}% of the pool liquidity is locked or burned (needs ${minLocked}%)`);
+      if (locked === null) warnings.push(skip && concentrated.length ? "liquidity is in concentrated-liquidity positions, so no lock figure applies (who owns the positions isn't checked)" : "liquidity lock unknown (RugCheck has no pool data yet)");
+      else if (locked < minLocked) {
+        const hint = concentrated.length && !skip ? "; part of it sits in concentrated-liquidity positions, where this figure doesn't describe ownership (LP_CONCENTRATED_POOLS=warn to leave those out)" : "";
+        blocks.push(`liquidity not locked: only ${Math.round(locked)}% of the pool liquidity is locked or burned (needs ${minLocked}%)${hint}`);
+      } else if (skip && concentrated.length) warnings.push("part of the liquidity is in concentrated-liquidity positions, not counted in the lock figure");
     }
     for (const r of rc.risks ?? []) {
       const n = r.name.toLowerCase();
@@ -109,8 +128,8 @@ export function judgeRugRisk(
   return { verdict: blocks.length ? "blocked" : "pass", blocks: [...new Set(blocks)], warnings: [...new Set(warnings)], rugcheckScore: score };
 }
 
-async function readMint(mint: string): Promise<OnchainMint> {
-  const res = await fetchJson<{ result?: { value?: { data?: { parsed?: { info?: Record<string, unknown> } } } }; error?: { message: string } }>(rpcUrl(), {
+export async function readMint(mint: string): Promise<OnchainMint> {
+  const res = await fetchJson<{ result?: { value?: { owner?: string; data?: { parsed?: { info?: Record<string, unknown> } } } }; error?: { message: string } }>(rpcUrl(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getAccountInfo", params: [mint, { encoding: "jsonParsed" }] }),
@@ -119,6 +138,7 @@ async function readMint(mint: string): Promise<OnchainMint> {
   const info = res.result?.value?.data?.parsed?.info;
   if (!info) throw new Error("not a token mint");
   return {
+    tokenProgram: res.result?.value?.owner ?? null,
     mintAuthority: (info.mintAuthority as string | null) ?? null,
     freezeAuthority: (info.freezeAuthority as string | null) ?? null,
     extensions: (info.extensions as OnchainMint["extensions"]) ?? [],
@@ -173,6 +193,7 @@ async function runScreen(mint: string): Promise<Screen> {
   const rugcheckMs = Date.now() - t1;
   const verdict = judgeRugRisk(mint, onchain, rc, {
     blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist, minLockedPct: config.lpMinLockedPct,
+    maxTransferFeeBps: config.rugMaxTransferFeeBps, concentratedPools: config.lpConcentratedPools,
   });
   // Bundled or clustered supply. If the holders can't be read in time, the live path doesn't trade it this cycle (fail closed).
   let holders: HolderMetrics | null = null;

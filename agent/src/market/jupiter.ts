@@ -38,7 +38,7 @@ export interface JupQuote {
   /** Minimum the swap may return after slippage. */
   otherAmountThreshold: string;
   priceImpactPct: string;
-  routePlan: { swapInfo: { label?: string } }[];
+  routePlan: { swapInfo: { label?: string; ammKey?: string; inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string } }[];
 }
 
 export async function jupiterQuote(inputMint: string, outputMint: string, amountAtomic: bigint, slippageBps = 50, retries = 1): Promise<JupQuote> {

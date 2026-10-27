@@ -19,6 +19,7 @@
     "replay": "npm run replay -w agent --",
     "shadow": "npm run shadow -w agent --",
     "audit": "npm run audit -w agent --",
+    "pool": "npm run pool -w agent --",
     "wallet": "npm run wallet -w agent",
     "status": "npm run status -w agent",
     "stream:ips": "npm run stream:ips -w agent",

@@ -70,7 +70,7 @@ export interface AuditReport {
     wouldPass: number;
     incomplete: number;
     byReason: Record<string, number>;
-    median: { impactPct: number | null; driftPct: number | null; roundTripLossPct: number | null; ms: number | null; ageSec: number | null };
+    median: { impactPct: number | null; driftPct: number | null; roundTripLossPct: number | null; exitCapacitySol: number | null; ms: number | null; ageSec: number | null };
   };
   /** Gate verdicts against what those tokens did next, from the shadow log (empty when there is no settled outcome yet). */
   calibration: { group: string; tally: Tally }[];
@@ -86,7 +86,7 @@ export function buildAuditReport(db: DB, sinceMs: number): AuditReport {
   const since = new Date(sinceMs).toISOString();
   const empty: AuditReport = {
     since, decisions: 0, byOutcome: {}, failedChecks: {},
-    gate: { byStatus: {}, wouldBlock: 0, wouldPass: 0, incomplete: 0, byReason: {}, median: { impactPct: null, driftPct: null, roundTripLossPct: null, ms: null, ageSec: null } },
+    gate: { byStatus: {}, wouldBlock: 0, wouldPass: 0, incomplete: 0, byReason: {}, median: { impactPct: null, driftPct: null, roundTripLossPct: null, exitCapacitySol: null, ms: null, ageSec: null } },
     calibration: [], wallets: { byState: {}, byGate: {}, changes: 0, evaluations: 0 },
   };
   if (!auditTablesExist(db)) return empty;
@@ -114,6 +114,7 @@ export function buildAuditReport(db: DB, sinceMs: number): AuditReport {
         impactPct: median(gs.flatMap((g) => (g.priceImpactPct === null ? [] : [g.priceImpactPct]))),
         driftPct: median(gs.flatMap((g) => (g.driftPct === null ? [] : [g.driftPct]))),
         roundTripLossPct: median(gs.flatMap((g) => (g.roundTripLossPct === null ? [] : [g.roundTripLossPct]))),
+        exitCapacitySol: median(gs.flatMap((g) => (g.exitCapacitySol == null ? [] : [g.exitCapacitySol]))),
         ms: median(gs.map((g) => g.ms)),
         ageSec: median(gs.flatMap((g) => (g.ageSec === null ? [] : [g.ageSec]))),
       },
@@ -131,7 +132,7 @@ export function buildAuditReport(db: DB, sinceMs: number): AuditReport {
         ["gate would block", joined.filter((j) => j.g.wouldBlock).map((j) => j.s)],
         ["gate would pass", joined.filter((j) => !j.g.wouldBlock).map((j) => j.s)],
       ];
-      for (const name of ["buy_quote", "sell_quote", "price_impact", "entry_drift", "round_trip", "fees"]) {
+      for (const name of ["buy_quote", "sell_quote", "price_impact", "entry_drift", "round_trip", "exit_capacity", "fees"]) {
         groups.push([`${name} failed`, joined.filter((j) => j.g.checks.some((c) => c.check === name && c.result === "fail")).map((j) => j.s)]);
         groups.push([`${name} passed`, joined.filter((j) => j.g.checks.some((c) => c.check === name && c.result === "pass")).map((j) => j.s)]);
       }
@@ -164,7 +165,7 @@ export function formatAuditReport(r: AuditReport): string {
     `  runs:            ${kv(g.byStatus)}`,
     `  would have blocked ${g.wouldBlock} · passed ${g.wouldPass} (of which ${g.incomplete} had a quote missing)`,
     `  limits that failed: ${kv(g.byReason)}`,
-    `  medians:         price impact ${f1(g.median.impactPct, "%")} · drift from the leader's price ${f1(g.median.driftPct, "%")} · buy-then-sell loss ${f1(g.median.roundTripLossPct, "%")} · quote time ${g.median.ms === null ? "—" : `${Math.round(g.median.ms)} ms`} · quoted ${f1(g.median.ageSec, " s")} after the leader`,
+    `  medians:         price impact ${f1(g.median.impactPct, "%")} · drift from the leader's price ${f1(g.median.driftPct, "%")} · buy-then-sell loss ${f1(g.median.roundTripLossPct, "%")} · sellable into the pool before a fall ${f1(g.median.exitCapacitySol, " SOL")} · quote time ${g.median.ms === null ? "—" : `${Math.round(g.median.ms)} ms`} · quoted ${f1(g.median.ageSec, " s")} after the leader`,
   );
   if (r.calibration.length) {
     out.push("", "GATE AGAINST WHAT THE TOKENS DID (shadow log, settled = first hour passed; interval is 95% Wilson)");
