@@ -28,7 +28,8 @@
     "publish-dashboard": "npm run publish-dashboard -w agent",
     "dashboard": "npm run dev -w dashboard",
     "test": "npm test -w shared && npm test -w agent && npm test -w dashboard",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w agent && npm run typecheck -w dashboard"
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w agent && npm run typecheck -w dashboard",
+    "backfill:closed": "npm run backfill:closed -w agent"
   },
   "engines": {
     "node": ">=20.10"

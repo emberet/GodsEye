@@ -3,3 +3,4 @@ export * from "./env";
 export * from "./db";
 export * from "./proof";
 export * from "./stats";
+export * from "./closed-trades";

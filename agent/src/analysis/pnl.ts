@@ -48,6 +48,11 @@ export interface ClosedPosition {
   /** Blocks of the first buy and the closing sell, when known. */
   openedSlot?: number;
   closedSlot?: number;
+  /** The opening buy's price (SOL per token), token age (seconds since launch, null if unknown), venue and Jito-tip flag. */
+  openedPriceSol?: number;
+  openedTokenAgeSec?: number | null;
+  openedVenue?: string | null;
+  openedJitoTip?: number;
 }
 
 export interface RealizedEvent {
@@ -74,6 +79,7 @@ export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
   type St = {
     qty: number; cost: number; costUsd: number; usdKnown: boolean; peak: number; openedAt: string; openedSlot?: number;
     accCost: number; accProceeds: number; accCostUsd: number; accProceedsUsd: number; early: boolean;
+    openPrice: number; openAge: number | null; openVenue: string | null; openTip: number;
   };
   const state = new Map<string, St>();
   const closed: ClosedPosition[] = [];
@@ -87,6 +93,7 @@ export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
         st = {
           qty: 0, cost: 0, costUsd: 0, usdKnown: true, peak: 0, openedAt: s.ts, openedSlot: s.slot,
           accCost: 0, accProceeds: 0, accCostUsd: 0, accProceedsUsd: 0, early: s.token_age_sec !== null && s.token_age_sec <= earlyBuySeconds,
+          openPrice: s.price_sol, openAge: s.token_age_sec, openVenue: s.venue, openTip: s.jito_tip,
         };
         state.set(s.mint, st);
       }
@@ -134,6 +141,10 @@ export function realize(swaps: SwapLite[], earlyBuySeconds: number): Realized {
         earlyEntry: st.early,
         openedSlot: st.openedSlot,
         closedSlot: s.slot,
+        openedPriceSol: st.openPrice,
+        openedTokenAgeSec: st.openAge,
+        openedVenue: st.openVenue,
+        openedJitoTip: st.openTip,
       });
       state.delete(s.mint);
     }

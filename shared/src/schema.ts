@@ -108,6 +108,38 @@ CREATE TABLE IF NOT EXISTS wallet_swaps (
 );
 CREATE INDEX IF NOT EXISTS idx_swaps_wallet_ts ON wallet_swaps(wallet, ts);
 CREATE INDEX IF NOT EXISTS idx_swaps_mint ON wallet_swaps(mint);
+-- price path of a token over time (entry_price_rank) and retention pruning by age
+CREATE INDEX IF NOT EXISTS idx_swaps_mint_ts ON wallet_swaps(mint, ts);
+CREATE INDEX IF NOT EXISTS idx_swaps_ts ON wallet_swaps(ts);
+
+-- CLOSED ROUND TRIPS, materialised from wallet_swaps with the average-cost logic in agent/src/analysis/pnl.ts
+-- (backfilled once, then kept up to date each time a wallet is analysed; see shared/src/closed-trades.ts).
+-- entry_ts / exit_ts are Unix epoch SECONDS (wallet_swaps.ts is ISO-8601 UTC text; converted on write).
+-- entry_sol / exit_sol: SOL cost and proceeds; return_pct = pnl_sol / entry_sol * 100 (SOL terms).
+-- jito_tip_entry: wallet_swaps.jito_tip of the opening buy (1 = tipped Jito, 0 = not).
+-- entry_price_rank: share (0..1) of the token's observed prices, from its first observed swap up to exit,
+-- that were below the entry price (0 = bought at the lowest seen). NULL if fewer than 5 observations.
+CREATE TABLE IF NOT EXISTS closed_trades (
+  id INTEGER PRIMARY KEY,
+  wallet TEXT NOT NULL,
+  mint TEXT NOT NULL,
+  entry_slot INTEGER,
+  entry_ts INTEGER NOT NULL,
+  exit_ts INTEGER NOT NULL,
+  entry_sol REAL,
+  exit_sol REAL,
+  pnl_sol REAL,
+  return_pct REAL,
+  hold_sec INTEGER,
+  token_age_sec_at_entry INTEGER,
+  venue_entry TEXT,
+  jito_tip_entry REAL,
+  entry_price_rank REAL,
+  UNIQUE (wallet, mint, entry_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_closed_trades_wallet_ts ON closed_trades(wallet, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_closed_trades_mint_ts ON closed_trades(mint, entry_ts);
+CREATE INDEX IF NOT EXISTS idx_closed_trades_exit ON closed_trades(exit_ts);
 
 -- Rolled-up performance per wallet (recomputed on every analysis)
 CREATE TABLE IF NOT EXISTS wallet_stats (
@@ -264,6 +296,7 @@ CREATE TABLE IF NOT EXISTS wallet_activity (
 );
 CREATE INDEX IF NOT EXISTS idx_activity_last_seen ON wallet_activity(last_seen_at);
 CREATE INDEX IF NOT EXISTS idx_activity_pnl ON wallet_activity(live_pnl_sol);
+CREATE INDEX IF NOT EXISTS idx_activity_promoted_seen ON wallet_activity(promoted, last_seen_at);
 
 -- SOL's hourly USD close (for valuing USDC/USDT-priced swaps in SOL)
 CREATE TABLE IF NOT EXISTS sol_price_hourly (
