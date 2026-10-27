@@ -31,7 +31,7 @@ import { LiveStream, streamConfigured } from "./stream/stream";
 import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
 import { notBots, refreshCopyReplays } from "./smart/copy-check";
-import { CRON_OPTS } from "./schedule";
+import { every } from "./schedule";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 /** Bump when the P&L rules change so stored stats are recomputed once at startup. */
@@ -125,14 +125,13 @@ async function main() {
   for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron })) {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
-  const opts = CRON_OPTS;
-  cron.schedule(config.positionCron, positions, opts);
-  if (shadow) cron.schedule("* * * * *", followShadow, opts);
-  cron.schedule(config.analyzeCron, analyze, opts);
-  cron.schedule(config.learnCron, learn, opts);
-  cron.schedule(config.discoverCron, discover, opts);
+  every(config.positionCron, positions);
+  if (shadow) every("* * * * *", followShadow);
+  every(config.analyzeCron, analyze);
+  every(config.learnCron, learn);
+  every(config.discoverCron, discover);
   setInterval(poll, Math.max(5, config.pollSeconds) * 1000);
-  cron.schedule("7 */3 * * *", () => void refreshHourlySolPrices(db), opts);
+  every("7 */3 * * *", () => void refreshHourlySolPrices(db));
   // SOL's price history must be loaded before any USDC/USDT-priced swap can be valued.
   await initSolPrices(db);
   // After a P&L rule change, refresh every wallet's stats once from stored swaps — no network needed.
@@ -154,18 +153,18 @@ async function main() {
     setMeta(db, "stats_version", STATS_VERSION);
   }
   // Once an hour: what reading wallet history actually cost in RPC requests.
-  cron.schedule("0 * * * *", () => {
+  every("0 * * * *", () => {
     const u = rpcUsage(60);
     if (u.calls) say("info", `RPC for wallet history, last hour: ${u.calls.toLocaleString("en-US")} requests, ${u.avgPerSec.toFixed(1)}/sec on average, busiest minute ${u.peakPerSec.toFixed(1)}/sec (cap ${config.rpcMaxRps}/sec)${u.throttled ? `; the RPC rate-limited ${u.throttled.toLocaleString("en-US")} of them — lower RPC_MAX_RPS` : "; no rate limiting"}.`);
-  }, opts);
+  });
   if (live) {
     // Smart money: who counts (every 5 min) and what their trades did next (every 5 min).
     live.smart.refresh();
-    cron.schedule("*/5 * * * *", () => void job("smart money", async () => {
+    every("*/5 * * * *", () => void job("smart money", async () => {
       const n = live.smart.evaluate();
       live.smart.refresh();
       if (n) say("learn", `Smart money: measured ${n} price moves after smart trades and signals.`);
-    }), opts);
+    }));
     // Copy gate: replay what copying each smart-money candidate would have earned, a slice at a time.
     const replays = () => job("copy replay", async () => {
       // Smart-money candidates and the wallets the weight rules would copy (both are gated on the replay).
@@ -173,10 +172,10 @@ async function main() {
       const n = await refreshCopyReplays(db, notBots(db, wallets), { budgetMs: 60_000 });
       if (n) live.smart.refresh();
     }, false);
-    cron.schedule("2-59/5 * * * *", () => void replays(), opts);
+    every("2-59/5 * * * *", () => void replays());
     void replays();
     live.start();
-    cron.schedule("17 3 * * *", () => live.prune(), opts);
+    every("17 3 * * *", () => live.prune());
   }
 
   // Resume copying whoever the last learning run picked, then get the pipeline going.
