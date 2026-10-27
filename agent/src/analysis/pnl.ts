@@ -174,6 +174,12 @@ export interface ComputedStats {
 
 const DAY = 86_400_000;
 
+/** Transactions an hour from a first-look history scan (null below 20 signatures). Pure; ported to Rust in rust/ingest (ge-parse bot.rs). */
+export function txPerHourFrom(signaturesSeen: number, oldestSeenAt: string | null | undefined, now: number): number | null {
+  const spanHours = oldestSeenAt ? (now - Date.parse(oldestSeenAt)) / 3_600_000 : 0;
+  return signaturesSeen >= 20 ? signaturesSeen / Math.max(0.25, spanHours) : null;
+}
+
 export function computeStats(swaps: SwapLite[], r: Realized, now: number, earlyBuySeconds: number): ComputedStats {
   const since = (days: number) => new Date(now - days * DAY).toISOString();
   const d7 = since(7);

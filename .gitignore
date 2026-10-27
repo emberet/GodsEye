@@ -15,3 +15,5 @@ next-env.d.ts
 .DS_Store
 .claude/
 dashboard/.next-site/
+# Rust ingest build output
+rust/ingest/target/

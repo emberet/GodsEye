@@ -1,0 +1,29 @@
+# Example systemd unit for ge-ingest (not installed by anything; copy and adapt).
+#   sudo cp target/release/ge-ingest /usr/local/bin/
+#   sudo cp deploy/ge-ingest.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now ge-ingest
+# Put ONLY the gRPC settings in /etc/godseye/ingest.env (GRPC_URL, GRPC_TOKEN, optional STREAM_PROGRAMS), mode 0600.
+# Do not point this at the agent's .env: ge-ingest needs no wallet keys and should not see them.
+[Unit]
+Description=GodsEye Rust ingest (Yellowstone gRPC -> NDJSON unix socket)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=godseye
+Group=godseye
+EnvironmentFile=/etc/godseye/ingest.env
+Environment=GE_INGEST_SOCKET=/run/godseye/ingest.sock
+Environment=GE_INGEST_METRICS_ADDR=127.0.0.1:9466
+RuntimeDirectory=godseye
+RuntimeDirectoryPreserve=yes
+ExecStart=/usr/local/bin/ge-ingest
+Restart=always
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+[package]
+name = "ge-ingest"
+description = "GodsEye ingest service: Yellowstone gRPC -> parsed swaps as NDJSON over a unix socket. Read-only: never signs or sends transactions."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+ge-parse = { path = "../ge-parse" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "fs", "signal"] }
+tokio-stream = "0.1"
+tonic = { version = "0.12", features = ["tls", "tls-roots", "gzip"] }
+prost = "0.13"
+prost-types = "0.13"
+serde_json = "1"
+
+[build-dependencies]
+tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
+protoc-bin-vendored = "3"
+
+[dev-dependencies]
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "decode"
+harness = false

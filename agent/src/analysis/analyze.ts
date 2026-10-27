@@ -18,7 +18,7 @@ import type { ParsedSwap } from "../chain/parse";
 import { cachedTokenInfo, launchDue, recordLaunch, tokenInfo } from "../market/tokens";
 import { getPrices } from "../market/prices";
 import { classify } from "./classifier";
-import { computeStats, realize, type SwapLite } from "./pnl";
+import { computeStats, realize, type SwapLite, txPerHourFrom } from "./pnl";
 import { assignTier, STATE_EVIDENCE, type TierInput } from "./tiers";
 import { checkExit, isCrashExit } from "./crash";
 
@@ -194,8 +194,7 @@ export async function analyzeWallet(
   let lowerBound = 0;
   let txPerHour = row.tx_per_hour;
   if (firstLook) {
-    const spanHours = h.oldestSeenAt ? (now - Date.parse(h.oldestSeenAt)) / 3_600_000 : 0;
-    txPerHour = h.signaturesSeen >= 20 ? h.signaturesSeen / Math.max(0.25, spanHours) : null;
+    txPerHour = txPerHourFrom(h.signaturesSeen, h.oldestSeenAt, now);
     createdAt = h.oldestSeenAt;
     lowerBound = h.reachedOrigin ? 0 : 1;
     funder = h.funder;
