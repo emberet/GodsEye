@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS wallets (
   kind_reasons TEXT NOT NULL DEFAULT '[]',
   copy_weight REAL NOT NULL DEFAULT 0,
   weight_reason TEXT,
+  -- why the wallet is junk (a bot, or copying it lost in the replay); the public dashboard leaves these out
+  junk_reason TEXT,
   last_analyzed_at TEXT,
   last_activity_at TEXT,
   -- newest signature GodsEye has read for this wallet (so it only reads new ones next time)

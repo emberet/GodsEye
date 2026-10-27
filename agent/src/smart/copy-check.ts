@@ -54,6 +54,17 @@ export function copyReason(r: CopyReplay | null, cfg: ReplayCfg): string | null 
   return null;
 }
 
+/**
+ * Pure: why a wallet is junk for the public dashboard, or null. Junk = a bot, or copying it was replayed and lost
+ * (a positive verdict needs evidence: a wallet not replayed yet, or with too few copies or too thin a tape, isn't junk).
+ */
+export function junkReason(b: BotSigns, r: CopyReplay | null, bc: BotCfg, rc: ReplayCfg): string | null {
+  const bot = botReason(b, bc);
+  if (bot) return bot;
+  if (r && r.n >= rc.minCopies && r.coverage !== null && r.coverage >= rc.minCoverage && (r.median_ret_pct ?? 0) <= 0) return copyReason(r, rc);
+  return null;
+}
+
 export const botCfg = (): BotCfg => ({ minHoldSec: config.smartBotMinHoldSec, maxTxPerHour: config.smartBotMaxTxPerHour, maxSameBlock: config.smartBotMaxSameBlock });
 export const replayCfg = (): ReplayCfg => ({ minCopies: config.smartReplayMinCopies, minCoverage: config.smartReplayMinCoverage });
 

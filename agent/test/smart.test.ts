@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { openDb } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import { detectSignal, leadStats, returnPct, SmartMoney } from "../src/smart/smart-money";
-import { botReason, copyReason, refreshCopyReplays } from "../src/smart/copy-check";
+import { botReason, copyReason, junkReason, refreshCopyReplays } from "../src/smart/copy-check";
 
 /** A copy replay that passes the copy gate (median +5% over 20 copies, well covered). */
 const copyable = (db: ReturnType<typeof openDb>, wallet: string, median = 5, n = 20, coverage = 0.9) =>
@@ -198,4 +198,15 @@ test("copy replays: missing ones are replayed and stored; fresh ones are left al
   const row = db.prepare("SELECT n, delay_sec, implausible FROM copy_replays WHERE wallet = 'L'").get() as { n: number; delay_sec: number; implausible: number };
   assert.deepEqual([row.n, row.delay_sec, row.implausible], [1, 5, 0]);
   assert.equal(await refreshCopyReplays(db, ["L"], { budgetMs: 10_000 }), 0);
+});
+
+test("junk: a bot, or a replay with enough evidence that copying lost; no replay or thin evidence isn't junk", () => {
+  const human = { median_hold_sec: 600, tx_per_hour: 3, same_block_round_trips: 0 };
+  const replay = { delay_sec: 5, n: 20, coverage: 0.9, median_ret_pct: -3 };
+  assert.match(junkReason({ ...human, tx_per_hour: 180 }, null, bCfg, rCfg)!, /^bot:/);
+  assert.match(junkReason(human, replay, bCfg, rCfg)!, /median −3\.0%/);
+  assert.equal(junkReason(human, null, bCfg, rCfg), null);
+  assert.equal(junkReason(human, { ...replay, n: 4 }, bCfg, rCfg), null);
+  assert.equal(junkReason(human, { ...replay, coverage: 0.1 }, bCfg, rCfg), null);
+  assert.equal(junkReason(human, { ...replay, median_ret_pct: 4 }, bCfg, rCfg), null);
 });

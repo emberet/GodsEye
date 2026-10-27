@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db";
 import { commitProof, verifyProofChain, type ProofEntry } from "../src/proof";
-import { filterWallets, getAllWalletRows, getLeaders, getSummary, getWalletDetail, getWalletGroups } from "../src/dashboard-data";
+import { filterWallets, getAllWalletRows, getLeaders, getLiveWallets, getSmartMoney, getSummary, getWalletDetail, getWalletGroups } from "../src/dashboard-data";
 
 function seed() {
   const db = openDb(":memory:");
@@ -69,4 +69,27 @@ test("public log lines hide IP addresses, keys in URLs and local paths", async (
   assert.equal(redactLog("GET https://rpc.example?api_key=abc123&x=1"), "GET https://rpc.example?api_key=[hidden]&x=1");
   assert.equal(redactLog("failed at /Users/someone/GodsEye/agent"), "failed at ~/GodsEye/agent");
   assert.equal(redactLog("Bought 2.5 SOL of PUMP, +$1,234"), "Bought 2.5 SOL of PUMP, +$1,234");
+});
+
+test("public dashboard: bots and wallets copying lost on are left out of every list and count", () => {
+  const db = openDb(":memory:");
+  const now = new Date().toISOString();
+  const add = (a: string, junk: string | null) => {
+    db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, tier, funder, junk_reason) VALUES (?, ?, 'test', 'proven', 'FUNDER', ?)").run(a, now, junk);
+    db.prepare("INSERT INTO wallet_activity (address, first_seen_at, last_seen_at, swaps, buys, sells, volume_sol) VALUES (?, ?, ?, 1, 1, 0, 1)").run(a, now, now);
+    db.prepare("INSERT INTO smart_wallets (address, source, active, reason, updated_at) VALUES (?, 'analyzed', 0, ?, ?)").run(a, junk ?? "no longer qualifies", now);
+  };
+  add("GOOD", null);
+  add("GOOD2", null);
+  add("BOT", "bot: median hold 8 s (under 15 s can't be copied)");
+  add("LOSER", "copy replay: copying it 5 s late made a median −3.0% per copy (20 copies)");
+  const shown = (rows: { address: string }[]) => rows.map((r) => r.address).sort();
+  const good = ["GOOD", "GOOD2"];
+  assert.deepEqual(shown(getAllWalletRows(db)), good);
+  assert.equal(getSummary(db).walletsTracked, 2);
+  assert.equal(getSummary(db).tierCounts.proven, 2);
+  assert.deepEqual(shown(getLiveWallets(db)), good);
+  assert.equal(getWalletGroups(db)[0].size, 2);
+  assert.deepEqual(shown(getWalletGroups(db)[0].members), good);
+  assert.deepEqual(shown(getSmartMoney(db).wallets), good);
 });

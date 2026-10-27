@@ -20,6 +20,9 @@ const num = (v: string | null, d: number) => (v === null || v === "" || !Number.
 /** A funder that has paid for this many tracked wallets is probably an exchange, not a person. */
 export const LIKELY_EXCHANGE_GROUP_SIZE = 25;
 
+/** Bots and wallets copying lost on (set by the agent's learning loop) are left out of every public list and count. */
+const NOT_JUNK = "w.junk_reason IS NULL";
+
 const WALLET_ROW_SQL = `
   SELECT w.address, w.tier, w.tier_reason, w.tier_changed_at, w.kind, w.ai_score, w.copy_weight, w.is_fresh, w.funder,
          w.discovered_via, w.first_seen_at, w.chain_created_at, w.age_is_lower_bound, w.last_activity_at, w.last_analyzed_at, w.history_from,
@@ -82,9 +85,9 @@ export function getSummary(d: DB): Summary {
   const won = (t: { pnl_sol: number; pnl_usd: number | null }) => (t.pnl_usd ?? t.pnl_sol) > 0;
   const today = new Date().toISOString().slice(0, 10);
   const tierCounts = Object.fromEntries(TIERS.map((t) => [t, 0])) as Record<Tier, number>;
-  for (const r of d.prepare("SELECT tier, COUNT(*) n FROM wallets GROUP BY tier").all() as { tier: Tier; n: number }[]) tierCounts[r.tier] = r.n;
+  for (const r of d.prepare(`SELECT tier, COUNT(*) n FROM wallets w WHERE ${NOT_JUNK} GROUP BY tier`).all() as { tier: Tier; n: number }[]) tierCounts[r.tier] = r.n;
   const kindCounts = Object.fromEntries(WALLET_KINDS.map((k) => [k, 0])) as Record<WalletKind, number>;
-  for (const r of d.prepare("SELECT kind, COUNT(*) n FROM wallets GROUP BY kind").all() as { kind: WalletKind; n: number }[]) kindCounts[r.kind] = r.n;
+  for (const r of d.prepare(`SELECT kind, COUNT(*) n FROM wallets w WHERE ${NOT_JUNK} GROUP BY kind`).all() as { kind: WalletKind; n: number }[]) kindCounts[r.kind] = r.n;
   const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
   const live = isLive(hb, status);
   const streamStatus = getMeta(d, "stream_status") as Summary["stream"]["status"];
@@ -117,9 +120,9 @@ export function getSummary(d: DB): Summary {
     openPositions: open.length,
     maxPositions: num(getMeta(d, "max_positions"), 5),
     copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND mode = ? AND created_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { n: number }).n,
-    walletsTracked: (d.prepare("SELECT COUNT(*) n FROM wallets").get() as { n: number }).n,
+    walletsTracked: (d.prepare(`SELECT COUNT(*) n FROM wallets w WHERE ${NOT_JUNK}`).get() as { n: number }).n,
     leaders: (d.prepare("SELECT COUNT(*) n FROM wallets WHERE copy_weight > 0").get() as { n: number }).n,
-    freshWallets24h: (d.prepare("SELECT COUNT(*) n FROM wallets WHERE is_fresh = 1 AND first_seen_at >= ?").get(dayAgo) as { n: number }).n,
+    freshWallets24h: (d.prepare(`SELECT COUNT(*) n FROM wallets w WHERE is_fresh = 1 AND first_seen_at >= ? AND ${NOT_JUNK}`).get(dayAgo) as { n: number }).n,
     tierCounts,
     kindCounts,
     lastLearningAt: getMeta(d, "last_learning_at"),
@@ -160,14 +163,14 @@ export function getLiveWallets(d: DB, q: LiveQuery = {}): LiveWalletRow[] {
   return d
     .prepare(
       `SELECT a.*, w.tier FROM wallet_activity a LEFT JOIN wallets w ON w.address = a.address
-        WHERE (? IS NULL OR a.live_kind = ?) ORDER BY ${LIVE_SORT[q.sort ?? "pnl"]} LIMIT ?`,
+        WHERE (? IS NULL OR a.live_kind = ?) AND ${NOT_JUNK} ORDER BY ${LIVE_SORT[q.sort ?? "pnl"]} LIMIT ?`,
     )
     .all(kind, kind, Math.min(2000, Math.max(1, q.limit ?? 200))) as LiveWalletRow[];
 }
 
 /** Every wallet row (newest analysis first), capped so a published copy stays small. */
 export function getAllWalletRows(d: DB, cap = 20_000): WalletRow[] {
-  return d.prepare(`${WALLET_ROW_SQL} ORDER BY w.last_analyzed_at IS NULL, w.last_analyzed_at DESC LIMIT ?`).all(cap) as WalletRow[];
+  return d.prepare(`${WALLET_ROW_SQL} WHERE ${NOT_JUNK} ORDER BY w.last_analyzed_at IS NULL, w.last_analyzed_at DESC LIMIT ?`).all(cap) as WalletRow[];
 }
 
 /** Search / filter / sort / page the wallet database. Pure, so the hosted site can run it on a published copy. */
@@ -212,7 +215,7 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
     .all(address) as SwapRow[];
   const weightHistory = d.prepare("SELECT * FROM weight_history WHERE wallet = ? ORDER BY ts DESC LIMIT 50").all(address) as WeightChange[];
   const group = wallet.funder
-    ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
+    ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
     : [];
   const mode = tradingMode(d);
   const copies = (d.prepare("SELECT * FROM copy_trades WHERE leader = ? AND mode = ? ORDER BY created_at DESC LIMIT 50").all(address, mode) as CopyTrade[]).map(publicTrade);
@@ -243,7 +246,7 @@ export function getWalletGroups(d: DB, limit = 100): WalletGroup[] {
               SUM(w.kind='ai') ai, SUM(w.kind='human') human, SUM(w.kind='unknown') unknown, SUM(w.is_fresh) fresh,
               MAX(w.chain_created_at) newest_at, f.tier funder_tier
          FROM wallets w LEFT JOIN wallets f ON f.address = w.funder
-        WHERE w.funder IS NOT NULL
+        WHERE w.funder IS NOT NULL AND ${NOT_JUNK}
         GROUP BY w.funder
        HAVING COUNT(*) >= 2 OR SUM(w.is_fresh) >= 1
         ORDER BY newest_at DESC LIMIT ?`,
@@ -251,7 +254,7 @@ export function getWalletGroups(d: DB, limit = 100): WalletGroup[] {
     .all(limit) as Omit<WalletGroup, "members" | "likely_exchange">[];
   const members = d.prepare(
     `SELECT w.address, w.tier, w.kind, w.ai_score, w.is_fresh, w.chain_created_at, s.pnl_30d_sol, s.pnl_30d_usd
-       FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address WHERE w.funder = ? ORDER BY w.chain_created_at DESC LIMIT 30`,
+       FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address WHERE w.funder = ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 30`,
   );
   return groups.map((g) => ({ ...g, likely_exchange: g.size >= LIKELY_EXCHANGE_GROUP_SIZE, members: members.all(g.funder) as WalletGroup["members"] }));
 }
@@ -406,6 +409,7 @@ export function getSmartMoney(d: DB): SmartMoneyData {
   const wallets = d
     .prepare(
       `SELECT sw.*, w.tier, w.kind FROM smart_wallets sw LEFT JOIN wallets w ON w.address = sw.address
+        WHERE ${NOT_JUNK} AND sw.reason NOT LIKE 'bot:%' AND sw.reason NOT LIKE 'copy replay: copying%'
         ORDER BY sw.active DESC, sw.lead_n >= 10 DESC, sw.lead_median_6h DESC, sw.pnl_usd DESC LIMIT 100`,
     )
     .all() as SmartWalletRow[];

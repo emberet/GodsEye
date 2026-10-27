@@ -11,7 +11,7 @@ import { solUsdAt } from "../market/solprice";
 import { adaptThresholds } from "./adaptive";
 import { recordEvaluations } from "../audit/evaluations";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "./adaptive";
-import { botCfg, botReason, botSigns, copyReason, replayCfg, storedReplays } from "../smart/copy-check";
+import { botCfg, botReason, botSigns, copyReason, junkReason, replayCfg, storedReplays } from "../smart/copy-check";
 
 /** Every analyzed wallet as the weight rules see it, with the bot and copy gates applied unless `gates` is false. */
 function weightInputs(db: DB, gates = true) {
@@ -36,16 +36,19 @@ function weightInputs(db: DB, gates = true) {
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
     leadN: r.lead_n ?? 0, leadMedian6h: r.lead_median_6h,
   }));
+  const junk = new Map<string, string | null>();
   if (gates) {
     const signs = botSigns(db, inputs.map((w) => w.address));
     const replays = storedReplays(db);
     const [bCfg, rCfg] = [botCfg(), replayCfg()];
     for (const w of inputs) {
-      w.botGate = botReason(signs.get(w.address) ?? { median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null }, bCfg);
+      const sign = signs.get(w.address) ?? { median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null };
+      w.botGate = botReason(sign, bCfg);
       w.copyGate = w.botGate ? null : copyReason(replays.get(w.address) ?? null, rCfg);
+      junk.set(w.address, junkReason(sign, replays.get(w.address) ?? null, bCfg, rCfg));
     }
   }
-  return { rows, inputs };
+  return { rows, inputs, junk };
 }
 
 /** Wallets the weight rules would copy if they passed the copy gate: the ones worth a copy replay. */
@@ -58,11 +61,12 @@ export function copyCandidates(db: DB): string[] {
 export function runLearning(db: DB): string[] {
   // First learn the follow bar from outcomes, then weigh wallets against it.
   const minWinRate = adaptThresholds(db);
-  const { rows, inputs } = weightInputs(db);
+  const { rows, inputs, junk } = weightInputs(db);
   const cutoffs = { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate };
   const result = computeWeights(inputs, cutoffs);
 
-  const update = db.prepare("UPDATE wallets SET copy_weight = ?, weight_reason = ? WHERE address = ?");
+  // junk_reason: a bot, or copying it lost in the replay. The public dashboard leaves these wallets out.
+  const update = db.prepare("UPDATE wallets SET copy_weight = ?, weight_reason = ?, junk_reason = ? WHERE address = ?");
   const history = db.prepare("INSERT INTO weight_history (wallet, ts, old_weight, new_weight, reason) VALUES (?, ?, ?, ?, ?)");
   const ts = nowIso();
   let promoted = 0;
@@ -71,7 +75,7 @@ export function runLearning(db: DB): string[] {
     for (const r of rows) {
       const next = result.get(r.address)!;
       const w = Number(next.weight.toFixed(4));
-      update.run(w, next.reason, r.address);
+      update.run(w, next.reason, junk.get(r.address) ?? null, r.address);
       if (Math.abs(w - r.copy_weight) >= 0.01 || (w === 0) !== (r.copy_weight === 0)) {
         history.run(r.address, ts, r.copy_weight, w, next.reason);
         if (r.copy_weight === 0 && w > 0) {
