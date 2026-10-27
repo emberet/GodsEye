@@ -22,3 +22,6 @@ __pycache__/
 .venv/
 .pytest_cache/
 .ruff_cache/
+
+# Rust ingest build output
+rust/ingest/target/

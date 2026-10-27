@@ -10,6 +10,8 @@
  *                        making real money get promoted to full analysis
  *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
  * Reconnects on its own: with backoff, or every STREAM_IP_RETRY_MS while the provider rejects this IP.
+ * STREAM_PARSER=rust takes the parsed stream from the Rust ingest service instead (rust-client.ts); compare keeps
+ * this TypeScript path and only logs how the Rust results differ. Default "ts": unchanged.
  */
 import { getHeapStatistics } from "node:v8";
 import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
@@ -25,6 +27,8 @@ import type { LeaderWatcher } from "../copy/watcher";
 import { convertGrpcTx, type GrpcTxInfo } from "./convert";
 import { LiveBook } from "./live-book";
 import { SmartMoney } from "../smart/smart-money";
+import { CompareStats, RustIngestClient, comparable, eventSwaps, type IngestEvent } from "./rust-client";
+import type { TxLike } from "../chain/parse";
 
 const PING_MS = 10_000;
 const FLUSH_MS = 15_000;
@@ -82,7 +86,7 @@ export class IpHunt {
 }
 
 export function streamConfigured(): boolean {
-  return !!config.grpcUrl;
+  return !!config.grpcUrl || config.streamParser === "rust";
 }
 
 export class LiveStream {
@@ -94,6 +98,8 @@ export class LiveStream {
   private hunt = new IpHunt();
   private stopped = false;
   private timers: NodeJS.Timeout[] = [];
+  private rust: RustIngestClient | null = null;
+  private compare: CompareStats | null = null;
   readonly smart: SmartMoney;
 
   constructor(
@@ -112,12 +118,30 @@ export class LiveStream {
     this.refreshTracked();
     this.timers.push(setInterval(() => this.flush(), FLUSH_MS));
     this.timers.push(setInterval(() => this.promote(), 60_000));
+    if (config.streamParser === "rust") {
+      this.rust = new RustIngestClient(config.geIngestSocket, (e) => this.onRustEvent(e), (s, d) => this.onRustStatus(s, d));
+      this.rust.start();
+      return;
+    }
+    if (config.streamParser === "compare") {
+      const stats = (this.compare = new CompareStats());
+      this.rust = new RustIngestClient(config.geIngestSocket, (e) => stats.add("rust", e.signature, e.needsPrice ? null : comparable(e.swaps), Date.now()), (s, d) => this.onRustStatus(s, d));
+      this.rust.start();
+      this.timers.push(
+        setInterval(() => {
+          stats.expire(Date.now());
+          const line = stats.report();
+          if (line) say("info", line);
+        }, 60_000),
+      );
+    }
     void this.connect();
   }
 
   stop(): void {
     this.stopped = true;
     for (const t of this.timers) clearInterval(t);
+    this.rust?.stop();
     this.flush();
     setMeta(this.db, "stream_status", "stopped");
   }
@@ -214,17 +238,37 @@ export class LiveStream {
     const now = Date.now();
     const conv = convertGrpcTx(t.transaction as unknown as GrpcTxInfo, Number(t.slot), now);
     if (!conv) return;
+    const all: ParsedSwap[] = [];
     for (const signer of conv.signers) {
       const swaps = parseSwaps(conv.tx, signer, { solUsdAt });
-      if (!swaps.length) continue;
-      this.stats.swaps += swaps.length;
-      for (const swap of swaps) {
-        this.book.record(swap, now);
-        this.smart.onSwap(swap, now);
-      }
-      if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, conv.tx, now);
-      else if (this.tracked.has(signer)) this.pendingSwaps.push(...swaps);
+      if (this.compare) all.push(...swaps);
+      this.onSignerSwaps(signer, swaps, conv.tx, now);
     }
+    if (this.compare) this.compare.add("ts", conv.tx.transaction.signatures[0], comparable(all), now);
+  }
+
+  private onSignerSwaps(signer: string, swaps: ParsedSwap[], tx: TxLike, now: number): void {
+    if (!swaps.length) return;
+    this.stats.swaps += swaps.length;
+    for (const swap of swaps) {
+      this.book.record(swap, now);
+      this.smart.onSwap(swap, now);
+    }
+    if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, tx, now);
+    else if (this.tracked.has(signer)) this.pendingSwaps.push(...swaps);
+  }
+
+  /** STREAM_PARSER=rust: one event from ge-ingest, handled exactly like a gRPC update. */
+  private onRustEvent(e: IngestEvent): void {
+    this.stats.txs++;
+    const now = Date.now();
+    for (const { signer, swaps } of eventSwaps(e, { solUsdAt })) this.onSignerSwaps(signer, swaps, e.tx, now);
+  }
+
+  private onRustStatus(s: "connected" | "disconnected", detail?: string): void {
+    if (s === "connected") say("info", `Rust ingest connected (${config.geIngestSocket}, STREAM_PARSER=${config.streamParser}).`);
+    else say("warn", `Rust ingest socket ${config.geIngestSocket} unavailable; ${detail ?? "retrying"}.`);
+    if (config.streamParser === "rust") setMeta(this.db, "stream_status", s === "connected" ? "connected" : "reconnecting");
   }
 
   /** Writes stored swaps for tracked wallets and running totals for everyone. */

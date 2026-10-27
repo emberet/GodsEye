@@ -35,6 +35,10 @@ export const config = {
   streamIpRetryMs: envNum("STREAM_IP_RETRY_MS", 10_000),
   /** Programs whose swaps are streamed (default: the memecoin venues + Jupiter). */
   streamPrograms: list("STREAM_PROGRAMS"),
+  /** Who parses the live stream: "ts" (default, unchanged), "rust" (events from ge-ingest over GE_INGEST_SOCKET),
+   *  or "compare" (TS results are used; the Rust results are only compared and the differences logged). */
+  streamParser: ((v) => (v === "rust" || v === "compare" ? v : "ts"))(envStr("STREAM_PARSER", "ts").toLowerCase()) as "ts" | "rust" | "compare",
+  geIngestSocket: envStr("GE_INGEST_SOCKET", "/tmp/godseye-ingest.sock"),
   /** Promote a live wallet to full analysis once it has realized this much profit (USD at settlement) on the stream… */
   streamPromotePnlUsd: Math.max(STREAM_PROMOTE_PNL_FLOOR_USD, envNum("STREAM_PROMOTE_PNL_USD", 50)),
   /** …over at least this many closed trades (with ≥ 50% wins). Hard floors: $25 and 2 closed trades, whatever .env says. */

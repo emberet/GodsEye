@@ -1,0 +1,500 @@
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":185.15857276036806,"reason":"bot: 185 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":80,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":178.94760021575115,"reason":"bot: 179 transactions an hour (over 20)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":35.602251644626236,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: median hold 15 s (under 35 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":11.758023789748245,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":1804.9995,"sameBlockRoundTrips":2,"txPerHour":3.5071255292288956,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":8812.235499999999,"sameBlockRoundTrips":0,"txPerHour":294.04362880120357,"reason":"bot: 294 transactions an hour (over 20)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 35 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":2,"txPerHour":22.62261998666582,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 38 s (under 106 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":0,"txPerHour":6.561498687960639,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":3.6893369427021083,"reason":"bot: median hold 3 s (under 90 s can't be copied)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":2,"txPerHour":1.2173194119332809,"reason":"bot: median hold 15 s (under 106 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":5.8285474482619275,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":1800.2,"sameBlockRoundTrips":0,"txPerHour":5.97329557620574,"reason":null}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":4,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 32)"}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":0,"txPerHour":6.415923237898316,"reason":"bot: median hold 2 s (under 15 s can't be copied)"}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 2 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 108 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":0.6747597665454914,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":1.210698213695499,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":5.211356402579829,"reason":"bot: median hold 10 s (under 73 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":130.3924541878567,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":3,"txPerHour":0.7994549493811774,"reason":"bot: median hold 61 s (under 62 s can't be copied)"}
+{"medianHoldSec":1801.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":null,"reason":null}
+{"medianHoldSec":33269.871,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":2,"txPerHour":80,"reason":"bot: median hold 35 s (under 83 s can't be copied)"}
+{"medianHoldSec":7.5,"sameBlockRoundTrips":0,"txPerHour":38.88018374774839,"reason":"bot: median hold 8 s (under 15 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":0.852783095420574,"reason":null}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":0,"txPerHour":4.552232198439086,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":134.68331236999484,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":3.738900325121122,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":75469.7,"sameBlockRoundTrips":0,"txPerHour":15260,"reason":"bot: 15260 transactions an hour (over 171)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":1,"txPerHour":0.6729190692759154,"reason":"bot: median hold 0 s (under 64 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 15 s (under 20 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":7.25,"sameBlockRoundTrips":2,"txPerHour":1.6392170804338235,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":84,"reason":"bot: 84 transactions an hour (over 20)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":2,"txPerHour":1.038488499220653,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":22050.902000000002,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 12 s (under 74 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":2,"txPerHour":400,"reason":"bot: median hold 0 s (under 107 s can't be copied)"}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":26.41562043688501,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":0.7140476174554494,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":136078.28,"sameBlockRoundTrips":0,"txPerHour":52.19638850578109,"reason":"bot: 52 transactions an hour (over 38)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":7.7,"sameBlockRoundTrips":0,"txPerHour":1.2788071287103389,"reason":"bot: median hold 8 s (under 13 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 83 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":1.2055870155471768,"reason":"bot: median hold 10 s (under 82 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":7.45,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 7 s (under 44 s can't be copied)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":0,"txPerHour":2.136485595367602,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":84.74997551064294,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":2,"txPerHour":54.54817014699866,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":49.95522889648098,"reason":"bot: 50 transactions an hour (over 20)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: median hold 10 s (under 38 s can't be copied)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":2,"txPerHour":89.9832656121313,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":172.98202414050638,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 15 s (under 113 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":2,"txPerHour":4.823584110577986,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: bought and sold in the same block 4 times"}
+{"medianHoldSec":32,"sameBlockRoundTrips":0,"txPerHour":4.918749902991322,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":67.70145583706156,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":1,"txPerHour":0.8160291615144931,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":432.0671086633176,"reason":"bot: median hold 10 s (under 13 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":3.691802464407358,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":7.45,"sameBlockRoundTrips":2,"txPerHour":8.475988175772262,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":46.616567582504814,"reason":"bot: median hold 15 s (under 54 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":1.3895226977953716,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":3,"txPerHour":11.230859073070851,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":115.23103610100144,"reason":"bot: median hold 15 s (under 63 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":2.898404987607507,"reason":"bot: median hold 61 s (under 91 s can't be copied)"}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":0,"txPerHour":0.9217965825147674,"reason":"bot: median hold 38 s (under 118 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":25.743274455075603,"reason":"bot: 26 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 0 s (under 98 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: median hold 61 s (under 93 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":87.85459946648831,"reason":"bot: median hold 15 s (under 63 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":0.8195051607028564,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":1801.5,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":4.751245521352918,"reason":"bot: median hold 3 s (under 27 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: median hold 12 s (under 80 s can't be copied)"}
+{"medianHoldSec":7.45,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":4.366429555391343,"reason":null}
+{"medianHoldSec":26775.0985,"sameBlockRoundTrips":2,"txPerHour":12.400911631038104,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":1725.4774899478953,"reason":"bot: 1725 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":4,"txPerHour":153.45661014348195,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 10 s (under 23 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":1800.2,"sameBlockRoundTrips":1,"txPerHour":86.20122047490118,"reason":"bot: 86 transactions an hour (over 20)"}
+{"medianHoldSec":1807.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":439.7071159756832,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":2.1801506968609465,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":3.5230676524405684,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":1.2577439846147964,"reason":"bot: median hold 10 s (under 86 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":56.99582329857216,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":7.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 8 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":80,"reason":"bot: median hold 15 s (under 58 s can't be copied)"}
+{"medianHoldSec":7.7,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: median hold 8 s (under 15 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":0.8153556380285266,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":1.0712496312929871,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":30.7,"sameBlockRoundTrips":1,"txPerHour":0.9601498217781903,"reason":"bot: median hold 31 s (under 95 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":11528,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":0.8353811959317201,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":237.02401926549217,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":1,"txPerHour":1.127425172075504,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":224.96514850974555,"reason":"bot: median hold 38 s (under 88 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":120.57814421342576,"reason":"bot: median hold 6 s (under 16 s can't be copied)"}
+{"medianHoldSec":61105.173500000004,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 20 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":912.621758434484,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":49.37953381275923,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":3,"txPerHour":5.748816482367861,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":0,"txPerHour":56.45153196912979,"reason":"bot: 56 transactions an hour (over 20)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":137.4431796532782,"reason":"bot: median hold 3 s (under 44 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":1.1922166044359037,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: median hold 3 s (under 48 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":7.25,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":0.981781090893592,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":1804.9995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":1,"txPerHour":112.74985959671865,"reason":"bot: median hold 15 s (under 17 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":0.7294619678995399,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 30)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":9.027598949819414,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":63.803177704947416,"reason":"bot: 64 transactions an hour (over 20)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":40.25194002331236,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":8128,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":0.8184157575431626,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":1804.9995,"sameBlockRoundTrips":1,"txPerHour":0.8042083957278976,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":3,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":46.89241063918459,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":1807.25,"sameBlockRoundTrips":0,"txPerHour":5.677693072555208,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: 84 transactions an hour (over 40)"}
+{"medianHoldSec":1801.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":252.8883999304911,"reason":"bot: 253 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":181.43289839928946,"reason":"bot: 181 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":0.9132688488574683,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":5.142398514372497,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":234.8599135533503,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":84,"reason":"bot: median hold 15 s (under 22 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":5.562714545980897,"reason":"bot: median hold 3 s (under 99 s can't be copied)"}
+{"medianHoldSec":21643.2385,"sameBlockRoundTrips":1,"txPerHour":1.8631297770032909,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":19.05480600770812,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":2.8710008069562982,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":1.232490925785559,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.4995,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":80,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":0,"txPerHour":5.711619657154636,"reason":"bot: median hold 6 s (under 95 s can't be copied)"}
+{"medianHoldSec":9,"sameBlockRoundTrips":0,"txPerHour":10.951311200490036,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":0,"sameBlockRoundTrips":1,"txPerHour":1.132347858331519,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":7.25,"sameBlockRoundTrips":1,"txPerHour":0.9278206679347484,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":47.90663571578622,"reason":"bot: median hold 15 s (under 100 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":38,"sameBlockRoundTrips":2,"txPerHour":4.869793885973777,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: median hold 15 s (under 75 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":2,"txPerHour":80,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":80,"reason":"bot: median hold 10 s (under 44 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":2,"txPerHour":80,"reason":null}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":5.1995,"sameBlockRoundTrips":0,"txPerHour":52.92223731404357,"reason":"bot: median hold 5 s (under 40 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":391.7980986038275,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":36.44913941759378,"reason":"bot: median hold 15 s (under 93 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":2.8176544365201823,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 15 s (under 101 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":4.582137856748548,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":5,"txPerHour":null,"reason":"bot: median hold 61 s (under 89 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":2,"txPerHour":19.18938289823007,"reason":"bot: median hold 6 s (under 51 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":0.7746001801655469,"reason":"bot: median hold 15 s (under 36 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":1435.35,"sameBlockRoundTrips":1,"txPerHour":379.40527133473245,"reason":"bot: 379 transactions an hour (over 100)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":34.9814146658998,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":3,"txPerHour":4000,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":262.50167615556956,"reason":"bot: median hold 61 s (under 70 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":84,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":0.9083589461118577,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":1.3919230315170408,"reason":"bot: median hold 15 s (under 69 s can't be copied)"}
+{"medianHoldSec":9,"sameBlockRoundTrips":3,"txPerHour":80,"reason":"bot: median hold 9 s (under 70 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 54 s can't be copied)"}
+{"medianHoldSec":1807.25,"sameBlockRoundTrips":1,"txPerHour":8.760851744608031,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 20 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":33.3539652314931,"reason":"bot: 33 transactions an hour (over 20)"}
+{"medianHoldSec":7.5,"sameBlockRoundTrips":0,"txPerHour":2.633390457470779,"reason":"bot: median hold 8 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":7.45,"sameBlockRoundTrips":1,"txPerHour":37.51448058950755,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":5.039958823536412,"reason":"bot: median hold 3 s (under 10 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":32,"sameBlockRoundTrips":1,"txPerHour":49.60741352820108,"reason":"bot: 50 transactions an hour (over 20)"}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 2 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.4995,"sameBlockRoundTrips":1,"txPerHour":4.162946707598301,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":49563.3975,"sameBlockRoundTrips":0,"txPerHour":0.8045841270034257,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":3,"txPerHour":1.0181926850746572,"reason":"bot: median hold 3 s (under 118 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 91 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 3 s (under 14 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 3 s (under 12 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: median hold 15 s (under 29 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":1,"txPerHour":0.8795158046779677,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: bought and sold in the same block 4 times"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":1.8203780859548653,"reason":"bot: median hold 15 s (under 82 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":7.866943757907917,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":1807.5,"sameBlockRoundTrips":0,"txPerHour":41.87070408367985,"reason":"bot: 42 transactions an hour (over 6)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":5.497233807218302,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":4.999499999999999,"sameBlockRoundTrips":0,"txPerHour":0.7069531261930126,"reason":"bot: median hold 5 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":8.606602114919465,"reason":"bot: median hold 15 s (under 76 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":0.9395879966291162,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":1800.2,"sameBlockRoundTrips":0,"txPerHour":1.220335549564386,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 3 s (under 109 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":36.96835045043265,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":4.868386023740036,"reason":null}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":3248,"reason":"bot: median hold 12 s (under 35 s can't be copied)"}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":0,"txPerHour":318.9898922282234,"reason":"bot: median hold 38 s (under 55 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":6.408417065885902,"reason":"bot: median hold 15 s (under 61 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":4.847745211745471,"reason":"bot: median hold 10 s (under 77 s can't be copied)"}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":0,"txPerHour":0.867847832477115,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":3,"txPerHour":2.2686667384677683,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":69278.964,"sameBlockRoundTrips":0,"txPerHour":38.40037355883398,"reason":"bot: 38 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 91 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":0.7147408213168085,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":92534.588,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: 400 transactions an hour (over 20)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":88.84307218751337,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":38.20734815818772,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: median hold 15 s (under 118 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 71 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":3.7956567691331626,"reason":null}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":2,"txPerHour":5.631225143420266,"reason":"bot: median hold 6 s (under 98 s can't be copied)"}
+{"medianHoldSec":1807.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":2.5072870642060847,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":11.958472212164557,"reason":"bot: median hold 3 s (under 86 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":31175.687,"sameBlockRoundTrips":1,"txPerHour":0.7699358363277243,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":0.2,"sameBlockRoundTrips":1,"txPerHour":8.025925011744285,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":112.90197690420709,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":0.878171049742377,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":7.45,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 7 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 6 s (under 76 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":1804.9995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":0.8354005998927726,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":40.80336660417178,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":80,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":1807.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":26.989185047991484,"reason":"bot: median hold 15 s (under 75 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":2,"txPerHour":0.879467157233447,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":20427.4735,"sameBlockRoundTrips":0,"txPerHour":1.1562679988179148,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":3.7442414346784942,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":80,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":446.19137493564494,"reason":"bot: median hold 3 s (under 47 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":151.96953398536368,"reason":"bot: 152 transactions an hour (over 20)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":1807.25,"sameBlockRoundTrips":3,"txPerHour":0.7644540016294974,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":84218.142,"sameBlockRoundTrips":1,"txPerHour":154.86240195973207,"reason":"bot: 155 transactions an hour (over 20)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":0.7224509219773173,"reason":"bot: median hold 15 s (under 89 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":1.0859717860005116,"reason":"bot: median hold 15 s (under 42 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":2.183238137219636,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":1.3238668274551961,"reason":"bot: median hold 10 s (under 10 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":87.15122051289897,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.4995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":1804.9995,"sameBlockRoundTrips":2,"txPerHour":5.863011899568951,"reason":null}
+{"medianHoldSec":0,"sameBlockRoundTrips":1,"txPerHour":84,"reason":"bot: median hold 0 s (under 8 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":15288,"reason":"bot: 15288 transactions an hour (over 197)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":3.9938318373585653,"reason":null}
+{"medianHoldSec":4.999499999999999,"sameBlockRoundTrips":0,"txPerHour":6.752324023322752,"reason":"bot: median hold 5 s (under 15 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":51.559975709522554,"reason":"bot: median hold 15 s (under 40 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":0,"txPerHour":6.331987809375647,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 94 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":88.58442144245629,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":150.3305204405035,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":219.66380332865103,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":144.2081879089724,"reason":"bot: median hold 10 s (under 60 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":63.10154616316307,"reason":"bot: median hold 3 s (under 76 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":33.82146475502737,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":440.0246376557072,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":1801.5,"sameBlockRoundTrips":2,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":3,"txPerHour":null,"reason":"bot: bought and sold in the same block 3 times"}
+{"medianHoldSec":22105.938000000002,"sameBlockRoundTrips":0,"txPerHour":60.28159845432623,"reason":"bot: 60 transactions an hour (over 20)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":11.333463164450249,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":7.331652617194331,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: median hold 15 s (under 19 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":37.75,"sameBlockRoundTrips":0,"txPerHour":0.689453150753499,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 10 s (under 78 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 35 s (under 109 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":3,"txPerHour":54.89394794223937,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 15 s (under 29 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":8.286179201120257,"reason":"bot: median hold 3 s (under 78 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 39 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 9 s (under 81 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":5.447788051263564,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":59.97564289182758,"reason":"bot: 60 transactions an hour (over 20)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":3.367666663788559,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":0.8868569385381747,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 12 s (under 58 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":1.031610494137988,"reason":null}
+{"medianHoldSec":7.5,"sameBlockRoundTrips":0,"txPerHour":61.16290145863156,"reason":"bot: median hold 8 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":1.0936974892290545,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":217.6400532278058,"reason":"bot: 218 transactions an hour (over 188)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":1.0650210277307957,"reason":null}
+{"medianHoldSec":64656.1015,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":3,"sameBlockRoundTrips":2,"txPerHour":0.7018126925086836,"reason":"bot: median hold 3 s (under 13 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":1.4332785786790598,"reason":null}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":0.9352332307764324,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.75,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":1.984816364842433,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":1309.6139356079668,"reason":"bot: median hold 12 s (under 51 s can't be copied)"}
+{"medianHoldSec":5.1995,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 5 s (under 15 s can't be copied)"}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 2 s (under 15 s can't be copied)"}
+{"medianHoldSec":153154.267,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":52.8338003180859,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":122.90653290188882,"reason":"bot: 123 transactions an hour (over 20)"}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":4.553639252046539,"reason":null}
+{"medianHoldSec":12.4995,"sameBlockRoundTrips":1,"txPerHour":0.7298745235199176,"reason":"bot: median hold 12 s (under 44 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":542.0893206596866,"reason":"bot: 542 transactions an hour (over 106)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":4,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":0,"txPerHour":0.8044659839715069,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":4.629243204505652,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":80,"reason":"bot: median hold 15 s (under 36 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":5.111578735372419,"reason":null}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":0,"txPerHour":33.49386477527556,"reason":"bot: median hold 2 s (under 52 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":6,"txPerHour":3421.8352070888745,"reason":"bot: median hold 3 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":34.699359066210945,"reason":"bot: 35 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 24 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":4,"txPerHour":80,"reason":"bot: median hold 15 s (under 105 s can't be copied)"}
+{"medianHoldSec":8.75,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":3648.421296619912,"reason":"bot: 3648 transactions an hour (over 20)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":1,"txPerHour":0.7732899038993972,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":209.2149034165152,"reason":"bot: median hold 3 s (under 83 s can't be copied)"}
+{"medianHoldSec":152518.47499999998,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: 84 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":3.759131635580005,"reason":null}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":0.9492022798573159,"reason":null}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":45.53627501886277,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":1,"txPerHour":400,"reason":"bot: 400 transactions an hour (over 20)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":84,"reason":"bot: 84 transactions an hour (over 35)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":1,"txPerHour":8.191191067441132,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":1.661685602885583,"reason":"bot: median hold 3 s (under 86 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":2.0278676900826706,"reason":null}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":1,"txPerHour":1.3381682982407548,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: median hold 0 s (under 40 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":61,"sameBlockRoundTrips":3,"txPerHour":29.03569551621111,"reason":"bot: 29 transactions an hour (over 20)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":2,"txPerHour":3.362759911216413,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":0,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 0 s (under 57 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: 400 transactions an hour (over 20)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":0,"txPerHour":12.698257721440154,"reason":null}
+{"medianHoldSec":35.4995,"sameBlockRoundTrips":0,"txPerHour":560.8538672997272,"reason":"bot: 561 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":null,"reason":"bot: bought and sold in the same block 2 times"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":1.1735015708234355,"reason":"bot: median hold 61 s (under 111 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":400,"reason":"bot: 400 transactions an hour (over 20)"}
+{"medianHoldSec":41578.621,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":9,"sameBlockRoundTrips":1,"txPerHour":18940,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":3,"txPerHour":3.9108174296442133,"reason":"bot: median hold 6 s (under 15 s can't be copied)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 61 s (under 75 s can't be copied)"}
+{"medianHoldSec":1807.25,"sameBlockRoundTrips":0,"txPerHour":48.98561305682425,"reason":"bot: 49 transactions an hour (over 5)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":2,"txPerHour":55.30555226880121,"reason":"bot: 55 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":1,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":0,"txPerHour":131.61132105960274,"reason":"bot: 132 transactions an hour (over 45)"}
+{"medianHoldSec":61,"sameBlockRoundTrips":1,"txPerHour":2540,"reason":"bot: median hold 61 s (under 104 s can't be copied)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":0,"txPerHour":6704,"reason":"bot: median hold 3 s (under 66 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":3,"txPerHour":80,"reason":"bot: 80 transactions an hour (over 20)"}
+{"medianHoldSec":3,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 3 s (under 20 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":46.99592516609078,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":2,"txPerHour":1.3486802200703598,"reason":"bot: median hold 0 s (under 35 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":2,"txPerHour":33.91020399012893,"reason":"bot: 34 transactions an hour (over 20)"}
+{"medianHoldSec":9,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 9 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 12 s (under 15 s can't be copied)"}
+{"medianHoldSec":14.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 15 s (under 15 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":6.499499999999999,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 6 s (under 113 s can't be copied)"}
+{"medianHoldSec":1.7,"sameBlockRoundTrips":0,"txPerHour":null,"reason":"bot: median hold 2 s (under 15 s can't be copied)"}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":1.6916408573960855,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":0,"txPerHour":48.46418216072177,"reason":"bot: median hold 12 s (under 62 s can't be copied)"}
+{"medianHoldSec":null,"sameBlockRoundTrips":0,"txPerHour":119.234536903596,"reason":"bot: 119 transactions an hour (over 46)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":0,"txPerHour":4000,"reason":"bot: 4000 transactions an hour (over 20)"}
+{"medianHoldSec":15,"sameBlockRoundTrips":1,"txPerHour":3.95264676473886,"reason":"bot: bought and sold in the same block 1 time"}
+{"medianHoldSec":3600,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":0,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}
+{"medianHoldSec":12.2495,"sameBlockRoundTrips":2,"txPerHour":112.36867262539009,"reason":"bot: median hold 12 s (under 118 s can't be copied)"}
+{"medianHoldSec":9.998999999999999,"sameBlockRoundTrips":0,"txPerHour":108.62443710297535,"reason":"bot: median hold 10 s (under 15 s can't be copied)"}
+{"medianHoldSec":1830.5,"sameBlockRoundTrips":0,"txPerHour":null,"reason":null}
+{"medianHoldSec":38,"sameBlockRoundTrips":0,"txPerHour":0.9557756778301687,"reason":"bot: median hold 38 s (under 70 s can't be copied)"}
+{"medianHoldSec":0,"sameBlockRoundTrips":1,"txPerHour":null,"reason":"bot: median hold 0 s (under 98 s can't be copied)"}
+{"medianHoldSec":63361.791,"sameBlockRoundTrips":0,"txPerHour":2.154956908273062,"reason":null}
+{"medianHoldSec":0.4,"sameBlockRoundTrips":0,"txPerHour":1.2660854396657535,"reason":"bot: median hold 0 s (under 15 s can't be copied)"}

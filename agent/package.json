@@ -19,6 +19,8 @@
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
     "publish-dashboard": "tsx src/publish/cli.ts",
+    "rust:fixtures": "tsx src/cli/rust-fixtures.ts",
+    "bench:parse": "tsx src/cli/parse-bench.ts",
     "test": "tsx --import ../shared/test/setup.ts --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p .",
     "backfill:closed": "tsx src/cli/backfill-closed.ts"
