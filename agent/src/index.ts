@@ -31,6 +31,7 @@ import { LiveStream, streamConfigured } from "./stream/stream";
 import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
 import { notBots, refreshCopyReplays } from "./smart/copy-check";
+import { CRON_OPTS } from "./schedule";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 /** Bump when the P&L rules change so stored stats are recomputed once at startup. */
@@ -124,7 +125,7 @@ async function main() {
   for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron })) {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
-  const opts = { timezone: "UTC" };
+  const opts = CRON_OPTS;
   cron.schedule(config.positionCron, positions, opts);
   if (shadow) cron.schedule("* * * * *", followShadow, opts);
   cron.schedule(config.analyzeCron, analyze, opts);
@@ -156,7 +157,7 @@ async function main() {
   cron.schedule("0 * * * *", () => {
     const u = rpcUsage(60);
     if (u.calls) say("info", `RPC for wallet history, last hour: ${u.calls.toLocaleString("en-US")} requests, ${u.avgPerSec.toFixed(1)}/sec on average, busiest minute ${u.peakPerSec.toFixed(1)}/sec (cap ${config.rpcMaxRps}/sec)${u.throttled ? `; the RPC rate-limited ${u.throttled.toLocaleString("en-US")} of them — lower RPC_MAX_RPS` : "; no rate limiting"}.`);
-  });
+  }, opts);
   if (live) {
     // Smart money: who counts (every 5 min) and what their trades did next (every 5 min).
     live.smart.refresh();
