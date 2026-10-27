@@ -4,7 +4,7 @@ import { ComputeBudgetProgram, Keypair, PublicKey, SystemProgram, TransactionIns
 import { openDb, SOL_MINT } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import type { Executor, Fill } from "../src/copy/executor";
-import { MINT } from "./helpers";
+import { MINT, stubFetch } from "./helpers";
 
 process.env.RUG_CHECK_ENABLED = "false";
 process.env.COPY_BUDGET_SOL = "1";
@@ -151,4 +151,19 @@ test("engine: an account-wide skip (paused / no SOL) is recorded once per 10 min
   db.prepare("DELETE FROM agent_meta WHERE key = 'copy_paused'").run();
   for (let i = 0; i < 3; i++) await engine.onLeaderSwap(leaderSwap({ ts: new Date(Date.now() - 10 * 60_000).toISOString() }));
   assert.equal((db.prepare("SELECT COUNT(*) n FROM copy_trades WHERE reason LIKE 'seen %'").get() as { n: number }).n, 3);
+});
+
+test("engine: a token whose name lookup hangs is still copied within a few seconds", async () => {
+  const { db, ex, engine } = setup(0.5);
+  const NEW = "NewToken11111111111111111111111111111111pump";
+  const fake = stubFetch(() => new Promise<never>(() => undefined)); // every lookup hangs (a backed-up GeckoTerminal queue)
+  try {
+    const t0 = Date.now();
+    await engine.onLeaderSwap(leaderSwap({ mint: NEW }));
+    assert.deepEqual(ex.calls, ["buy 0.1"]);
+    assert.ok(Date.now() - t0 < 5_000, `took ${Date.now() - t0} ms`);
+    assert.equal((db.prepare("SELECT COUNT(*) n FROM positions WHERE mint = ?").get(NEW) as { n: number }).n, 1);
+  } finally {
+    fake.restore();
+  }
 });

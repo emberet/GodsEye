@@ -396,6 +396,11 @@ export interface SmartFlowRow {
   /** Price change since the first smart buy in the last 24h (%), from prices seen on the stream. */
   change_since_first_buy: number | null;
   last_trade_at: string;
+  /** "organic": a broad, independent crowd traded it; "unverified": too early to say, or not judged yet. Tokens judged thin or wash are not listed. */
+  organic: "organic" | "unverified";
+  /** Different wallets the stream has seen trade it (at least this many), and a 0-100 score of how broad its crowd is. */
+  traders: number | null;
+  organic_score: number | null;
 }
 
 export interface SmartSignalRow {
@@ -410,6 +415,7 @@ export interface SmartSignalRow {
   ret_1h: number | null;
   ret_6h: number | null;
   ret_24h: number | null;
+  organic: "organic" | "unverified";
 }
 
 /** How well signals have worked so far (the learning). */

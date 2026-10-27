@@ -21,6 +21,11 @@
  *      how much GodsEye copies it.
  * Prices come from the stream itself: the USD value of each swap ÷ tokens, for every memecoin
  * traded, so no extra API calls are needed.
+ *
+ * Only tokens with real, independent demand count (organic.ts): the stream keeps a small tally of every swap
+ * by every wallet, flows are always recorded, but a signal is made only when the token's crowd is broad enough
+ * and the wallets behind it aren't one funder's, and the feed hides tokens judged thin or wash (and, via
+ * organic-market.ts, tokens whose pool is empty).
  */
 import { type DB, isNonMemecoin, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
@@ -31,6 +36,8 @@ import { cachedTokenInfo, symbolOf, tokenInfo } from "../market/tokens";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "../learning/adaptive";
 import { MAX_PLAUSIBLE_RETURN_PCT } from "../replay/model";
 import { botCfg, botReason, botSigns, copyReason, replayCfg, storedReplays } from "./copy-check";
+import { assess, backfillFromTape, getVerdict, independentVoters, MintTally, organicSettings, saveAssessment } from "./organic";
+import { checkMarkets, marketSettings } from "./organic-market";
 
 export const HORIZONS = [
   { col: "ret_1h", bit: 1, ms: 3_600_000 },
@@ -98,6 +105,14 @@ export class SmartMoney {
   private recent = new Map<string, FlowEvent[]>();
   private lastSignal = new Map<string, number>();
   private pending: { s: ParsedSwap; priceUsd: number | null; winRate: number }[] = [];
+  /** Every swap on the stream, per token (organic.ts). */
+  readonly tally = new MintTally();
+  private gated = 0;
+  private gatedLogged = new Map<string, number>();
+  private lastPersist = 0;
+  private lastMarket = 0;
+  private marketBusy = false;
+  private funderQuery: ReturnType<DB["prepare"]> | null = null;
   /** Tokens whose name has been asked for, so each is looked up once. */
   private named = new Set<string>();
 
@@ -127,6 +142,7 @@ export class SmartMoney {
       const p = this.prices.get(s.mint);
       this.prices.set(s.mint, { usd: priceUsd, ts: now, firstSeen: p?.firstSeen ?? now });
     }
+    if (organicSettings.enabled) this.tally.record(s, this.smart.has(s.wallet), now);
     if (!this.smart.has(s.wallet)) return;
     if (this.notMeme(s.mint)) return;
     this.watched.set(s.mint, now);
@@ -137,6 +153,15 @@ export class SmartMoney {
     this.recent.set(s.mint, list);
     const sig = detectSignal(list, now, { wallets: config.smartSignalWallets, windowMinutes: config.smartSignalWindowMinutes, minUsd: config.smartSignalMinUsd });
     if (!sig) return;
+    const blocked = this.signalBlocker(s.mint, sig.wallets, now);
+    if (blocked) {
+      this.gated++;
+      if (now - (this.gatedLogged.get(s.mint) ?? 0) > 3_600_000) {
+        this.gatedLogged.set(s.mint, now);
+        void tokenInfo(this.db, s.mint).catch(() => null).then(() => say("info", `Smart money: not signalling ${symbolOf(this.db, s.mint)}: ${blocked}.`));
+      }
+      return;
+    }
     const key = `${sig.kind}:${s.mint}`;
     if (now - (this.lastSignal.get(key) ?? 0) < SIGNAL_COOLDOWN_MS) return;
     this.lastSignal.set(key, now);
@@ -148,6 +173,48 @@ export class SmartMoney {
       const verb = sig.kind === "accumulate" ? "buying" : "dumping";
       say("learn", `Smart money ${verb} ${symbolOf(this.db, s.mint)}: ${sig.wallets.length} smart wallets, $${Math.round(sig.usd).toLocaleString("en-US")} in ${config.smartSignalWindowMinutes} min.`);
     });
+  }
+
+  /** Why a signal on this token shouldn't be made (null = it may): too few independent wallets, or no real crowd or pool behind the token. */
+  private signalBlocker(mint: string, wallets: string[], now: number): string | null {
+    if (!organicSettings.enabled) return null;
+    this.funderQuery ??= this.db.prepare("SELECT funder FROM wallets WHERE address = ?");
+    const q = this.funderQuery;
+    const funderOf = (w: string) => (q.get(w) as { funder: string | null } | undefined)?.funder ?? null;
+    const independent = independentVoters(wallets, funderOf);
+    if (independent < config.smartSignalWallets) return `only ${independent} of its ${wallets.length} wallets are independent (the rest share a funder)`;
+    const st = this.tally.stats(mint, now);
+    if (st) {
+      const a = assess(st);
+      if (a.verdict !== "organic") return `${a.verdict}: ${a.reasons[0]}`;
+    }
+    const stored = getVerdict(this.db, mint);
+    if (stored?.market === "thin") return `no real pool: ${stored.market_reason}`;
+    return null;
+  }
+
+  /** Once a minute: judge every token smart money touched from the tally, keep the verdicts, and ask Jupiter about their pools. */
+  private persistOrganic(now: number): void {
+    if (!organicSettings.enabled || now - this.lastPersist < 60_000) return;
+    this.lastPersist = now;
+    this.db.transaction(() => {
+      for (const mint of this.watched.keys()) {
+        const st = this.tally.stats(mint, now);
+        if (st) saveAssessment(this.db, mint, assess(st), st, "stream", now);
+      }
+    })();
+    this.tally.evict(now);
+    setMeta(this.db, "smart_signals_gated", this.gated);
+    if (this.opts.lookupNames && marketSettings.enabled && !this.marketBusy && now - this.lastMarket >= marketSettings.everySeconds * 1000) {
+      this.lastMarket = now;
+      this.marketBusy = true;
+      void checkMarkets(this.db, undefined, undefined, now)
+        .then((r) => {
+          if (r.thin) say("learn", `Smart money: ${r.thin} token${r.thin === 1 ? "" : "s"} left out of the feed because their pool is empty or missing (checked ${r.checked} with Jupiter).`);
+        })
+        .catch(() => undefined)
+        .finally(() => (this.marketBusy = false));
+    }
   }
 
   /** Save recorded smart trades and the prices needed to measure them. */
@@ -176,6 +243,7 @@ export class SmartMoney {
         if (p) px.run(mint, p.usd, new Date(p.ts).toISOString(), new Date(p.firstSeen).toISOString());
       }
     })();
+    this.persistOrganic(now);
     // Keep the in-memory price map from growing without bound: forget tokens quiet for a day and not watched.
     if (this.prices.size > 200_000) for (const [m, p] of this.prices) if (now - p.ts > 86_400_000 && !this.watched.has(m)) this.prices.delete(m);
   }
@@ -263,6 +331,7 @@ export class SmartMoney {
   /** Recompute who counts as smart money, with each wallet's learned lead score. */
   refresh(): { active: number; dropped: number; bots: number; uncopyable: number } {
     this.purgeNonMemecoins();
+    if (organicSettings.enabled) backfillFromTape(this.db); // tokens traded before the live tally existed: judge what the stored swaps can show
     const ts = nowIso();
     const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
     const lead = new Map<string, number[]>();

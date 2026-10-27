@@ -120,7 +120,10 @@ export default function Home() {
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-extrabold">{f.symbol ?? shortAddr(f.mint)}</p>
-                  <p className="k">{f.buyers_24h} buying · {f.sellers_24h} selling</p>
+                  <p className="k">
+                    {f.buyers_24h} buying · {f.sellers_24h} selling
+                    {f.traders ? ` · ${f.traders}${f.traders >= 64 ? "+" : ""} traders` : f.organic === "unverified" ? " · not verified yet" : ""}
+                  </p>
                 </div>
                 <p className={cn("text-lg font-extrabold num", up ? "text-lime" : "text-coral")}>{signedUsd(net)}</p>
               </a>

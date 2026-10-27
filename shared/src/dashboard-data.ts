@@ -356,6 +356,12 @@ const median = (xs: number[]): number | null => {
 export function getSmartMoney(d: DB): SmartMoneyData {
   const h1 = new Date(Date.now() - 3_600_000).toISOString();
   const h24 = new Date(Date.now() - 86_400_000).toISOString();
+  // Tokens the agent judged to have no real crowd or pool (agent/src/smart/organic.ts) are left out; older databases have no verdicts yet.
+  const hasOrganic = !!d.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'token_organic'").get();
+  const joinF = hasOrganic ? "LEFT JOIN token_organic o ON o.mint = f.mint" : "";
+  const joinS = hasOrganic ? "LEFT JOIN token_organic o ON o.mint = s.mint" : "";
+  const hide = hasOrganic ? "AND COALESCE(o.verdict, 'unknown') NOT IN ('thin', 'wash')" : "";
+  const cols = hasOrganic ? "o.verdict AS organic_verdict, o.score AS organic_score, json_extract(o.stats, '$.makers') AS traders," : "NULL AS organic_verdict, NULL AS organic_score, NULL AS traders,";
   const flows = d
     .prepare(
       `SELECT f.mint, t.symbol,
@@ -368,21 +374,26 @@ export function getSmartMoney(d: DB): SmartMoneyData {
               MIN(CASE WHEN f.side='buy' THEN f.ts END) first_smart_buy_at,
               MAX(f.ts) last_trade_at,
               (SELECT f2.price_usd FROM smart_flows f2 WHERE f2.mint = f.mint AND f2.side='buy' AND f2.ts >= ? AND f2.price_usd IS NOT NULL ORDER BY f2.ts LIMIT 1) first_price,
+              ${cols}
               p.price_usd now_price
-         FROM smart_flows f LEFT JOIN token_info t ON t.mint = f.mint LEFT JOIN token_prices p ON p.mint = f.mint
-        WHERE f.ts >= ?
+         FROM smart_flows f LEFT JOIN token_info t ON t.mint = f.mint LEFT JOIN token_prices p ON p.mint = f.mint ${joinF}
+        WHERE f.ts >= ? ${hide}
         GROUP BY f.mint
         ORDER BY (buy_usd_24h - sell_usd_24h) DESC
         LIMIT 40`,
     )
-    .all(h1, h1, h24, h24) as (SmartFlowRow & { first_price: number | null; now_price: number | null })[];
+    .all(h1, h1, h24, h24) as (Omit<SmartFlowRow, "organic"> & { first_price: number | null; now_price: number | null; organic_verdict: string | null })[];
   const signals = d
     .prepare(
-      `SELECT s.id, s.ts, s.mint, t.symbol, s.kind, s.wallet_count, s.usd, s.token_age_min, s.ret_1h, s.ret_6h, s.ret_24h
-         FROM smart_signals s LEFT JOIN token_info t ON t.mint = s.mint ORDER BY s.ts DESC LIMIT 60`,
+      `SELECT s.id, s.ts, s.mint, t.symbol, s.kind, s.wallet_count, s.usd, s.token_age_min, s.ret_1h, s.ret_6h, s.ret_24h,
+              ${hasOrganic ? "o.verdict" : "NULL"} AS organic_verdict
+         FROM smart_signals s LEFT JOIN token_info t ON t.mint = s.mint ${joinS}
+        WHERE 1 = 1 ${hide}
+        ORDER BY s.ts DESC LIMIT 60`,
     )
-    .all() as SmartSignalRow[];
-  const all = d.prepare("SELECT kind, ret_1h, ret_6h, ret_24h, checked FROM smart_signals").all() as { kind: "accumulate" | "exit"; ret_1h: number | null; ret_6h: number | null; ret_24h: number | null; checked: number }[];
+    .all() as (Omit<SmartSignalRow, "organic"> & { organic_verdict: string | null })[];
+  // The scorecard judges real signals: those on tokens judged thin or wash (no crowd, no pool) would only dilute it.
+  const all = d.prepare(`SELECT s.kind, s.ret_1h, s.ret_6h, s.ret_24h, s.checked FROM smart_signals s ${joinS} WHERE 1 = 1 ${hide}`).all() as { kind: "accumulate" | "exit"; ret_1h: number | null; ret_6h: number | null; ret_24h: number | null; checked: number }[];
   const scorecard: SignalScore[] = [];
   for (const kind of ["accumulate", "exit"] as const) {
     for (const [horizon, col] of [["1h", "ret_1h"], ["6h", "ret_6h"], ["24h", "ret_24h"]] as const) {
@@ -405,8 +416,14 @@ export function getSmartMoney(d: DB): SmartMoneyData {
     droppedWallets: counts.dr ?? 0,
     flows: flows
       .filter((f) => !f.symbol || !isNonMemecoinSymbol(f.symbol))
-      .map(({ first_price, now_price, ...f }) => ({ ...f, change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null })),
-    signals: signals.filter((g) => !g.symbol || !isNonMemecoinSymbol(g.symbol)),
+      .map(({ first_price, now_price, organic_verdict, ...f }) => ({
+        ...f,
+        organic: (organic_verdict === "organic" ? "organic" : "unverified") as SmartFlowRow["organic"],
+        change_since_first_buy: first_price && now_price ? (now_price / first_price - 1) * 100 : null,
+      })),
+    signals: signals
+      .filter((g) => !g.symbol || !isNonMemecoinSymbol(g.symbol))
+      .map(({ organic_verdict, ...g }) => ({ ...g, organic: (organic_verdict === "organic" ? "organic" : "unverified") as SmartSignalRow["organic"] })),
     scorecard,
     wallets,
     trades24h: (d.prepare("SELECT COUNT(*) n FROM smart_flows WHERE ts >= ?").get(h24) as { n: number }).n,

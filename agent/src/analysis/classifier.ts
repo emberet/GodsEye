@@ -13,7 +13,7 @@ import type { SwapLite } from "./pnl";
 
 export const MIN_SWAPS_TO_CLASSIFY = 8;
 const ROUND_SIZES = [0.05, 0.1, 0.2, 0.25, 0.3, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 10, 20, 25, 50, 100];
-const DIRECT_VENUES = new Set(["pumpfun", "pumpswap", "raydium", "orca", "meteora"]);
+const DIRECT_VENUES = new Set(["pumpfun", "pumpswap", "raydium", "orca", "meteora", "meteora dbc", "meteora damm v2"]);
 
 export interface Classification {
   kind: WalletKind;

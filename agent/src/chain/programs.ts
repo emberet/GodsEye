@@ -16,8 +16,21 @@ export const VENUES: Record<string, string> = {
   Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB: "meteora",
 };
 
+/**
+ * Programs recognised only to LABEL where a swap happened. They are not in VENUES on purpose: VENUES is also what the live
+ * stream subscribes to, and subscribing to Meteora's bonding-curve launches floods wallet promotion with volume-farm wallets.
+ * (To receive them anyway, list the program ids in STREAM_PROGRAMS.)
+ */
+export const LABEL_ONLY_VENUES: Record<string, string> = {
+  dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN: "meteora dbc", // Dynamic Bonding Curve (virtual pools before migration)
+  cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG: "meteora damm v2", // where DBC tokens migrate
+};
+
+/** Every program that names a venue. */
+export const VENUE_LABELS: Record<string, string> = { ...VENUES, ...LABEL_ONLY_VENUES };
+
 /** Venue precedence when a transaction touches several (aggregator first). */
-export const VENUE_RANK = ["jupiter", "pumpfun", "pumpswap", "raydium", "orca", "meteora"];
+export const VENUE_RANK = ["jupiter", "pumpfun", "pumpswap", "raydium", "orca", "meteora", "meteora dbc", "meteora damm v2"];
 
 /** Programs that are plumbing, not a venue. */
 export const PLUMBING = new Set([

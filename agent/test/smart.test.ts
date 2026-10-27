@@ -44,6 +44,11 @@ const swap = (wallet: string, side: "buy" | "sell", usd: number, priceUsd: numbe
   solUsd: 100, usdAmount: usd, venue: "pumpswap", jitoTip: false, feeLamports: 5000,
 });
 
+/** A broad, ordinary crowd trading the token (not smart wallets): what a real market looks like to the organic check. */
+const crowd = (sm: SmartMoney, mint: string, n = 18) => {
+  for (let k = 0; k < n; k++) sm.onSwap({ ...swap(`crowd${k}`, "buy", 40, 1, 100 + k), mint, signature: `crowd-${mint}-${k}` }, T - 120_000 + k * 1000);
+};
+
 test("end to end: smart wallets converge → signal → price measured 1h later → learning", () => {
   const db = openDb(":memory:");
   const now = new Date().toISOString();
@@ -55,6 +60,7 @@ test("end to end: smart wallets converge → signal → price measured 1h later 
   const sm = new SmartMoney(db, null);
   assert.equal(sm.refresh().active, 4);
 
+  crowd(sm, "MEME");
   // Three smart wallets buy MEME at $1 within minutes
   sm.onSwap(swap("A", "buy", 300, 1, 0), T);
   sm.onSwap(swap("B", "buy", 300, 1, 1), T + 60_000);
@@ -107,6 +113,7 @@ test("non-memecoins never count as smart money: skipped when known, purged once 
   on("B", "AVGO", 1);
   on("C", "AVGO", 2);
   // Not named yet when bought, turns out to be wrapped Monero
+  crowd(sm, "WXMR");
   on("A", "WXMR", 3);
   on("B", "WXMR", 4);
   on("C", "WXMR", 5);

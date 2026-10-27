@@ -67,6 +67,12 @@ const usdOf = (sol: number): number | null => {
 /** How long a repeated skip message stays quiet. */
 const SKIP_QUIET_MS = 10 * 60_000;
 const BALANCE_CACHE_MS = 20_000;
+/**
+ * Longest a copy waits for a token's name. A brand-new token is often unknown to Shyft, and the fallback
+ * (GeckoTerminal, ~9 calls a minute, shared with every smart-money lookup) can take hours; the lookup carries
+ * on in the background and the copy goes ahead without the name.
+ */
+const NAME_WAIT_MS = 3_000;
 
 export function isPaused(db: DB): boolean {
   return getMeta(db, "copy_paused") === "1" || fs.existsSync(dataPath("PAUSE"));
@@ -199,7 +205,9 @@ export class CopyEngine {
       this.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
       return this.audit?.finish(swap, "ignored:holding");
     }
-    await tokenInfo(this.db, swap.mint).catch(() => null);
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([tokenInfo(this.db, swap.mint).catch(() => null), new Promise((r) => (timer = setTimeout(r, NAME_WAIT_MS)))]);
+    clearTimeout(timer);
     const symbol = symbolOf(this.db, swap.mint);
 
     // 1) Memecoins only. Not worth a copy-log row; reported once per token per day.

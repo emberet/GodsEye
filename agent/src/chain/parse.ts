@@ -17,7 +17,7 @@
  * whose SOL price is unknown.
  */
 import { NON_MEMECOIN_MINTS, SOL_MINT, USDC_MINT, USDT_MINT } from "@godseye/shared";
-import { JITO_TIP_ACCOUNTS, PLUMBING, VENUES, VENUE_RANK } from "./programs";
+import { JITO_TIP_ACCOUNTS, PLUMBING, VENUE_LABELS, VENUE_RANK } from "./programs";
 
 /** Rent locked in a new token account (refunded when it's closed). Not part of the trade. */
 export const TOKEN_ACCOUNT_RENT_LAMPORTS = 2_039_280;
@@ -96,7 +96,7 @@ const amountOf = (b: TokenBalanceLike): number => Number(b.uiTokenAmount.amount)
 /** Which venue a transaction used. "(via bot)" = a known DEX reached through an unknown program (trading bot / router). */
 export function detectVenue(tx: TxLike): string | null {
   const pick = (ids: string[]) => {
-    const labels = ids.map((id) => VENUES[id]).filter(Boolean);
+    const labels = ids.map((id) => VENUE_LABELS[id]).filter(Boolean);
     return VENUE_RANK.find((v) => labels.includes(v)) ?? null;
   };
   const top = tx.transaction.message.instructions.map((i) => i.programId.toString());
@@ -105,7 +105,7 @@ export function detectVenue(tx: TxLike): string | null {
   const inner = (tx.meta?.innerInstructions ?? []).flatMap((ii) => ii.instructions.map((i) => i.programId.toString()));
   const routed = pick(inner);
   if (!routed) return null;
-  const unknownTop = top.some((id) => !PLUMBING.has(id) && !VENUES[id]);
+  const unknownTop = top.some((id) => !PLUMBING.has(id) && !VENUE_LABELS[id]);
   return unknownTop ? `${routed} (via bot)` : routed;
 }
 
