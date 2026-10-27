@@ -11,6 +11,7 @@
     "learn": "tsx src/cli/learn.ts",
     "replay": "tsx src/cli/replay.ts",
     "shadow": "tsx src/cli/shadow.ts",
+    "audit": "tsx src/cli/audit.ts",
     "wallet": "tsx src/wallet/cli.ts",
     "status": "tsx src/cli/status.ts",
     "stream:ips": "tsx src/cli/stream-ips.ts",

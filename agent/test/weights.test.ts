@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeWeights, copySize, type WeightInput } from "../src/learning/weights";
+import { computeWeights, copySize, rawScore, type WeightInput } from "../src/learning/weights";
 
 const base: Omit<WeightInput, "address"> = { tier: "proven", pnl7: 2, pnl30: 6, closed30: 20, winRate30: 0.6, isFresh: false, copyPnl14: 0, copyClosed14: 0, oldWeight: 0 };
 const cfg = { maxLeaders: 3, copyLossDropSol: 0.2, minClosed: 10, minWinRate: 0.5 };
@@ -97,4 +97,13 @@ test("the follow bar applies: below the learned win rate, no weight", () => {
   assert.equal(w.get("a")!.weight, 0);
   assert.match(w.get("a")!.reason, /wins 58% of trades; GodsEye currently follows ≥ 65% \(learned\)/);
   assert.equal(w.get("b")!.weight, 1);
+});
+
+test("bot gate and copy gate: a wallet failing either gets no weight, with that reason", () => {
+  const cfg = { copyLossDropSol: 0.2, minClosed: 10, minWinRate: 0.5 };
+  const w = { address: "W", tier: "proven" as const, pnl7: 400, pnl30: 1500, closed30: 20, winRate30: 0.6, isFresh: false, copyPnl14: 0, copyClosed14: 0, oldWeight: 0 };
+  assert.ok(rawScore(w, cfg).weight > 0);
+  assert.ok(rawScore({ ...w, botGate: null, copyGate: null }, cfg).weight > 0);
+  assert.deepEqual(rawScore({ ...w, botGate: "bot: median hold 8 s" }, cfg), { weight: 0, reason: "bot: median hold 8 s" });
+  assert.deepEqual(rawScore({ ...w, copyGate: "copy replay: median −3%" }, cfg), { weight: 0, reason: "copy replay: median −3%" });
 });

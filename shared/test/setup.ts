@@ -29,6 +29,7 @@ const env: Record<string, string> = {
   GRPC_URL: "",
   GRPC_TOKEN: "",
   RUG_CHECK_ENABLED: "false",
+  GATE_LOG_ENABLED: "false",
 };
 for (const [k, v] of Object.entries(env)) process.env[k] = v;
 delete process.env.GODSEYE_DB_PATH;

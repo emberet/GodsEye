@@ -32,6 +32,7 @@ import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
 import { rugCheck } from "../market/rugcheck";
 import type { ShadowLogger } from "../shadow/log";
+import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
 import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
@@ -88,7 +89,11 @@ export class CopyEngine {
     private wallet: PublicKey | null,
     /** Logs every copyable leader buy and what became of it, with or without SOL. Observation only (see shadow/log.ts). */
     private shadow: ShadowLogger | null = null,
-  ) {}
+    /** Records every leader buy considered, check by check, and the copyability gate's log-only verdict (see audit/decisions.ts). */
+    private audit: DecisionAudit | null | undefined = undefined,
+  ) {
+    if (this.audit === undefined) this.audit = createDecisionAudit(db);
+  }
 
   /** One action per token at a time, so a buy and a sell can't race. */
   private withLock<T>(mint: string, fn: () => Promise<T>): Promise<T> {
@@ -107,7 +112,7 @@ export class CopyEngine {
   async onLeaderSwap(swap: ParsedSwap, seenAt = Date.now()): Promise<void> {
     insertSwaps(this.db, [swap]);
     this.db.prepare("UPDATE wallets SET last_activity_at = MAX(COALESCE(last_activity_at, ''), ?) WHERE address = ?").run(swap.ts, swap.wallet);
-    if (swap.side === "buy") await this.withLock(swap.mint, () => this.copyBuy(swap, seenAt));
+    if (swap.side === "buy") await this.withLock(swap.mint, () => this.copyBuy(swap, seenAt)).finally(() => this.audit?.close(swap));
     else await this.withLock(swap.mint, () => this.copySell(swap));
   }
 
@@ -118,6 +123,7 @@ export class CopyEngine {
    */
   private skip(swap: ParsedSwap, weight: number, symbol: string, key: string, reason: string, account = false): void {
     this.shadow?.setOutcome(swap, key.split(":")[0]);
+    this.audit?.skipped(swap, key, reason);
     const now = Date.now();
     const q = this.quiet.get(key);
     const quiet = !!q && now < q.until;
@@ -168,7 +174,11 @@ export class CopyEngine {
     if (held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
 
     let size = copySize(weight, config);
-    if (size <= 0) return null;
+    if (size <= 0) {
+      this.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${config.copyMinTradeSol} SOL`);
+      this.audit?.finish(swap, "skipped:size");
+      return null;
+    }
     size = Math.min(size, config.copyBudgetSol - held.c - flying.c);
     if (size < config.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true), null;
     if (mode === "real" && this.wallet) {
@@ -184,7 +194,11 @@ export class CopyEngine {
     const leader = this.db.prepare("SELECT copy_weight FROM wallets WHERE address = ?").get(swap.wallet) as { copy_weight: number } | undefined;
     const weight = leader?.copy_weight ?? 0;
     if (weight <= 0 || swap.solAmount < config.minLeaderBuySol) return;
-    if (this.db.prepare("SELECT 1 FROM positions WHERE status='open' AND mint = ?").get(swap.mint)) return;
+    this.audit?.begin(swap, seenAt, weight); // from here on this buy is a candidate and gets a row in copy_decisions
+    if (this.db.prepare("SELECT 1 FROM positions WHERE status='open' AND mint = ?").get(swap.mint)) {
+      this.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
+      return this.audit?.finish(swap, "ignored:holding");
+    }
     await tokenInfo(this.db, swap.mint).catch(() => null);
     const symbol = symbolOf(this.db, swap.mint);
 
@@ -196,17 +210,21 @@ export class CopyEngine {
         this.notMemeLogged.set(swap.mint, day);
         say("info", `Not copying ${short(swap.wallet)}'s buy of ${symbol}: ${notMeme}.`);
       }
-      return;
+      return this.audit?.discard(swap);
     }
+    this.audit?.candidate(swap, symbol);
     this.shadow?.observe(swap, seenAt, weight, symbol); // from here on it is a copyable buy: log it and rug-screen it, whatever happens next
     // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
     if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
+    this.audit?.check(swap, "lateness", "pass", `${Math.round(lateSec)}s after the leader traded (limit ${config.maxCopyDelaySeconds}s)`);
     // 3) GodsEye's own state (a quick look first, so the rug check isn't spent on a buy that can't happen)
     if ((await this.roomFor(swap, weight, symbol)) === null) return;
+    this.audit?.check(swap, "limits", "pass", "budget, positions, daily loss, balance and pause all allow it");
     // 4) The token itself (also blocks tokens that can still be minted — most bridged tokens)
     if (config.rugCheckEnabled) {
       const v = await rugCheck(this.db, swap.mint, symbol);
+      this.audit?.rug(swap, v);
       if (!v) return this.skip(swap, weight, symbol, "unverified", "couldn't verify the token on Solana");
       if (v.verdict === "blocked") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${v.blocks.join("; ")}`);
     }
@@ -223,7 +241,10 @@ export class CopyEngine {
         .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, nowIso());
       return row.changes === 0 ? null : { size, copyId: Number(row.lastInsertRowid) }; // 0 = already handled this leader trade
     });
-    if (!reserved) return;
+    if (!reserved) {
+      this.audit?.check(swap, "reserve", "fail", "this leader trade was already handled");
+      return this.audit?.finish(swap, "ignored:duplicate");
+    }
     const { size, copyId } = reserved;
     const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
     this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
@@ -239,11 +260,15 @@ export class CopyEngine {
         .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
         .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
       this.shadow?.setOutcome(swap, "bought");
+      this.audit?.check(swap, "execution", "pass", `${this.executor.mode} fill at ${fill.priceSol}`);
+      this.audit?.finish(swap, "bought", { sizeSol: fill.solAmount });
       this.balance = null; // the wallet just spent SOL
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
       this.shadow?.setOutcome(swap, "buy_failed");
+      this.audit?.check(swap, "execution", "error", (e as Error).message.slice(0, 200));
+      this.audit?.finish(swap, "buy_failed", { sizeSol: size });
       say("error", `Copy buy of ${symbol} failed: ${(e as Error).message.slice(0, 200)}`);
     }
   }

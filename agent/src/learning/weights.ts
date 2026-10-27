@@ -14,6 +14,8 @@
  *   • GodsEye also learns from its OWN results: if copying a wallet has lost
  *     GodsEye money over the last 14 days (late entries, slippage), that wallet
  *     is dropped even if the wallet itself is winning.
+ *   • Bots and wallets copying wouldn't pay on are never copied: the same bot
+ *     gate and copy gate as smart money (smart/copy-check.ts).
  *   • Only the top COPY_MAX_LEADERS earners get weight; weights add up to 1.
  *   • New weights move halfway from the old ones (no whiplash), except
  *     drops to 0, which happen at once.
@@ -36,6 +38,9 @@ export interface WeightInput {
   /** What this wallet's buys did next (from smart-money tracking): measured buys and median 6-hour move (%). */
   leadN?: number;
   leadMedian6h?: number | null;
+  /** Why it fails the bot gate / the copy gate (smart/copy-check.ts), or null if it passes. Unset = not checked. */
+  botGate?: string | null;
+  copyGate?: string | null;
 }
 
 export interface WeightResult {
@@ -62,6 +67,8 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number; minClos
   if (w.copyClosed14 >= 3 && w.copyPnl14 <= -cfg.copyLossDropSol) {
     return { weight: 0, reason: `GodsEye's copies of it lost ${sol(w.copyPnl14)} over 14 days, so it can't be copied profitably` };
   }
+  if (w.botGate) return { weight: 0, reason: w.botGate };
+  if (w.copyGate) return { weight: 0, reason: w.copyGate };
   const profit = 0.6 * Math.sqrt(w.pnl7) + 0.4 * Math.sqrt(Math.max(0, w.pnl30));
   const confidence = clamp(w.closed30 / 20, 0.1, 1);
   const winFactor = w.winRate30 === null ? 0.25 : clamp((w.winRate30 - 0.3) / 0.3, 0.25, 1);

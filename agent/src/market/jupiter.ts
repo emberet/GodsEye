@@ -41,9 +41,9 @@ export interface JupQuote {
   routePlan: { swapInfo: { label?: string } }[];
 }
 
-export async function jupiterQuote(inputMint: string, outputMint: string, amountAtomic: bigint, slippageBps = 50): Promise<JupQuote> {
+export async function jupiterQuote(inputMint: string, outputMint: string, amountAtomic: bigint, slippageBps = 50, retries = 1): Promise<JupQuote> {
   const url = `${host()}/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountAtomic}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`;
-  return fetchJson<JupQuote>(url, { headers: headers(), retries: 1 });
+  return fetchJson<JupQuote>(url, { headers: headers(), retries });
 }
 
 export interface JupSwapTx {

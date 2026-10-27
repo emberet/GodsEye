@@ -20,7 +20,7 @@ import { rpcUsage } from "./chain/rpc-budget";
 import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
-import { currentLeaders, runLearning } from "./learning/loop";
+import { copyCandidates, currentLeaders, runLearning } from "./learning/loop";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
 import { LeaderWatcher } from "./copy/watcher";
@@ -167,7 +167,9 @@ async function main() {
     }), opts);
     // Copy gate: replay what copying each smart-money candidate would have earned, a slice at a time.
     const replays = () => job("copy replay", async () => {
-      const n = await refreshCopyReplays(db, notBots(db, [...live.smart.candidates().keys()]), { budgetMs: 60_000 });
+      // Smart-money candidates and the wallets the weight rules would copy (both are gated on the replay).
+      const wallets = [...new Set([...live.smart.candidates().keys(), ...copyCandidates(db)])];
+      const n = await refreshCopyReplays(db, notBots(db, wallets), { budgetMs: 60_000 });
       if (n) live.smart.refresh();
     }, false);
     cron.schedule("2-59/5 * * * *", () => void replays(), opts);

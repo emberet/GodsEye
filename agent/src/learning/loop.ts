@@ -6,14 +6,16 @@
 import { type DB, nowIso, setMeta, type Tier } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
-import { computeWeights, type WeightInput } from "./weights";
+import { computeWeights, rawScore, type WeightInput } from "./weights";
 import { solUsdAt } from "../market/solprice";
 import { adaptThresholds } from "./adaptive";
+import { recordEvaluations } from "../audit/evaluations";
+import { FOLLOW_MIN_WIN_RATE, getParam } from "./adaptive";
+import { botCfg, botReason, botSigns, copyReason, replayCfg, storedReplays } from "../smart/copy-check";
 
-export function runLearning(db: DB): string[] {
+/** Every analyzed wallet as the weight rules see it, with the bot and copy gates applied unless `gates` is false. */
+function weightInputs(db: DB, gates = true) {
   const solNow = solUsdAt(Date.now()) ?? 0;
-  // First learn the follow bar from outcomes, then weigh wallets against it.
-  const minWinRate = adaptThresholds(db);
   const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const rows = db
     .prepare(
@@ -34,7 +36,31 @@ export function runLearning(db: DB): string[] {
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
     leadN: r.lead_n ?? 0, leadMedian6h: r.lead_median_6h,
   }));
-  const result = computeWeights(inputs, { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate });
+  if (gates) {
+    const signs = botSigns(db, inputs.map((w) => w.address));
+    const replays = storedReplays(db);
+    const [bCfg, rCfg] = [botCfg(), replayCfg()];
+    for (const w of inputs) {
+      w.botGate = botReason(signs.get(w.address) ?? { median_hold_sec: null, tx_per_hour: null, same_block_round_trips: null }, bCfg);
+      w.copyGate = w.botGate ? null : copyReason(replays.get(w.address) ?? null, rCfg);
+    }
+  }
+  return { rows, inputs };
+}
+
+/** Wallets the weight rules would copy if they passed the copy gate: the ones worth a copy replay. */
+export function copyCandidates(db: DB): string[] {
+  const { inputs } = weightInputs(db, false);
+  const cfg = { copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate: getParam(db, FOLLOW_MIN_WIN_RATE, config.followWinRateStart) };
+  return inputs.filter((w) => rawScore(w, cfg).weight > 0).map((w) => w.address);
+}
+
+export function runLearning(db: DB): string[] {
+  // First learn the follow bar from outcomes, then weigh wallets against it.
+  const minWinRate = adaptThresholds(db);
+  const { rows, inputs } = weightInputs(db);
+  const cutoffs = { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate };
+  const result = computeWeights(inputs, cutoffs);
 
   const update = db.prepare("UPDATE wallets SET copy_weight = ?, weight_reason = ? WHERE address = ?");
   const history = db.prepare("INSERT INTO weight_history (wallet, ts, old_weight, new_weight, reason) VALUES (?, ?, ?, ?, ?)");
@@ -58,6 +84,8 @@ export function runLearning(db: DB): string[] {
       }
     }
   })();
+  // Why each wallet is where it is, for every one that changed (audit/evaluations.ts). Observation only.
+  recordEvaluations(db, { inputs, results: result, cfg: cutoffs, mode: config.copyMode });
   setMeta(db, "last_learning_at", ts);
   setMeta(db, "copy_budget_sol", config.copyBudgetSol);
   const leaders = [...result.entries()].filter(([, v]) => v.weight > 0).map(([a]) => a);

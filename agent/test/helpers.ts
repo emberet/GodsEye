@@ -90,3 +90,8 @@ export function stubFetch(handler: (url: string, body: unknown) => Response | ob
   }) as typeof fetch;
   return { calls, restore: () => void (globalThis.fetch = previous) };
 }
+
+/** Give every wallet in the database a copy replay that passes the copy gate (median +5% over 20 well-covered copies). */
+export function passCopyGate(db: { prepare(sql: string): { run(...a: unknown[]): unknown } }): void {
+  db.prepare("INSERT OR REPLACE INTO copy_replays (wallet, delay_sec, n, coverage, median_ret_pct, computed_at) SELECT address, 5, 20, 0.9, 5, ? FROM wallets").run(new Date().toISOString());
+}

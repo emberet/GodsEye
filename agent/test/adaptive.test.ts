@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "@godseye/shared";
+import { passCopyGate } from "./helpers";
 import { adaptThresholds, FOLLOW_MIN_WIN_RATE, getParam, learnWinRateThreshold, type Outcome } from "../src/learning/adaptive";
 
 const cfg = { floor: 0.4, ceiling: 0.8, maxStep: 0.05, minSamples: 20 };
@@ -82,6 +83,7 @@ test("learning loop: weights stay between 0 and 1, add up to at most the whole b
   for (let i = 0; i < 12; i++) add(`P${i}`, "proven", 1 + i, 0.55 + i * 0.02, 30 + i);
   add("LOSER", "proven", -5, 0.3, 40);
   add("BOT", "unproven", 50, 0.9, 2);
+  passCopyGate(db);
   runLearning(db);
   const w = db.prepare("SELECT address, copy_weight FROM wallets").all() as { address: string; copy_weight: number }[];
   const total = w.reduce((s, r) => s + r.copy_weight, 0);
