@@ -100,3 +100,17 @@ already decoded from protobuf; both convert (including base58) and parse every s
 
 These are single-thread CPU numbers for the parser, not end-to-end latency. In rust mode Node still JSON-parses every
 event (a few KB each), so the agent-side saving is smaller than the parser speed-up.
+
+## Rust toolchain
+
+The workspace needs a current stable Rust, newer than the 1.85 that many distro packages ship
+(`ge-parse` does not compile on 1.85). `rust-toolchain.toml` in this folder selects `stable`, so on a server
+with [rustup](https://rustup.rs) installed `cargo` fetches it automatically:
+
+```sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+. "$HOME/.cargo/env"
+cd rust/ingest && cargo --version   # should print 1.86 or newer
+```
+
+Make sure `~/.cargo/bin` comes before `/usr/bin` in `PATH`, or the distro `cargo` will be used instead.

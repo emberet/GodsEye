@@ -1,0 +1,6 @@
+# Use a current stable Rust (the workspace needs newer than the 1.85 that
+# distro packages ship). With rustup installed, cargo picks this up on its own.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"
