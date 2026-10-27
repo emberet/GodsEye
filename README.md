@@ -148,3 +148,40 @@ Vercel can't see GodsEye's database, so GodsEye publishes the dashboard data to 
 - Swap parsing works from balance changes, not DEX-specific instruction formats: `agent/src/chain/parse.ts`.
 - Pure, tested logic: `analysis/pnl.ts`, `analysis/classifier.ts`, `analysis/tiers.ts`, `learning/weights.ts`, `copy/verify.ts`.
 - Proof ledger: `hash = sha256(prev_hash + "|" + canonical_json_payload)` (`shared/src/proof.ts`).
+
+## Quant layer (Python, offline)
+
+`quant/` is an offline batch job that judges whether each wallet's record is skill or luck and writes
+fractional-Kelly sizing parameters. It never signs, never holds keys, and is never in the buy path: it reads
+the SQLite DB through a read-only (`mode=ro`) connection and writes only its own two tables
+(`wallet_skill`, `sizing_params`, declared for TypeScript in `shared/src/quant-schema.ts`) through a short
+separate write connection. It reads `closed_trades` and, if that table is missing, rebuilds the same round
+trips from `wallet_swaps`.
+
+Per wallet (30-day window, 30 closed trades minimum): binomial test of win rate against matched random
+entries in the same tokens, permutation test of entry timing within each token's window, bootstrap CI on
+median return, Deflated Sharpe Ratio given the number of wallets tested, Benjamini-Hochberg FDR across
+wallets, out-of-sample persistence (first half vs second half), Beta shrinkage of win rate, and a penalty for
+profit concentrated in one trade. `verdict = 'skill'` needs FDR significance AND persistence AND the minimum
+sample AND best-trade share <= 50%. Sizing is quarter Kelly at most (`kelly_mult <= 0.25 x kelly_full`,
+never below 0, 0 for thin or negative-edge data), with drawdown and bootstrap risk-of-ruin estimates.
+Rows are valid for 6 hours.
+
+```sh
+cd quant && python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m quant.run --dry-run   # compute, write nothing
+.venv/bin/python -m quant.run             # write wallet_skill + sizing_params
+npm run quant                             # same, from the repo root
+.venv/bin/pytest -q && .venv/bin/ruff check .
+```
+
+Schedule it hourly with cron (`0 * * * * cd /opt/GodsEye/quant && .venv/bin/python -m quant.run >> ../data/quant.log 2>&1`)
+or the systemd units in `quant/deploy/`. Settings are env vars `QUANT_<NAME>` (see `quant/quant/config.py`);
+`QUANT_KELLY_FRACTION` is refused above 0.25.
+
+The agent uses the results only when you opt in:
+
+| Env | Default | Effect |
+| --- | --- | --- |
+| `QUANT_SIZING` | `off` | `shadow`: logs the quant size next to the real one, changes nothing. `on`: size = min(current size, hard cap, `COPY_MAX_TRADE_SOL`, budget x weight x `kelly_mult`) from a fresh row only, otherwise the current formula. It can only reduce a size. |
+| `QUANT_SKILL_GATE` | `off` | `on`: a leader whose verdict is `luck` gets weight 0. |

@@ -1,0 +1,113 @@
+"""Loading closed trades (closed_trades, or rebuilt from wallet_swaps) and per-token price paths."""
+
+from __future__ import annotations
+
+import sqlite3
+
+import numpy as np
+import pandas as pd
+
+from .db import has_table
+
+CLOSE_THRESHOLD = 0.01  # same rule as agent/src/analysis/pnl.ts: <=1% of peak holding left = closed
+TRADE_COLS = ["wallet", "mint", "entry_ts", "exit_ts", "entry_sol", "exit_sol", "pnl_sol", "ret", "hold_sec"]
+
+
+def to_epoch_seconds(values: pd.Series) -> pd.Series:
+    """Detects the timestamp unit (ISO text, epoch s, ms, us) and returns float epoch seconds."""
+    s = pd.Series(values)
+    if s.empty:
+        return s.astype(float)
+    num = pd.to_numeric(s, errors="coerce")
+    if num.notna().mean() > 0.9:
+        med = float(num.abs().median())
+        scale = 1e6 if med > 1e14 else 1e3 if med > 1e11 else 1.0
+        return num / scale
+    dt = pd.to_datetime(s, utc=True, errors="coerce", format="ISO8601")
+    return (dt - pd.Timestamp("1970-01-01", tz="UTC")).dt.total_seconds()
+
+
+def load_swaps(con: sqlite3.Connection, since: float | None) -> pd.DataFrame:
+    if not has_table(con, "wallet_swaps"):
+        return pd.DataFrame(columns=["wallet", "mint", "ts", "side", "token_amount", "sol_amount", "price_sol"])
+    df = pd.read_sql_query("SELECT wallet, mint, ts, side, token_amount, sol_amount, price_sol FROM wallet_swaps", con)
+    df["ts"] = to_epoch_seconds(df["ts"])
+    df = df.dropna(subset=["ts"])
+    if since is not None:
+        df = df[df["ts"] >= since]
+    return df
+
+
+def rebuild_closed_trades(swaps: pd.DataFrame) -> pd.DataFrame:
+    """Average-cost round trips per wallet and mint, mirroring realize() in agent/src/analysis/pnl.ts (SOL side)."""
+    rows = []
+    sw = swaps.assign(_o=(swaps["side"] != "buy").astype(int)).sort_values(["wallet", "ts", "_o"])
+    for wallet, g in sw.groupby("wallet", sort=False):
+        st: dict[str, dict] = {}
+        for r in g.itertuples(index=False):
+            s = st.get(r.mint)
+            if r.side == "buy":
+                if s is None or s["qty"] <= 0:
+                    s = {"qty": 0.0, "cost": 0.0, "peak": 0.0, "opened": r.ts, "acc_cost": 0.0, "acc_proc": 0.0}
+                    st[r.mint] = s
+                s["qty"] += r.token_amount
+                s["cost"] += r.sol_amount
+                s["peak"] = max(s["peak"], s["qty"])
+                continue
+            if s is None or s["qty"] <= 0 or r.token_amount <= 0:
+                continue  # sells of tokens never seen bought are ignored
+            sold = min(r.token_amount, s["qty"])
+            cost_part = s["cost"] * sold / s["qty"]
+            s["qty"] -= sold
+            s["cost"] -= cost_part
+            s["acc_cost"] += cost_part
+            s["acc_proc"] += r.sol_amount * sold / r.token_amount
+            if s["qty"] <= s["peak"] * CLOSE_THRESHOLD:
+                pnl = s["acc_proc"] - s["acc_cost"]
+                rows.append(
+                    (
+                        wallet,
+                        r.mint,
+                        s["opened"],
+                        r.ts,
+                        s["acc_cost"],
+                        s["acc_proc"],
+                        pnl,
+                        pnl / s["acc_cost"] if s["acc_cost"] > 0 else np.nan,
+                        r.ts - s["opened"],
+                    )
+                )
+                del st[r.mint]
+    return pd.DataFrame(rows, columns=TRADE_COLS)
+
+
+def load_closed_trades(con: sqlite3.Connection, since: float | None, swaps: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    if has_table(con, "closed_trades"):
+        df = pd.read_sql_query(
+            "SELECT wallet, mint, entry_ts, exit_ts, entry_sol, exit_sol, pnl_sol, hold_sec FROM closed_trades", con
+        )
+        df["entry_ts"] = to_epoch_seconds(df["entry_ts"])
+        df["exit_ts"] = to_epoch_seconds(df["exit_ts"])
+        # returns from SOL amounts, so the unit of return_pct never matters
+        df["ret"] = np.where(df["entry_sol"] > 0, df["pnl_sol"] / df["entry_sol"].where(df["entry_sol"] > 0), np.nan)
+        df["hold_sec"] = df["hold_sec"].fillna(df["exit_ts"] - df["entry_ts"])
+        source = "closed_trades"
+    else:
+        df = rebuild_closed_trades(swaps)
+        source = "wallet_swaps"
+    df = df.dropna(subset=["entry_ts", "ret"])
+    df = df[df["ret"] > -1.0000001]
+    if since is not None:
+        df = df[df["entry_ts"] >= since]
+    return df.sort_values("entry_ts").reset_index(drop=True)[TRADE_COLS], source
+
+
+def price_paths(swaps: pd.DataFrame) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """mint -> (sorted ts, price_sol) from every wallet's swaps, for matched random entries."""
+    out = {}
+    s = swaps[(swaps["price_sol"] > 0)]
+    for mint, g in s.groupby("mint"):
+        if len(g) >= 5:
+            g = g.sort_values("ts")
+            out[mint] = (g["ts"].to_numpy(float), g["price_sol"].to_numpy(float))
+    return out

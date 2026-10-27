@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./constants": "./src/constants.ts",
     "./db": "./src/db.ts",
+    "./quant-schema": "./src/quant-schema.ts",
     "./env": "./src/env.ts",
     "./proof": "./src/proof.ts",
     "./stats": "./src/stats.ts",

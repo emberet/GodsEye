@@ -15,3 +15,10 @@ next-env.d.ts
 .DS_Store
 .claude/
 dashboard/.next-site/
+
+# python quant job
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
