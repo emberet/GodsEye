@@ -12,6 +12,7 @@
  *   every 15 min  learning loop: re-weight who to copy           LEARN_CRON
  *   every 30 min  discover new wallets in the busiest pools      DISCOVER_CRON
  */
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import cron from "node-cron";
 import { getMeta, nowIso, openDb, setMeta } from "@godseye/shared";
 import { snapshotStoreConfigured } from "@godseye/shared/snapshot-store";
@@ -174,6 +175,20 @@ async function main() {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
     setMeta(db, "stats_version", STATS_VERSION);
   }
+  // Every 5 min: how long work waited for the event loop (a leader's trade waits the same) and the agent's CPU.
+  const loop = monitorEventLoopDelay({ resolution: 10 });
+  loop.enable();
+  let cpuAt = { t: Date.now(), u: process.cpuUsage() };
+  every("*/5 * * * *", () => {
+    const now = Date.now();
+    const u = process.cpuUsage(cpuAt.u);
+    const ms = (n: number) => Math.round(n / 1e5) / 10;
+    const m = { p50: ms(loop.percentile(50)), p99: ms(loop.percentile(99)), max: ms(loop.max), cpuPct: Math.round(((u.user + u.system) / 1000 / (now - cpuAt.t)) * 100), parser: config.streamParser, at: nowIso() };
+    setMeta(db, "event_loop", JSON.stringify(m));
+    if (new Date(now).getUTCMinutes() < 5) say("info", `Event loop, last 5 min: work waited ${m.p50} ms typically, ${m.p99} ms at worst 1%, ${m.max} ms max; agent CPU ${m.cpuPct}% (stream parser: ${m.parser}).`);
+    loop.reset();
+    cpuAt = { t: now, u: process.cpuUsage() };
+  });
   // Once an hour: what reading wallet history actually cost in RPC requests.
   every("0 * * * *", () => {
     const u = rpcUsage(60);
