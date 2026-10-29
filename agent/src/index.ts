@@ -20,7 +20,7 @@ import { rpcUsage } from "./chain/rpc-budget";
 import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
-import { backfillClosedTrades } from "./analysis/closed-trades";
+import { backfillClosedTradesStep } from "./analysis/closed-trades";
 import { checkpointWal, pruneHistory } from "@godseye/shared";
 import { copyCandidates, currentLeaders, runLearning } from "./learning/loop";
 import { CopyEngine, isPaused } from "./copy/engine";
@@ -106,6 +106,20 @@ const poll = () => job("leader poll", () => watcher.poll(), false);
 /** Price, liquidity and a sell quote for the tokens the shadow log is following (shadow/sampler.ts). */
 const followShadow = () => job("shadow log", async () => void (await sampleDue(db)), false);
 
+/** closed_trades backfill: 300 ms slices with 700 ms between them, so the event loop stays free for copies. */
+function backfillInBackground(totals = { wallets: 0, trades: 0 }): void {
+  try {
+    const b = backfillClosedTradesStep(db, config.earlyBuySeconds, 300);
+    totals.wallets += b.wallets;
+    totals.trades += b.trades;
+    if (!b.done) return void setTimeout(() => backfillInBackground(totals), 700).unref();
+    if (totals.wallets) say("info", `Backfilled ${totals.trades.toLocaleString("en-US")} closed trades for ${totals.wallets.toLocaleString("en-US")} wallets.`);
+  } catch (e) {
+    say("error", `closed_trades backfill failed (retrying in a minute): ${(e as Error).message}`);
+    setTimeout(() => backfillInBackground(totals), 60_000).unref();
+  }
+}
+
 const BANNER = `
      .-""""-.
     /  .--.  \\       GodsEye
@@ -151,11 +165,10 @@ async function main() {
     setMeta(db, "history_from_fix", "1");
     if (n) say("info", `Corrected how far back ${n.toLocaleString("en-US")} wallets' history really reaches (the RPC doesn't return transactions older than ~2-3 days).`);
   }
-  // Once: materialise every stored round trip into closed_trades (kept up to date by analysis after that).
-  {
-    const b = backfillClosedTrades(db, config.earlyBuySeconds);
-    if (!b.skipped) say("info", `Backfilled ${b.trades.toLocaleString("en-US")} closed trades for ${b.wallets.toLocaleString("en-US")} wallets.`);
-  }
+  // Once: materialise every stored round trip into closed_trades (kept up to date by analysis after that),
+  // in the background: on a big database it takes an hour, and copying must not wait for it.
+  backfillInBackground();
+
   if (getMeta(db, "stats_version") !== STATS_VERSION) {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
     setMeta(db, "stats_version", STATS_VERSION);

@@ -102,3 +102,25 @@ test("wider discovery defaults, bounded by the unchanged RPC cap and promotion f
   assert.ok(config.streamPromotePnlUsd >= STREAM_PROMOTE_PNL_FLOOR_USD && config.streamPromoteMinClosed >= STREAM_PROMOTE_MIN_CLOSED_FLOOR);
   assert.equal(config.copyMode, "paper"); // the test env sets paper; the code default stays "real"
 });
+
+test("background backfill: slices resume where the last one stopped and end up the same as the one-shot run", async () => {
+  const { backfillClosedTradesStep } = await import("../src/analysis/closed-trades");
+  const snap = (db: ReturnType<typeof openDb>) => db.prepare("SELECT * FROM closed_trades ORDER BY wallet, mint").all();
+  const oneShot = openDb(":memory:");
+  seed(oneShot);
+  backfillClosedTrades(oneShot, 600);
+  const db = openDb(":memory:");
+  seed(db);
+  let t = 0;
+  const clock = () => (t += 10); // every wallet "takes" longer than the 5 ms budget: one wallet per slice
+  const steps = [];
+  for (let i = 0; i < 10; i++) {
+    const r = backfillClosedTradesStep(db, 600, 5, clock);
+    steps.push(r);
+    if (r.done) break;
+  }
+  assert.deepEqual(steps.map((r) => [r.wallets, r.done]), [[1, false], [1, false], [0, true]]);
+  assert.equal(getMeta(db, BACKFILL_META_KEY), "done");
+  assert.deepEqual(snap(db), snap(oneShot));
+  assert.deepEqual(backfillClosedTradesStep(db, 600, 5, clock), { done: true, wallets: 0, trades: 0 });
+});

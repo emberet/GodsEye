@@ -38,6 +38,8 @@ const SWAPS_SQL =
   "SELECT signature, slot, ts, mint, side, token_amount, sol_amount, usd_amount, price_sol, venue, jito_tip, token_age_sec FROM wallet_swaps WHERE wallet = ? ORDER BY ts";
 
 export const BACKFILL_META_KEY = "closed_trades_backfill_v1";
+/** The last wallet a background backfill finished (wallets are done in address order). */
+export const BACKFILL_CURSOR_KEY = "closed_trades_backfill_cursor";
 
 /**
  * Rebuild closed_trades for every wallet with stored swaps. Idempotent: re-running changes nothing.
@@ -57,4 +59,33 @@ export function backfillClosedTrades(db: DB, earlyBuySeconds: number, opts: { fo
   setMeta(db, BACKFILL_META_KEY, "done");
   checkpointWal(db);
   return { wallets: wallets.length, trades, skipped: false };
+}
+
+/**
+ * One slice of the backfill: wallets in address order from where the last slice stopped, until `budgetMs`
+ * has passed. The agent runs it in the background (a big database takes an hour), so startup never waits.
+ */
+export function backfillClosedTradesStep(db: DB, earlyBuySeconds: number, budgetMs: number, now: () => number = Date.now): { done: boolean; wallets: number; trades: number } {
+  if (getMeta(db, BACKFILL_META_KEY) === "done") return { done: true, wallets: 0, trades: 0 };
+  const start = now();
+  const next = db.prepare("SELECT wallet FROM wallet_swaps WHERE wallet > ? ORDER BY wallet LIMIT 1");
+  const read = db.prepare(SWAPS_SQL);
+  let cursor = getMeta(db, BACKFILL_CURSOR_KEY) ?? "";
+  let wallets = 0;
+  let trades = 0;
+  do {
+    const row = next.get(cursor) as { wallet: string } | undefined;
+    if (!row) {
+      setMeta(db, BACKFILL_META_KEY, "done");
+      checkpointWal(db);
+      return { done: true, wallets, trades };
+    }
+    const closed = realize(read.all(row.wallet) as SwapLite[], earlyBuySeconds).closed;
+    syncClosedTrades(db, row.wallet, closed);
+    cursor = row.wallet;
+    wallets++;
+    trades += closed.length;
+  } while (now() - start < budgetMs);
+  setMeta(db, BACKFILL_CURSOR_KEY, cursor);
+  return { done: false, wallets, trades };
 }
