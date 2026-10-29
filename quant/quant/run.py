@@ -10,7 +10,7 @@ import time
 import numpy as np
 
 from .config import QuantConfig
-from .data import load_closed_trades, load_price_rows, load_swaps, price_paths
+from .data import load_closed_trades, load_price_paths, load_swaps, price_paths
 from .db import db_path, has_table, open_ro, write_results
 from .flow import apply_flow, load_flow
 from .sizing import sizing_rows
@@ -55,14 +55,15 @@ def run(path=None, cfg: QuantConfig | None = None, now: int | None = None, dry_r
             trades, source = load_closed_trades(con, since, None, skip_bots=bool(cfg.skip_bots))
             counts = trades["wallet"].value_counts()
             tested = trades[trades["wallet"].isin(counts[counts >= cfg.min_trades].index)]
-            swaps = load_price_rows(con, since, sorted(tested["mint"].unique()))
+            paths = load_price_paths(con, since, sorted(tested["mint"].unique()))
         else:
             swaps = load_swaps(con, since)
             trades, source = load_closed_trades(con, since, swaps)
+            paths = price_paths(swaps)
         flow = load_flow(con, t_now, cfg) if cfg.use_flow == "on" else None
     finally:
         con.close()
-    skill, summary = analyse(trades, price_paths(swaps), cfg, t_now)
+    skill, summary = analyse(trades, paths, cfg, t_now)
     if flow is not None:
         skill, summary["flow"] = apply_flow(skill, flow)
     skill_rows = [{c: _clean(r[c]) for c in SKILL_COLS} for r in skill.to_dict("records")] if len(skill) else []

@@ -258,3 +258,27 @@ test("database: a position whose return reads above 1,000× is a pricing error a
   assert.deepEqual(r.real.get(5)!.map((e) => e.mint), ["OK"]);
   db.close();
 });
+
+test("database: a replay on the worker thread gives exactly what the inline replay gives", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { replayWalletOffThread } = await import("../src/replay/off-thread");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "godseye-replay-"));
+  const db = openDb(path.join(dir, "godseye.db"));
+  try {
+    swapRow(db, "leader", "MEME", 0, "buy", 1, 1);
+    swapRow(db, "other", "MEME", 3, "buy", 1.5, 0.01);
+    swapRow(db, "leader", "MEME", 100, "sell", 2, 1, 0.5);
+    swapRow(db, "leader", "MEME2", 50, "buy", 1, 1);
+    swapRow(db, "other", "MEME2", 60, "sell", 0.5, 0.01);
+    const base = { feeBps: 0, txCostSol: 0, defaultDepthSol: 1e9 };
+    const inline = replayWallet(db, "leader", [2, 5], base, { endT: T0 + 7200_000 });
+    const threaded = await replayWalletOffThread(db, "leader", [2, 5], base, { endT: T0 + 7200_000 });
+    assert.deepEqual(threaded, inline);
+    assert.equal(threaded.ideal.length, 2);
+  } finally {
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

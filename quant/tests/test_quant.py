@@ -149,7 +149,7 @@ def test_drift_is_not_timing_skill(tmp_path):
 
 
 def test_price_rows_match_full_load_for_the_mints_asked(tmp_path):
-    from quant.data import load_price_rows, load_swaps, price_paths
+    from quant.data import load_price_paths, load_swaps, price_paths
 
     path = str(tmp_path / "p.db")
     con = sqlite3.connect(path)
@@ -168,7 +168,7 @@ def test_price_rows_match_full_load_for_the_mints_asked(tmp_path):
     since = NOW - 30 * DAY
     ro = open_ro(path)
     full = price_paths(load_swaps(ro, since))
-    narrow = price_paths(load_price_rows(ro, since, ["A", "C"], chunk=1))
+    narrow = load_price_paths(ro, since, ["A", "C"], chunk=1)
     ro.close()
     assert sorted(narrow) == ["A", "C"]
     for m in narrow:

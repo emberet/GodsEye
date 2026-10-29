@@ -41,6 +41,7 @@ import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } 
 const STATS_VERSION = "bot-signs-1";
 
 const db = openDb();
+logSlowSql(db);
 attachLogDb(db);
 
 const { keypair, created } = loadOrCreateWallet(db);
@@ -59,6 +60,34 @@ function heartbeat(status = "live"): void {
   setMeta(db, "max_positions", config.maxPositions);
   setMeta(db, "copy_budget_sol", config.copyBudgetSol);
   setMeta(db, "stream_enabled", live ? "1" : "0");
+}
+
+/**
+ * Logs any SQLite statement that takes 500 ms or more (each one at most every 10 minutes): better-sqlite3 is
+ * synchronous, so a slow statement holds up everything else, copies included.
+ */
+function logSlowSql(d: typeof db): void {
+  const lastLogged = new Map<string, number>();
+  const prepare = d.prepare.bind(d);
+  d.prepare = ((sql: string) => {
+    const st = prepare(sql);
+    for (const m of ["run", "get", "all"] as const) {
+      const call = (st[m] as (...a: unknown[]) => unknown).bind(st);
+      (st as unknown as Record<string, unknown>)[m] = (...args: unknown[]) => {
+        const t0 = performance.now();
+        try {
+          return call(...args);
+        } finally {
+          const ms = performance.now() - t0;
+          if (ms >= 500 && Date.now() - (lastLogged.get(sql) ?? 0) > 600_000) {
+            lastLogged.set(sql, Date.now());
+            say("warn", `Slow SQL (${Math.round(ms)} ms, jobs running: ${[...running].join(", ") || "none"}): ${sql.replace(/\s+/g, " ").trim().slice(0, 220)}`);
+          }
+        }
+      };
+    }
+    return st;
+  }) as typeof d.prepare;
 }
 
 /** Runs a job unless the previous run of the same job is still going. */

@@ -16,7 +16,8 @@
  */
 import { type DB, nowIso } from "@godseye/shared";
 import { config } from "../config";
-import { calibration, dataEnd, replayWallet } from "../replay/run";
+import { calibration, dataEnd } from "../replay/run";
+import { replayWalletOffThread } from "../replay/off-thread";
 import { summarize } from "../replay/summary";
 
 export interface BotSigns {
@@ -145,7 +146,8 @@ export async function refreshCopyReplays(db: DB, wallets: string[], opts: { budg
   let done = 0;
   for (const w of due) {
     if (Date.now() - started > opts.budgetMs) break;
-    const r = replayWallet(db, w, delays, params, { sinceMs: endT - REPLAY_DAYS * 86_400_000, endT });
+    // on a worker thread: a busy wallet's tapes took seconds to read, holding up copies on the main thread
+    const r = await replayWalletOffThread(db, w, delays, params, { sinceMs: endT - REPLAY_DAYS * 86_400_000, endT });
     const s = worstCase(delays.map((d) => summarize(d, r.real.get(d) ?? [], r.ideal)));
     up.run(w, s.delaySec, s.n, s.coverage, s.medianRetPct, s.meanRetPct, s.winRate, s.idealMeanRetPct, r.implausible, nowIso());
     done++;

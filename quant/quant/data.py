@@ -38,27 +38,41 @@ def load_swaps(con: sqlite3.Connection, since: float | None) -> pd.DataFrame:
     return df
 
 
-def load_price_rows(con: sqlite3.Connection, since: float | None, mints: list[str], chunk: int = 500) -> pd.DataFrame:
-    """Only what price_paths needs (mint, ts, price_sol), only for `mints`, only since `since`.
+def load_price_paths(
+    con: sqlite3.Connection, since: float | None, mints: list[str], chunk: int = 500, min_obs: int = 5
+) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """price_paths() for `mints` only, read straight into numpy arrays (mint code, epoch s, price).
 
-    The live DB holds ~14M swaps; loading every column of all of them took 6+ GB. ts is ISO text, which sorts
-    as time, so the window is applied in SQLite.
+    The live DB holds ~14M swaps in 30 days across ~90k tokens: as a DataFrame of Python objects that ran past
+    6 GB; as arrays it is ~20 bytes a row. ts is converted by SQLite (ISO text sorts as time, so the window is
+    applied there too).
     """
     since_iso = pd.Timestamp(since, unit="s", tz="UTC").strftime("%Y-%m-%dT%H:%M:%S") if since is not None else ""
-    parts = []
+    code = {m: i for i, m in enumerate(mints)}
+    codes, times, prices = [], [], []
     for i in range(0, len(mints), chunk):
         part = mints[i : i + chunk]
         marks = ",".join("?" * len(part))
-        # ts converted to epoch seconds by SQLite: millions of ISO strings in pandas cost far more memory
-        q = (
-            "SELECT mint, (julianday(ts) - 2440587.5) * 86400.0 AS ts, price_sol FROM wallet_swaps"
-            f" WHERE price_sol > 0 AND ts >= ? AND mint IN ({marks})"
+        cur = con.execute(
+            "SELECT mint, (julianday(ts) - 2440587.5) * 86400.0, price_sol FROM wallet_swaps"
+            f" WHERE price_sol > 0 AND ts >= ? AND mint IN ({marks})",
+            [since_iso, *part],
         )
-        parts.append(pd.read_sql_query(q, con, params=[since_iso, *part]))
-    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["mint", "ts", "price_sol"])
-    df["ts"] = to_epoch_seconds(df["ts"])
-    df["mint"] = df["mint"].astype("category")
-    return df.dropna(subset=["ts"])
+        while rows := cur.fetchmany(200_000):
+            m, t, p = zip(*rows, strict=True)
+            codes.append(np.fromiter((code[x] for x in m), dtype=np.int32, count=len(m)))
+            times.append(np.asarray(t, dtype=float))
+            prices.append(np.asarray(p, dtype=float))
+    if not codes:
+        return {}
+    c, t, p = np.concatenate(codes), np.concatenate(times), np.concatenate(prices)
+    keep = ~np.isnan(t)
+    c, t, p = c[keep], t[keep], p[keep]
+    order = np.lexsort((t, c))  # by mint, then time
+    c, t, p = c[order], t[order], p[order]
+    starts = np.flatnonzero(np.r_[True, c[1:] != c[:-1]])
+    ends = np.r_[starts[1:], len(c)]
+    return {mints[c[a]]: (t[a:b], p[a:b]) for a, b in zip(starts, ends, strict=True) if b - a >= min_obs}
 
 
 BOTS_SQL = "SELECT address FROM wallets WHERE junk_reason LIKE 'bot:%' AND COALESCE(copy_weight, 0) = 0"
