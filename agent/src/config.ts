@@ -92,6 +92,8 @@ export const config = {
   /** Delay to replay at, seconds, until GodsEye has real copies to measure its own delay from. */
   smartReplayDelaySec: envNum("SMART_REPLAY_DELAY_SEC", 5),
   /** The copy must also pay at this multiple of that delay (the delay is a guess until real copies measure it); the worse of the two is what the gate sees. 1 = off. */
+  /** A median copy return above this (%) is not believable (honest wallets sit well under it): the replay is pricing against a scripted tape, so it doesn't count. */
+  smartReplayMaxMedianPct: envNum("SMART_REPLAY_MAX_MEDIAN_PCT", 100),
   smartReplayStressFactor: envNum("SMART_REPLAY_STRESS_FACTOR", 3),
 
   // ---- Discovery: finding wallets worth watching ----
@@ -150,6 +152,8 @@ export const config = {
   learnCron: envStr("LEARN_CRON", "*/15 * * * *"),
   /** Copy at most this many wallets at once (the top earners). */
   maxLeaders: envNum("COPY_MAX_LEADERS", 10),
+  /** The most of the copy budget one leader can hold (0.25 = a quarter); 1 = no cap. */
+  maxLeaderShare: envNum("COPY_MAX_LEADER_SHARE", 0.25),
   /** Our own copies of a leader must not lose more than this (SOL) over the last 14 days, or the leader is dropped. */
   copyLossDropSol: envNum("COPY_LOSS_DROP_SOL", 0.2),
 

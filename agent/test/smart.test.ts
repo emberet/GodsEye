@@ -162,6 +162,14 @@ test("copy gate sees the worse of the replays at the expected and the slower del
   assert.equal(worstCase([at5]), at5);
 });
 
+test("copy gate: a median return no honest wallet earns is rejected, not rewarded", () => {
+  const cfgMax = { ...rCfg, maxMedianPct: 100 };
+  const r = { delay_sec: 5, n: 20, coverage: 0.9, median_ret_pct: 729 };
+  assert.match(copyReason(r, cfgMax)!, /not believable/);
+  assert.equal(copyReason({ ...r, median_ret_pct: 40 }, cfgMax), null);
+  assert.equal(copyReason(r, rCfg), null); // no ceiling configured
+});
+
 test("copy gate: needs a replay, enough copies, enough tape, and a positive median", () => {
   const ok = { delay_sec: 5, n: 20, coverage: 0.9, median_ret_pct: 3 };
   assert.equal(copyReason(ok, rCfg), null);

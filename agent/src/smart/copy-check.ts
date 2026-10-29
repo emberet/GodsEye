@@ -33,7 +33,7 @@ export interface CopyReplay {
 }
 
 type BotCfg = { minHoldSec: number; maxTxPerHour: number; maxSameBlock: number };
-type ReplayCfg = { minCopies: number; minCoverage: number };
+type ReplayCfg = { minCopies: number; minCoverage: number; maxMedianPct?: number };
 
 /** Pure: why this wallet looks like a bot, or null. Unknown values never count against it. */
 export function botReason(b: BotSigns, cfg: BotCfg): string | null {
@@ -48,6 +48,9 @@ export function copyReason(r: CopyReplay | null, cfg: ReplayCfg): string | null 
   if (!r) return "waiting for its copy replay";
   if (r.n < cfg.minCopies) return `copy replay: only ${r.n} copyable buys in 14 days (${cfg.minCopies} needed)`;
   if (r.coverage === null || r.coverage < cfg.minCoverage) return `copy replay: too few other swaps seen around its entries to tell (${Math.round((r.coverage ?? 0) * 100)}% of ${r.n})`;
+  if (cfg.maxMedianPct && r.median_ret_pct !== null && r.median_ret_pct > cfg.maxMedianPct) {
+    return `copy replay: a median ${r.median_ret_pct >= 0 ? "+" : "−"}${Math.abs(r.median_ret_pct).toFixed(0)}% per copy is not believable (over ${cfg.maxMedianPct}%): the replay is pricing against a scripted tape`;
+  }
   if (r.median_ret_pct === null || r.median_ret_pct <= 0) {
     return `copy replay: copying it ${r.delay_sec} s late made a median ${r.median_ret_pct === null ? "—" : `${r.median_ret_pct >= 0 ? "+" : "−"}${Math.abs(r.median_ret_pct).toFixed(1)}%`} per copy (${r.n} copies)`;
   }
@@ -71,7 +74,7 @@ export function worstCase<T extends { medianRetPct: number | null }>(summaries: 
 }
 
 export const botCfg = (): BotCfg => ({ minHoldSec: config.smartBotMinHoldSec, maxTxPerHour: config.smartBotMaxTxPerHour, maxSameBlock: config.smartBotMaxSameBlock });
-export const replayCfg = (): ReplayCfg => ({ minCopies: config.smartReplayMinCopies, minCoverage: config.smartReplayMinCoverage });
+export const replayCfg = (): ReplayCfg => ({ minCopies: config.smartReplayMinCopies, minCoverage: config.smartReplayMinCoverage, maxMedianPct: config.smartReplayMaxMedianPct });
 
 /** Bot signs for many wallets at once. */
 export function botSigns(db: DB, wallets: string[]): Map<string, BotSigns> {

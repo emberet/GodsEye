@@ -16,7 +16,8 @@
  *     is dropped even if the wallet itself is winning.
  *   • Bots and wallets copying wouldn't pay on are never copied: the same bot
  *     gate and copy gate as smart money (smart/copy-check.ts).
- *   • Only the top COPY_MAX_LEADERS earners get weight; weights add up to 1.
+ *   • Only the top COPY_MAX_LEADERS earners get weight; weights add up to 1, and no one wallet gets more than
+ *     COPY_MAX_LEADER_SHARE of it (one outsized profit figure must not take the whole budget).
  *   • New weights move halfway from the old ones (no whiplash), except
  *     drops to 0, which happen at once.
  */
@@ -92,7 +93,37 @@ export function rawScore(w: WeightInput, cfg: { copyLossDropSol: number; minClos
   return { weight: score, reason: notes.join(", ") };
 }
 
-export function computeWeights(inputs: WeightInput[], cfg: { maxLeaders: number; copyLossDropSol: number; minClosed: number; minWinRate: number }): Map<string, WeightResult> {
+/**
+ * No wallet may hold more than `cap` of the budget: the excess goes to the others in proportion (repeatedly, as that can
+ * push another over). If there are too few wallets to share it out, each gets the cap and the rest stays unspent.
+ */
+export function capShares(weights: Map<string, WeightResult>, cap: number): void {
+  const live = [...weights.values()].filter((v) => v.weight > 0);
+  if (!(cap > 0 && cap < 1) || !live.length) return;
+  const capped = new Set<WeightResult>();
+  for (;;) {
+    const room = 1 - cap * capped.size;
+    const free = live.filter((v) => !capped.has(v));
+    const freeSum = free.reduce((s, v) => s + v.weight, 0);
+    if (!free.length || freeSum <= 0) return;
+    const over = free.filter((v) => (v.weight / freeSum) * room > cap + 1e-12);
+    if (!over.length) {
+      for (const v of free) v.weight = (v.weight / freeSum) * room;
+      break;
+    }
+    for (const v of over) {
+      capped.add(v);
+      v.weight = cap;
+    }
+    if (capped.size * cap >= 1 - 1e-12) {
+      for (const v of free) if (!capped.has(v)) v.weight = 0;
+      break;
+    }
+  }
+  for (const v of capped) v.reason += `; capped at ${Math.round(cap * 100)}% of the budget`;
+}
+
+export function computeWeights(inputs: WeightInput[], cfg: { maxLeaders: number; copyLossDropSol: number; minClosed: number; minWinRate: number; maxShare?: number }): Map<string, WeightResult> {
   const scored = inputs.map((w) => ({ w, r: rawScore(w, cfg) }));
   const ranked = scored.filter((x) => x.r.weight > 0).sort((a, b) => b.r.weight - a.r.weight);
   const top = new Set(ranked.slice(0, cfg.maxLeaders).map((x) => x.w.address));
@@ -110,6 +141,7 @@ export function computeWeights(inputs: WeightInput[], cfg: { maxLeaders: number;
   }
   const sum = [...smoothed.values()].reduce((s, x) => s + x.weight, 0);
   if (sum > 0) for (const v of smoothed.values()) v.weight /= sum;
+  if (cfg.maxShare) capShares(smoothed, cfg.maxShare);
   return smoothed;
 }
 

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { computeWeights, copySize, rawScore, type WeightInput } from "../src/learning/weights";
+import { capShares, computeWeights, copySize, rawScore, type WeightInput } from "../src/learning/weights";
 
 const base: Omit<WeightInput, "address"> = { tier: "proven", pnl7: 2, pnl30: 6, closed30: 20, winRate30: 0.6, isFresh: false, copyPnl14: 0, copyClosed14: 0, oldWeight: 0 };
 const cfg = { maxLeaders: 3, copyLossDropSol: 0.2, minClosed: 10, minWinRate: 0.5 };
@@ -106,4 +106,27 @@ test("bot gate and copy gate: a wallet failing either gets no weight, with that 
   assert.ok(rawScore({ ...w, botGate: null, copyGate: null }, cfg).weight > 0);
   assert.deepEqual(rawScore({ ...w, botGate: "bot: median hold 8 s" }, cfg), { weight: 0, reason: "bot: median hold 8 s" });
   assert.deepEqual(rawScore({ ...w, copyGate: "copy replay: median −3%" }, cfg), { weight: 0, reason: "copy replay: median −3%" });
+});
+
+test("one outsized profit can't take the budget: a leader is capped and the excess shared out", () => {
+  const inputs: WeightInput[] = [{ ...base, address: "whale", pnl7: 250_000, pnl30: 250_000 }, ...["a", "b", "c", "d", "e"].map((a) => ({ ...base, address: a, pnl7: 2_000, pnl30: 2_000 }))];
+  const open = computeWeights(inputs, { ...cfg, maxLeaders: 10 });
+  assert.ok(open.get("whale")!.weight > 0.5);
+  const capped = computeWeights(inputs, { ...cfg, maxLeaders: 10, maxShare: 0.25 });
+  assert.ok(Math.abs(capped.get("whale")!.weight - 0.25) < 1e-9);
+  assert.match(capped.get("whale")!.reason, /capped at 25%/);
+  assert.ok(Math.abs(capped.get("a")!.weight - 0.15) < 1e-9);
+  assert.ok(Math.abs([...capped.values()].reduce((s, x) => s + x.weight, 0) - 1) < 1e-9);
+});
+
+test("capShares: the excess can push another wallet over; too few wallets leave budget unspent", () => {
+  const m = new Map([["x", { weight: 0.6, reason: "" }], ["y", { weight: 0.3, reason: "" }], ["z", { weight: 0.1, reason: "" }]]);
+  capShares(m, 0.4);
+  assert.deepEqual([...m.values()].map((v) => Number(v.weight.toFixed(6))), [0.4, 0.4, 0.2]);
+  const two = new Map([["x", { weight: 0.7, reason: "" }], ["y", { weight: 0.3, reason: "" }]]);
+  capShares(two, 0.25);
+  assert.deepEqual([...two.values()].map((v) => v.weight), [0.25, 0.25]);
+  const off = new Map([["x", { weight: 1, reason: "" }]]);
+  capShares(off, 1);
+  assert.equal(off.get("x")!.weight, 1);
 });

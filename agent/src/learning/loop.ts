@@ -62,7 +62,7 @@ export function runLearning(db: DB): string[] {
   // First learn the follow bar from outcomes, then weigh wallets against it.
   const minWinRate = adaptThresholds(db);
   const { rows, inputs, junk } = weightInputs(db);
-  const cutoffs = { maxLeaders: config.maxLeaders, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate };
+  const cutoffs = { maxLeaders: config.maxLeaders, maxShare: config.maxLeaderShare, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate };
   const result = computeWeights(inputs, cutoffs);
 
   // junk_reason: a bot, or copying it lost in the replay. The public dashboard leaves these wallets out.
