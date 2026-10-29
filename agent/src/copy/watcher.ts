@@ -1,15 +1,15 @@
 /**
  * Watches the wallets GodsEye copies, live.
  *   • with GRPC_URL set, leaders' swaps arrive on the gRPC stream (stream.ts)
- *   • a websocket subscription per leader (Solana "logsSubscribe") fires the
- *     moment a leader's transaction confirms (and catches non-swap moves)
+ *   • without the stream, a websocket subscription per leader (Solana "logsSubscribe")
+ *     fires the moment a leader's transaction confirms (and catches non-swap moves)
  *   • a poll every LEADER_POLL_SECONDS catches anything the websocket missed
  * Each new transaction is read once: swaps go to the copy engine; SOL sent to
  * a brand-new wallet adds that wallet to the database (possible rotation).
  */
 import { PublicKey } from "@solana/web3.js";
 import type { DB } from "@godseye/shared";
-import { connection } from "../rpc";
+import { copyConnection } from "../rpc";
 import { say, short } from "../log";
 import { fetchParsedOne, fetchSignatures } from "../chain/history";
 import { findNewWalletsFunded, parseSwaps, type TxLike } from "../chain/parse";
@@ -19,6 +19,15 @@ import type { CopyEngine } from "./engine";
 
 /** SOL sent to a never-used wallet that makes GodsEye start tracking it. */
 const ROTATION_MIN_SOL = 0.5;
+/** Longest a sync waits on one RPC or websocket call: a dead websocket must never hold up the learning loop. */
+const SYNC_CALL_MS = 10_000;
+
+/** `p`, or `fallback` once `ms` pass without an answer. */
+export function within<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<T>((r) => (timer = setTimeout(() => r(fallback), ms)));
+  return Promise.race([p.catch(() => fallback), late]).finally(() => clearTimeout(timer));
+}
 
 export class LeaderWatcher {
   private subs = new Map<string, number>();
@@ -28,6 +37,8 @@ export class LeaderWatcher {
   constructor(
     private db: DB,
     private engine: CopyEngine,
+    /** Subscribe to each leader's logs over the websocket. Off when the gRPC stream already delivers leaders' swaps. */
+    private opts: { logs: boolean; callMs?: number } = { logs: true },
   ) {}
 
   get watching(): string[] {
@@ -48,18 +59,20 @@ export class LeaderWatcher {
     const want = new Set(leaders);
     for (const [addr, id] of this.subs) {
       if (!want.has(addr)) {
-        await connection().removeOnLogsListener(id).catch(() => undefined);
+        await within(copyConnection().removeOnLogsListener(id), this.opts.callMs ?? SYNC_CALL_MS, undefined);
         this.subs.delete(addr);
         this.cursors.delete(addr);
       }
     }
+    for (const addr of [...this.cursors.keys()]) if (!want.has(addr)) this.cursors.delete(addr);
     for (const addr of want) {
       if (this.cursors.has(addr)) continue;
       // Start from "now": GodsEye copies new trades only, never old ones.
-      const newest = await fetchSignatures(addr, { limit: 1 }).catch(() => []);
+      const newest = await within(fetchSignatures(addr, { limit: 1 }), this.opts.callMs ?? SYNC_CALL_MS, []);
       this.cursors.set(addr, newest[0]?.signature ?? null);
+      if (!this.opts.logs) continue;
       try {
-        const id = connection().onLogs(new PublicKey(addr), (logs) => {
+        const id = copyConnection().onLogs(new PublicKey(addr), (logs) => {
           if (!logs.err) void this.handle(addr, logs.signature, Date.now());
         }, "confirmed");
         this.subs.set(addr, id);

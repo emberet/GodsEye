@@ -23,6 +23,11 @@ export const config = {
   /** Shyft API key for token names (optional: taken from a Shyft SOLANA_RPC_URL otherwise). */
   shyftApiKey: envStr("SHYFT_API_KEY"),
   solanaWsUrl: envStr("SOLANA_WS_URL"),
+  /** RPC for the copy path (leader transactions, rug checks, the agent wallet, sending trades), kept apart from
+   *  history reads so analysis using up the main RPC's quota never slows a copy. Empty = Helius (with
+   *  HELIUS_API_KEY), else SOLANA_RPC_URL. */
+  copyRpcUrl: envStr("COPY_RPC_URL"),
+  copyWsUrl: envStr("COPY_WS_URL"),
   birdeyeApiKey: envStr("BIRDEYE_API_KEY"),
   jupiterApiKey: envStr("JUPITER_API_KEY"),
 
@@ -122,6 +127,8 @@ export const config = {
   freshWalletDays: envNum("FRESH_WALLET_DAYS", 3),
   /** Re-analyze a wallet at most this often (leaders are also updated live). */
   reanalyzeMinutes: envNum("REANALYZE_MINUTES", 60),
+  /** …but a wallet the learning loop found to be a bot only this often (days). */
+  botReanalyzeDays: envNum("BOT_REANALYZE_DAYS", 7),
 
   // ---- Tiers (see src/analysis/tiers.ts) ----
   quitAfterDays: envNum("QUIT_AFTER_DAYS", 7),
@@ -217,4 +224,17 @@ export function wsUrl(): string | undefined {
   if (config.solanaWsUrl) return config.solanaWsUrl;
   if (!config.solanaRpcUrl && config.heliusApiKey) return `wss://mainnet.helius-rpc.com/?api-key=${config.heliusApiKey}`;
   return undefined; // web3.js derives it from the RPC URL
+}
+
+/** RPC for the copy path: COPY_RPC_URL > Helius (free key) > the main RPC. */
+export function copyRpcUrl(): string {
+  if (config.copyRpcUrl) return config.copyRpcUrl;
+  if (config.heliusApiKey) return `https://mainnet.helius-rpc.com/?api-key=${config.heliusApiKey}`;
+  return rpcUrl();
+}
+
+export function copyWsUrl(): string | undefined {
+  if (config.copyWsUrl) return config.copyWsUrl;
+  if (!config.copyRpcUrl && config.heliusApiKey) return `wss://mainnet.helius-rpc.com/?api-key=${config.heliusApiKey}`;
+  return config.copyRpcUrl ? undefined : wsUrl();
 }

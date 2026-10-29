@@ -3,8 +3,8 @@
  * Helius, any paid RPC, or — slowly — the public one).
  */
 import { PublicKey, type ConfirmedSignatureInfo } from "@solana/web3.js";
-import { rpcUrl } from "../config";
-import { connection } from "../rpc";
+import { copyRpcUrl, rpcUrl } from "../config";
+import { connection, copyConnection } from "../rpc";
 import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
 import { solUsdAt } from "../market/solprice";
 import { noteCopyRpc, noteThrottled, takeRpc } from "./rpc-budget";
@@ -29,7 +29,7 @@ async function rpcCall(signatures: string[], metered: boolean): Promise<RpcReply
   for (let attempt = 0; ; attempt++) {
     if (metered) await takeRpc(body.length);
     else noteCopyRpc(body.length);
-    const res = await fetch(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(metered ? rpcUrl() : copyRpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
     if (res.status === 429) noteThrottled();
     if (res.status === 429 && attempt < 4) {
       await sleep(1500 * 2 ** attempt); // rate-limited: back off and try again
@@ -82,7 +82,7 @@ async function pageSignatures(
     const want = Math.min(1000, opts.limit - out.length);
     if (opts.metered) await takeRpc(1);
     else noteCopyRpc(1);
-    const page = await connection().getSignaturesForAddress(new PublicKey(wallet), { before, until: opts.until ?? undefined, limit: want });
+    const page = await (opts.metered ? connection() : copyConnection()).getSignaturesForAddress(new PublicKey(wallet), { before, until: opts.until ?? undefined, limit: want });
     const inTime = opts.sinceMs === undefined ? page : page.filter((s) => !s.blockTime || s.blockTime * 1000 >= opts.sinceMs!);
     out.push(...inTime);
     if (inTime.length < page.length) return { sigs: out, exhausted: false, reachedTime: true };

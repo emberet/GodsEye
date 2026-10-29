@@ -30,6 +30,9 @@ import { SmartMoney } from "../smart/smart-money";
 import { CompareStats, RustIngestClient, comparable, eventSwaps, type IngestEvent } from "./rust-client";
 import type { TxLike } from "../chain/parse";
 
+/** SQL: a wallet not flagged as a bot by the learning loop, or one GodsEye copies. */
+export const NOT_A_BOT = "(junk_reason IS NULL OR junk_reason NOT LIKE 'bot:%' OR copy_weight > 0)";
+
 const PING_MS = 10_000;
 const FLUSH_MS = 15_000;
 
@@ -111,7 +114,8 @@ export class LiveStream {
 
   /** Re-read which wallets are in the database (call after discovery / promotion). */
   refreshTracked(): void {
-    this.tracked = new Set((this.db.prepare("SELECT address FROM wallets").all() as { address: string }[]).map((r) => r.address));
+    // Wallets already found to be bots aren't stored swap by swap (half of all stored swaps were theirs); copied ones always are.
+    this.tracked = new Set((this.db.prepare(`SELECT address FROM wallets WHERE ${NOT_A_BOT}`).all() as { address: string }[]).map((r) => r.address));
   }
 
   start(): void {

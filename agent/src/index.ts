@@ -45,7 +45,8 @@ attachLogDb(db);
 const { keypair, created } = loadOrCreateWallet(db);
 const shadow = config.shadowEnabled ? new ShadowLogger(db) : null;
 const engine = new CopyEngine(db, config.copyMode === "real" ? new RealExecutor(keypair) : new PaperExecutor(), keypair.publicKey, shadow);
-const watcher = new LeaderWatcher(db, engine);
+// With the gRPC stream on, leaders' swaps arrive on it and the poll is the safety net: no websocket per leader.
+const watcher = new LeaderWatcher(db, engine, { logs: !streamConfigured() });
 const live = streamConfigured() ? new LiveStream(db, watcher) : null;
 
 function heartbeat(status = "live"): void {

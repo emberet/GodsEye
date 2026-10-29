@@ -327,6 +327,8 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     .prepare(
       `SELECT address FROM wallets
         WHERE analyze_errors < 5 AND (last_analyzed_at IS NULL OR last_analyzed_at < ?)
+          -- a wallet found to be a bot is re-read rarely: its history costs the most RPC and it is never copied
+          AND (junk_reason IS NULL OR junk_reason NOT LIKE 'bot:%' OR copy_weight > 0 OR last_analyzed_at < ?)
         ORDER BY last_analyzed_at IS NOT NULL, copy_weight > 0 DESC,
                  -- never studied: wallets the live stream saw making money first, then the newest found
                  (last_analyzed_at IS NULL AND discovered_via = 'live_stream') DESC,
@@ -334,7 +336,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
                  last_analyzed_at
         LIMIT ?`,
     )
-    .all(staleBefore, limit) as { address: string }[];
+    .all(staleBefore, new Date(Date.now() - config.botReanalyzeDays * 86_400_000).toISOString(), limit) as { address: string }[];
   const budget = { left: TOKEN_LOOKUPS_PER_RUN };
   const crashBudget = { left: CRASH_CHECKS_PER_RUN };
   const rugBudget = { left: RUGCHECK_LOOKUPS_PER_RUN };

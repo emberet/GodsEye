@@ -27,7 +27,7 @@
 import { type DB, nowIso, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { fetchJson } from "../http";
-import { rpcUrl } from "../config";
+import { copyRpcUrl } from "../config";
 import { say } from "../log";
 import { describeHolders, type HolderMetrics, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
 import { profileMint, tradeTraits } from "./mint-profile";
@@ -129,7 +129,7 @@ export function judgeRugRisk(
 }
 
 export async function readMint(mint: string): Promise<OnchainMint> {
-  const res = await fetchJson<{ result?: { value?: { owner?: string; data?: { parsed?: { info?: Record<string, unknown> } } } }; error?: { message: string } }>(rpcUrl(), {
+  const res = await fetchJson<{ result?: { value?: { owner?: string; data?: { parsed?: { info?: Record<string, unknown> } } } }; error?: { message: string } }>(copyRpcUrl(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getAccountInfo", params: [mint, { encoding: "jsonParsed" }] }),

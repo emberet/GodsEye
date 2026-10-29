@@ -12,7 +12,7 @@
  *   • RugCheck insider networks, when RugCheck has mapped the coin: linked wallets' current holding.
  */
 import { PublicKey } from "@solana/web3.js";
-import { rpcUrl } from "../config";
+import { copyRpcUrl } from "../config";
 import { backoff } from "../backoff";
 import { findFunder, type TokenBalanceLike, type TxLike } from "../chain/parse";
 
@@ -68,7 +68,7 @@ export const describeHolders = (m: HolderMetrics) =>
 async function rpc<T>(method: string, params: unknown[]): Promise<T> {
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await fetch(rpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(6_000) });
+      const res = await fetch(copyRpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(6_000) });
       const json = (await res.json()) as { result?: T; error?: { message: string } };
       if (json.error) throw new Error(`${method}: ${json.error.message}`);
       return json.result as T;

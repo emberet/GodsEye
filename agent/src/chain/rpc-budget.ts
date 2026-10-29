@@ -6,7 +6,10 @@
  * (RPC_COPY_RESERVE, default 20%) is set aside for them: history reads are paced at the remaining share,
  * and slow down further while copy-engine calls (noteCopyRpc) run above their reserve.
  */
-import { config } from "../config";
+import { config, copyRpcUrl, rpcUrl } from "../config";
+
+/** The copy path has its own RPC (COPY_RPC_URL or Helius): nothing to reserve or yield on the main one. */
+const copyHasOwnRpc = () => copyRpcUrl() !== rpcUrl();
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let nextFree = 0;
@@ -29,6 +32,7 @@ let copyWindow = { sec: 0, cur: 0, prev: 0 };
 
 /** Count copy-engine RPC calls (never delayed; they only reduce the room left for analysis). */
 export function noteCopyRpc(n = 1, now = Date.now()): void {
+  if (copyHasOwnRpc()) return;
   const sec = Math.floor(now / 1000);
   if (sec !== copyWindow.sec) copyWindow = { sec, cur: 0, prev: sec - copyWindow.sec === 1 ? copyWindow.cur : 0 };
   copyWindow.cur += n;
@@ -55,7 +59,7 @@ export function analysisRate(maxRps: number, reserve: number, copyRps: number): 
 
 /** Wait for room for `n` requests, then count them. Spreads history reads evenly at the analysis share of RPC_MAX_RPS. */
 export async function takeRpc(n: number): Promise<void> {
-  const rate = analysisRate(config.rpcMaxRps, config.rpcCopyReserve, copyRpcRate());
+  const rate = copyHasOwnRpc() ? Math.max(1, config.rpcMaxRps) : analysisRate(config.rpcMaxRps, config.rpcCopyReserve, copyRpcRate());
   const now = Date.now();
   const start = Math.max(now, nextFree);
   nextFree = start + (n * 1000) / rate;

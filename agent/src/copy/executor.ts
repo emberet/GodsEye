@@ -6,7 +6,7 @@
 import { PublicKey, VersionedTransaction, type Keypair } from "@solana/web3.js";
 import { LAMPORTS_PER_SOL, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
-import { connection } from "../rpc";
+import { copyConnection } from "../rpc";
 import { jupiterQuote, jupiterSwapTx, type JupQuote } from "../market/jupiter";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
@@ -65,12 +65,12 @@ export class RealExecutor implements Executor {
 
   private async heldAtomic(mint: string): Promise<bigint> {
     noteCopyRpc();
-    const res = await connection().getParsedTokenAccountsByOwner(this.keypair.publicKey, { mint: new PublicKey(mint) });
+    const res = await copyConnection().getParsedTokenAccountsByOwner(this.keypair.publicKey, { mint: new PublicKey(mint) });
     return res.value.reduce((s, a) => s + BigInt((a.account.data.parsed as { info: { tokenAmount: { amount: string } } }).info.tokenAmount.amount), 0n);
   }
 
   private async execute(side: "buy" | "sell", mint: string, quote: JupQuote): Promise<Fill> {
-    const conn = connection();
+    const conn = copyConnection();
     const wallet = this.keypair.publicKey;
     const built = await jupiterSwapTx(quote, wallet.toBase58());
     const tx = VersionedTransaction.deserialize(Buffer.from(built.swapTransaction, "base64"));

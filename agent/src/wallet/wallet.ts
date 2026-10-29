@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { dataPath, type DB, envStr, setMeta } from "@godseye/shared";
-import { connection } from "../rpc";
+import { copyConnection } from "../rpc";
 
 export function walletFile(): string {
   const custom = envStr("AGENT_KEYPAIR_PATH");
@@ -40,10 +40,10 @@ export function loadOrCreateWallet(db?: DB): { keypair: Keypair; created: boolea
 
 /** Tokens of `mint` held by `owner`, in UI units (both token programs). */
 export async function walletTokenBalance(owner: PublicKey, mint: string): Promise<number> {
-  const res = await connection().getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(mint) });
+  const res = await copyConnection().getParsedTokenAccountsByOwner(owner, { mint: new PublicKey(mint) });
   return res.value.reduce((s, a) => s + Number((a.account.data.parsed as { info: { tokenAmount: { uiAmount: number | null } } }).info.tokenAmount.uiAmount ?? 0), 0);
 }
 
 export async function walletBalanceSol(pubkey: PublicKey): Promise<number> {
-  return (await connection().getBalance(pubkey)) / LAMPORTS_PER_SOL;
+  return (await copyConnection().getBalance(pubkey)) / LAMPORTS_PER_SOL;
 }

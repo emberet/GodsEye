@@ -22,6 +22,8 @@ const env: Record<string, string> = {
   COPY_MODE: "paper",
   SOLANA_RPC_URL: "http://127.0.0.1:9",
   SOLANA_WS_URL: "ws://127.0.0.1:9",
+  COPY_RPC_URL: "",
+  COPY_WS_URL: "",
   HELIUS_API_KEY: "",
   SHYFT_API_KEY: "",
   BIRDEYE_API_KEY: "",

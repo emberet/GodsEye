@@ -18,7 +18,7 @@
  */
 import { PublicKey } from "@solana/web3.js";
 import { LAMPORTS_PER_SOL, SOL_MINT } from "@godseye/shared";
-import { rpcUrl } from "../config";
+import { copyRpcUrl } from "../config";
 import { fetchJson } from "../http";
 
 export const POOL_PROGRAMS = {
@@ -310,7 +310,7 @@ export interface RpcLike {
 }
 
 export const liveRpc: RpcLike = async (method, params) => {
-  const res = await fetchJson<{ result?: unknown; error?: { message: string } }>(rpcUrl(), {
+  const res = await fetchJson<{ result?: unknown; error?: { message: string } }>(copyRpcUrl(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
