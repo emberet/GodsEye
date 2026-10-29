@@ -56,6 +56,10 @@ def has_table(con: sqlite3.Connection, name: str) -> bool:
     return con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone() is not None
 
 
+def has_column(con: sqlite3.Connection, table: str, col: str) -> bool:
+    return any(r[1] == col for r in con.execute(f"PRAGMA table_info({table})"))
+
+
 def write_results(path: Path | str, skill_rows: list[dict], sizing_rows: list[dict]) -> None:
     con = sqlite3.connect(str(path), timeout=10)
     try:

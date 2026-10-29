@@ -7,7 +7,7 @@ import sqlite3
 import numpy as np
 import pandas as pd
 
-from .db import has_table
+from .db import has_column, has_table
 
 CLOSE_THRESHOLD = 0.01  # same rule as agent/src/analysis/pnl.ts: <=1% of peak holding left = closed
 TRADE_COLS = ["wallet", "mint", "entry_ts", "exit_ts", "entry_sol", "exit_sol", "pnl_sol", "ret", "hold_sec"]
@@ -36,6 +36,32 @@ def load_swaps(con: sqlite3.Connection, since: float | None) -> pd.DataFrame:
     if since is not None:
         df = df[df["ts"] >= since]
     return df
+
+
+def load_price_rows(con: sqlite3.Connection, since: float | None, mints: list[str], chunk: int = 500) -> pd.DataFrame:
+    """Only what price_paths needs (mint, ts, price_sol), only for `mints`, only since `since`.
+
+    The live DB holds ~14M swaps; loading every column of all of them took 6+ GB. ts is ISO text, which sorts
+    as time, so the window is applied in SQLite.
+    """
+    since_iso = pd.Timestamp(since, unit="s", tz="UTC").strftime("%Y-%m-%dT%H:%M:%S") if since is not None else ""
+    parts = []
+    for i in range(0, len(mints), chunk):
+        part = mints[i : i + chunk]
+        marks = ",".join("?" * len(part))
+        # ts converted to epoch seconds by SQLite: millions of ISO strings in pandas cost far more memory
+        q = (
+            "SELECT mint, (julianday(ts) - 2440587.5) * 86400.0 AS ts, price_sol FROM wallet_swaps"
+            f" WHERE price_sol > 0 AND ts >= ? AND mint IN ({marks})"
+        )
+        parts.append(pd.read_sql_query(q, con, params=[since_iso, *part]))
+    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=["mint", "ts", "price_sol"])
+    df["ts"] = to_epoch_seconds(df["ts"])
+    df["mint"] = df["mint"].astype("category")
+    return df.dropna(subset=["ts"])
+
+
+BOTS_SQL = "SELECT address FROM wallets WHERE junk_reason LIKE 'bot:%' AND COALESCE(copy_weight, 0) = 0"
 
 
 def rebuild_closed_trades(swaps: pd.DataFrame) -> pd.DataFrame:
@@ -81,10 +107,17 @@ def rebuild_closed_trades(swaps: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=TRADE_COLS)
 
 
-def load_closed_trades(con: sqlite3.Connection, since: float | None, swaps: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+def load_closed_trades(
+    con: sqlite3.Connection, since: float | None, swaps: pd.DataFrame | None, skip_bots: bool = False
+) -> tuple[pd.DataFrame, str]:
     if has_table(con, "closed_trades"):
+        # entry_ts is epoch seconds here (closed_trades); the window is applied in SQLite and again below
+        bots = skip_bots and has_table(con, "wallets") and has_column(con, "wallets", "junk_reason")
         df = pd.read_sql_query(
-            "SELECT wallet, mint, entry_ts, exit_ts, entry_sol, exit_sol, pnl_sol, hold_sec FROM closed_trades", con
+            "SELECT wallet, mint, entry_ts, exit_ts, entry_sol, exit_sol, pnl_sol, hold_sec FROM closed_trades"
+            " WHERE entry_ts >= ?" + (f" AND wallet NOT IN ({BOTS_SQL})" if bots else ""),
+            con,
+            params=[since if since is not None else 0],
         )
         df["entry_ts"] = to_epoch_seconds(df["entry_ts"])
         df["exit_ts"] = to_epoch_seconds(df["exit_ts"])
@@ -93,7 +126,7 @@ def load_closed_trades(con: sqlite3.Connection, since: float | None, swaps: pd.D
         df["hold_sec"] = df["hold_sec"].fillna(df["exit_ts"] - df["entry_ts"])
         source = "closed_trades"
     else:
-        df = rebuild_closed_trades(swaps)
+        df = rebuild_closed_trades(swaps if swaps is not None else load_swaps(con, since))
         source = "wallet_swaps"
     df = df.dropna(subset=["entry_ts", "ret"])
     df = df[df["ret"] > -1.0000001]

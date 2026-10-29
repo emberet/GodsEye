@@ -28,6 +28,9 @@ class QuantConfig:
     # Phase 4: consume the Rust ge-analyze tables (backtest_results, wallet_clusters). off|on, default off.
     use_flow: str = "off"
     flow_max_age_hours: float = 48.0  # flow/backtest rows older than this count as missing
+    # 1 = leave out wallets the agent flagged as bots (wallets.junk_reason 'bot:...') unless copied: never copied,
+    # and they hold most of the trades (the job ran out of memory on them)
+    skip_bots: int = 1
 
     @classmethod
     def from_env(cls) -> QuantConfig:

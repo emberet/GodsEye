@@ -175,6 +175,14 @@ async function main() {
     say("info", `Recomputed P&L (USD at settlement) for ${recomputeAllStats(db)} wallets.`);
     setMeta(db, "stats_version", STATS_VERSION);
   }
+  // A stall of 2 s or more is logged with the jobs that were running: one of them held the loop (copies wait meanwhile).
+  let tickAt = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const late = now - tickAt - 1000;
+    if (late >= 2000) say("warn", `Event loop blocked for ${(late / 1000).toFixed(1)} s (jobs running: ${[...running].join(", ") || "none"}).`);
+    tickAt = now;
+  }, 1000).unref();
   // Every 5 min: how long work waited for the event loop (a leader's trade waits the same) and the agent's CPU.
   const loop = monitorEventLoopDelay({ resolution: 10 });
   loop.enable();

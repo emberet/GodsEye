@@ -1,6 +1,7 @@
 import sqlite3
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from quant.config import QuantConfig
@@ -9,7 +10,7 @@ from quant.db import open_ro
 from quant.run import run
 from quant.stats import benjamini_hochberg, deflated_sharpe
 
-from .conftest import NOW, SWAPS_SQL
+from .conftest import DAY, NOW, SWAPS_SQL
 
 CFG = QuantConfig(n_perm=1000, n_boot=500, ruin_paths=300)
 
@@ -145,3 +146,54 @@ def test_drift_is_not_timing_skill(tmp_path):
     sk = rows(path, "wallet_skill", "wallet")["drifter"]
     assert sk["median_return"] > 0.1  # it made money
     assert sk["p_value"] > 0.05 and sk["verdict"] == "luck"  # but no better than random entries in the same tokens
+
+
+def test_price_rows_match_full_load_for_the_mints_asked(tmp_path):
+    from quant.data import load_price_rows, load_swaps, price_paths
+
+    path = str(tmp_path / "p.db")
+    con = sqlite3.connect(path)
+    con.execute(SWAPS_SQL)
+    rows = []
+    for m in ("A", "B", "C"):
+        for i in range(8):
+            t = pd.Timestamp(NOW - (40 - i * 5) * DAY, unit="s", tz="UTC").strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            rows.append((f"w{i}", t, m, "buy", 1.0, 0.1, 0.0 if i == 3 else 0.1 + i))
+    con.executemany(
+        "INSERT INTO wallet_swaps (wallet, ts, mint, side, token_amount, sol_amount, price_sol) VALUES (?,?,?,?,?,?,?)",
+        rows,
+    )
+    con.commit()
+    con.close()
+    since = NOW - 30 * DAY
+    ro = open_ro(path)
+    full = price_paths(load_swaps(ro, since))
+    narrow = price_paths(load_price_rows(ro, since, ["A", "C"], chunk=1))
+    ro.close()
+    assert sorted(narrow) == ["A", "C"]
+    for m in narrow:
+        assert np.allclose(narrow[m][0], full[m][0], rtol=0, atol=0.01)  # SQLite julianday: sub-ms float rounding
+        assert np.array_equal(narrow[m][1], full[m][1])
+
+
+def test_bots_left_out_unless_copied(population):
+    from quant.data import load_closed_trades
+
+    con = sqlite3.connect(population)
+    con.execute("CREATE TABLE wallets (address TEXT PRIMARY KEY, junk_reason TEXT, copy_weight REAL)")
+    w = [r[0] for r in con.execute("SELECT DISTINCT wallet FROM closed_trades ORDER BY wallet LIMIT 3")]
+    con.executemany(
+        "INSERT INTO wallets VALUES (?,?,?)",
+        [
+            (w[0], "bot: median hold 6 s", 0),
+            (w[1], "bot: 30 transactions an hour", 0.2),
+            (w[2], "copy replay: lost", 0),
+        ],
+    )
+    con.commit()
+    con.close()
+    ro = open_ro(population)
+    kept = set(load_closed_trades(ro, NOW - 30 * DAY, None, skip_bots=True)[0]["wallet"])
+    every = set(load_closed_trades(ro, NOW - 30 * DAY, None, skip_bots=False)[0]["wallet"])
+    ro.close()
+    assert every - kept == {w[0]}
