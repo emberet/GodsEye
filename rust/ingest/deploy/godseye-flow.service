@@ -1,0 +1,16 @@
+# /etc/systemd/system/godseye-flow.service — ge-analyze (Rust backtest + money flow) over the last 14 days,
+# writing backtest_results and wallet_clusters. Memory-capped and low priority (~1.8 GB, ~5 min on 14M swaps).
+#   install -m 755 target/release/ge-analyze /usr/local/bin/
+[Unit]
+Description=GodsEye Rust backtest and money-flow analysis (ge-analyze)
+
+[Service]
+Type=oneshot
+User=godseye
+Group=godseye
+ExecStart=/usr/local/bin/ge-analyze --db /opt/godseye/app/data/godseye.db --days 14 --threads 2
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=2500M
+MemorySwapMax=0
+TimeoutStartSec=30min

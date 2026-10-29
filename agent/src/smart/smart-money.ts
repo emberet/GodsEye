@@ -120,7 +120,7 @@ export class SmartMoney {
     private db: DB,
     private book: LiveBook | null,
     /** Look up names of new tokens (needed to spot non-memecoins). Off in tests: no network. */
-    private opts: { lookupNames?: boolean } = {},
+    private opts: { lookupNames?: boolean; purgeEveryMs?: number } = {},
   ) {
     for (const r of db.prepare("SELECT mint, MAX(ts) ts, kind FROM smart_signals GROUP BY mint, kind").all() as { mint: string; ts: string; kind: string }[]) {
       this.lastSignal.set(`${r.kind}:${r.mint}`, Date.parse(r.ts));
@@ -276,6 +276,8 @@ export class SmartMoney {
     return isNonMemecoin(mint, cachedTokenInfo(this.db, mint)?.symbol);
   }
 
+  private purgedAt = 0;
+
   /** Delete recorded smart trades and signals on tokens that turned out not to be memecoins. */
   purgeNonMemecoins(): { flows: number; signals: number } {
     const all = (this.db.prepare("SELECT DISTINCT mint FROM smart_flows UNION SELECT DISTINCT mint FROM smart_signals").all() as { mint: string }[]).map((r) => r.mint);
@@ -330,7 +332,11 @@ export class SmartMoney {
 
   /** Recompute who counts as smart money, with each wallet's learned lead score. */
   refresh(): { active: number; dropped: number; bots: number; uncopyable: number } {
-    this.purgeNonMemecoins();
+    // Once an hour, not every refresh: it scans every recorded smart trade (~1 s of blocked event loop at 300k rows).
+    if (Date.now() - this.purgedAt >= (this.opts.purgeEveryMs ?? 3_600_000)) {
+      this.purgedAt = Date.now();
+      this.purgeNonMemecoins();
+    }
     if (organicSettings.enabled) backfillFromTape(this.db); // tokens traded before the live tally existed: judge what the stored swaps can show
     const ts = nowIso();
     const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();

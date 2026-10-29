@@ -38,18 +38,29 @@ export const MIN_PRICE_OBSERVATIONS = 5;
  * (all wallets, from the first observation up to the trade's exit) that were below the entry price.
  * 0 = bought at the lowest price GodsEye has seen, 1 = at the highest. Null if too few observations.
  */
+type RankStmt = { get: (price: number, mint: string, before: string) => unknown };
+const rankStmts = new WeakMap<DB, RankStmt>();
+
 export function entryPriceRank(db: DB, mint: string, entryPrice: number | null | undefined, exitTs: number): number | null {
   if (entryPrice === null || entryPrice === undefined || !(entryPrice > 0)) return null;
-  const row = db
-    .prepare(
+  let stmt = rankStmts.get(db);
+  if (!stmt) {
+    stmt = db.prepare(
       `SELECT COUNT(*) n, SUM(CASE WHEN price_sol < ? THEN 1 ELSE 0 END) below
          FROM wallet_swaps WHERE mint = ? AND ts <= ? AND price_sol > 0`,
-    )
-    .get(entryPrice, mint, epochSecToIso(exitTs + 1)) as { n: number; below: number | null };
+    ) as unknown as RankStmt;
+    rankStmts.set(db, stmt);
+  }
+  const row = stmt.get(entryPrice, mint, epochSecToIso(exitTs + 1)) as { n: number; below: number | null };
   return row.n >= MIN_PRICE_OBSERVATIONS ? (row.below ?? 0) / row.n : null;
 }
 
-/** Insert or refresh closed trades. Idempotent: the same input twice leaves the table unchanged. */
+/**
+ * Insert or refresh closed trades. Idempotent: the same input twice leaves the table unchanged.
+ * entry_price_rank is computed once per trade: it reads the token's whole price path, and the analysis of a
+ * busy wallet re-stored thousands of trades each time (seconds of blocked event loop). Prices up to a closed
+ * trade's exit are already in, so a stored rank is kept (COALESCE below) instead of recomputed.
+ */
 export function upsertClosedTrades(db: DB, rows: ClosedTradeRow[]): number {
   if (!rows.length) return 0;
   const stmt = db.prepare(
@@ -62,11 +73,18 @@ export function upsertClosedTrades(db: DB, rows: ClosedTradeRow[]): number {
         hold_sec=excluded.hold_sec, token_age_sec_at_entry=excluded.token_age_sec_at_entry, venue_entry=excluded.venue_entry,
         jito_tip_entry=excluded.jito_tip_entry, entry_price_rank=COALESCE(excluded.entry_price_rank, closed_trades.entry_price_rank)`,
   );
+  const ranked = new Set<string>();
+  for (const w of new Set(rows.map((r) => r.wallet))) {
+    for (const x of db.prepare("SELECT mint, entry_ts FROM closed_trades WHERE wallet = ? AND entry_price_rank IS NOT NULL").all(w) as { mint: string; entry_ts: number }[]) {
+      ranked.add(`${w}|${x.mint}|${x.entry_ts}`);
+    }
+  }
   let n = 0;
   db.transaction(() => {
     for (const r of rows) {
       const { entry_price_sol, ...rest } = r;
-      n += stmt.run({ ...rest, entry_price_rank: entryPriceRank(db, r.mint, entry_price_sol, r.exit_ts) }).changes;
+      const rank = ranked.has(`${r.wallet}|${r.mint}|${r.entry_ts}`) ? null : entryPriceRank(db, r.mint, entry_price_sol, r.exit_ts);
+      n += stmt.run({ ...rest, entry_price_rank: rank }).changes;
     }
   })();
   return n;

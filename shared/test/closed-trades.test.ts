@@ -62,3 +62,21 @@ test("pruneHistory keeps recent swaps, copied wallets and closed_trades", () => 
   assert.equal((db.prepare("SELECT COUNT(*) n FROM closed_trades").get() as { n: number }).n, 1);
   assert.deepEqual(pruneHistory(db, { swapsDays: 0, activityDays: 0, now }), { swaps: 0, activity: 0 });
 });
+
+test("entry_price_rank is computed once per trade and kept when the trade is stored again", () => {
+  const db = openDb(":memory:");
+  const exit = isoToEpochSec("2026-10-20T01:00:00.000Z");
+  [1, 2, 3, 4, 5].forEach((p, i) => insertSwap(db, `s${i}`, "X", `2026-10-20T00:0${i}:00.000Z`, p));
+  const trade = row({ entry_ts: exit - 600, exit_ts: exit, entry_price_sol: 3 });
+  upsertClosedTrades(db, [trade]);
+  const rank = () => (db.prepare("SELECT entry_price_rank r FROM closed_trades").get() as { r: number | null }).r;
+  assert.equal(rank(), 0.4);
+  // a swap stored late, before the exit: the stored rank is kept rather than re-read from the whole price path
+  insertSwap(db, "late", "Y", "2026-10-20T00:30:00.000Z", 0.5);
+  upsertClosedTrades(db, [{ ...trade, exit_sol: 2 }]);
+  assert.equal(rank(), 0.4);
+  assert.equal((db.prepare("SELECT exit_sol FROM closed_trades").get() as { exit_sol: number }).exit_sol, 2, "the rest still refreshes");
+  // a trade without a rank yet still gets one
+  upsertClosedTrades(db, [row({ mint: "M", entry_ts: exit - 300, exit_ts: exit, entry_price_sol: 5 })]);
+  assert.equal((db.prepare("SELECT entry_price_rank r FROM closed_trades WHERE entry_ts = ?").get(exit - 300) as { r: number }).r, 5 / 6);
+});

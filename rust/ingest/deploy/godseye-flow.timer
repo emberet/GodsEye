@@ -1,0 +1,11 @@
+# /etc/systemd/system/godseye-flow.timer — then: systemctl enable --now godseye-flow.timer
+[Unit]
+Description=Run ge-analyze every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:20:00
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

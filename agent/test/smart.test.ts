@@ -103,7 +103,7 @@ test("non-memecoins never count as smart money: skipped when known, purged once 
     copyable(db, w);
   }
   const named = (mint: string, symbol: string) => db.prepare("INSERT INTO token_info (mint, symbol, checked_at) VALUES (?, ?, ?)").run(mint, symbol, now);
-  const sm = new SmartMoney(db, null);
+  const sm = new SmartMoney(db, null, { purgeEveryMs: 0 }); // purge on every refresh (hourly in the agent)
   sm.refresh();
   const on = (wallet: string, mint: string, i: number) => sm.onSwap({ ...swap(wallet, "buy", 300, 1, i), mint }, T + i * 60_000);
 

@@ -1,11 +1,20 @@
-# /etc/systemd/system/godseye-quant.service  (example; adjust paths and user)
+# /etc/systemd/system/godseye-quant.service — the offline quant job (skill vs luck, sizing params), run by
+# godseye-quant.timer. Memory-capped and low priority: it must never starve or OOM the agent.
 [Unit]
 Description=GodsEye offline quant job (skill stats + sizing params)
+After=godseye-flow.service
 
 [Service]
 Type=oneshot
 User=godseye
-WorkingDirectory=/opt/GodsEye/quant
-Environment=GODSEYE_DB_PATH=data/godseye.db
-ExecStart=/opt/GodsEye/quant/.venv/bin/python -m quant.run
-Nice=10
+Group=godseye
+WorkingDirectory=/opt/godseye/app/quant
+Environment=GODSEYE_DB_PATH=/opt/godseye/app/data/godseye.db
+# use the Rust backtest + money-flow tables (godseye-flow) to take 'skill' away from followers and sybils
+Environment=QUANT_USE_FLOW=on
+ExecStart=/opt/godseye/app/quant/.venv/bin/python -m quant.run
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=2500M
+MemorySwapMax=0
+TimeoutStartSec=45min
