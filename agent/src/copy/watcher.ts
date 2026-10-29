@@ -16,6 +16,10 @@ import { findNewWalletsFunded, parseSwaps, type TxLike } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
 import { addWallet } from "../discovery/discover";
 import type { CopyEngine } from "./engine";
+import { withTimeout } from "../jobs";
+
+/** Bound on each RPC/websocket call made while syncing or polling leaders (a hung call used to stall learning). */
+export const WATCHER_RPC_TIMEOUT_MS = 20_000;
 
 /** SOL sent to a never-used wallet that makes GodsEye start tracking it. */
 const ROTATION_MIN_SOL = 0.5;
@@ -48,7 +52,9 @@ export class LeaderWatcher {
     const want = new Set(leaders);
     for (const [addr, id] of this.subs) {
       if (!want.has(addr)) {
-        await connection().removeOnLogsListener(id).catch(() => undefined);
+        await withTimeout(connection().removeOnLogsListener(id), WATCHER_RPC_TIMEOUT_MS, `unsubscribe ${short(addr)}`).catch((e: Error) =>
+          say("warn", `Live feed unsubscribe for ${short(addr)} failed (${e.message}); dropping it anyway.`),
+        );
         this.subs.delete(addr);
         this.cursors.delete(addr);
       }
@@ -56,7 +62,7 @@ export class LeaderWatcher {
     for (const addr of want) {
       if (this.cursors.has(addr)) continue;
       // Start from "now": GodsEye copies new trades only, never old ones.
-      const newest = await fetchSignatures(addr, { limit: 1 }).catch(() => []);
+      const newest = await withTimeout(fetchSignatures(addr, { limit: 1 }), WATCHER_RPC_TIMEOUT_MS, `signatures for ${short(addr)}`).catch(() => []);
       this.cursors.set(addr, newest[0]?.signature ?? null);
       try {
         const id = connection().onLogs(new PublicKey(addr), (logs) => {
@@ -73,7 +79,7 @@ export class LeaderWatcher {
   async poll(): Promise<void> {
     for (const [addr, cursor] of this.cursors) {
       try {
-        const sigs = await fetchSignatures(addr, { until: cursor, limit: 50 });
+        const sigs = await withTimeout(fetchSignatures(addr, { until: cursor, limit: 50 }), WATCHER_RPC_TIMEOUT_MS, `signatures for ${short(addr)}`);
         if (!sigs.length) continue;
         this.cursors.set(addr, sigs[0].signature);
         if (!cursor) continue; // first successful read: just set the starting point
@@ -89,7 +95,7 @@ export class LeaderWatcher {
     if (this.seen.has(key)) return;
     this.seen.add(key);
     if (this.seen.size > 20_000) this.seen = new Set([...this.seen].slice(-10_000));
-    const tx = streamed ?? (await fetchParsedOne(signature));
+    const tx = streamed ?? (await withTimeout(fetchParsedOne(signature), WATCHER_RPC_TIMEOUT_MS, `transaction ${signature.slice(0, 8)}`).catch(() => null));
     if (!tx) return;
     // A memecoin ↔ memecoin swap gives a sell then a buy: GodsEye mirrors both (selling first frees budget).
     const swaps = parseSwaps(tx, leader, { solUsdAt });
