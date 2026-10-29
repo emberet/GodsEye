@@ -313,6 +313,9 @@ export async function deepenHistory(db: DB, address: string, now = Date.now()): 
         history_done = ?
       WHERE address = ?`,
   ).run(h.historyFrom, h.historyFrom, h.historyFrom, h.oldestSignature, h.read, h.historyDone || h.read === 0 ? 1 : 0, address);
+  // A copy replay built on the shorter history is no longer evidence (a scalper can look copyable on its newest
+  // 40 trades and lose on all 170): drop it, so the copy gate waits for a replay of the whole history.
+  if (h.swaps.length > 0) db.prepare("DELETE FROM copy_replays WHERE wallet = ?").run(address);
   return h.read;
 }
 

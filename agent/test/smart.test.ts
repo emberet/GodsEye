@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { openDb } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import { detectSignal, leadStats, returnPct, SmartMoney } from "../src/smart/smart-money";
-import { botReason, copyReason, junkReason, refreshCopyReplays } from "../src/smart/copy-check";
+import { botReason, copyReason, junkReason, refreshCopyReplays, worstCase } from "../src/smart/copy-check";
 
 /** A copy replay that passes the copy gate (median +5% over 20 copies, well covered). */
 const copyable = (db: ReturnType<typeof openDb>, wallet: string, median = 5, n = 20, coverage = 0.9) =>
@@ -152,6 +152,16 @@ test("bot gate: seconds-long holds, high frequency or same-block round trips; un
   assert.match(botReason({ ...human, same_block_round_trips: 1 }, bCfg)!, /same block 1 time$/);
 });
 
+test("copy gate sees the worse of the replays at the expected and the slower delay", () => {
+  const at5 = { delaySec: 5, medianRetPct: 0.8 };
+  const at15 = { delaySec: 15, medianRetPct: -2.3 };
+  assert.equal(worstCase([at5, at15]), at15);
+  assert.equal(worstCase([at15, at5]), at15);
+  const noFills = { delaySec: 15, medianRetPct: null };
+  assert.equal(worstCase([at5, noFills]), noFills);
+  assert.equal(worstCase([at5]), at5);
+});
+
 test("copy gate: needs a replay, enough copies, enough tape, and a positive median", () => {
   const ok = { delay_sec: 5, n: 20, coverage: 0.9, median_ret_pct: 3 };
   assert.equal(copyReason(ok, rCfg), null);
@@ -196,7 +206,8 @@ test("copy replays: missing ones are replayed and stored; fresh ones are left al
   ins.run("L", "s", 99, new Date(t0 + 120_000).toISOString(), "sell", 1000, 1000, 2, 0.002);
   assert.equal(await refreshCopyReplays(db, ["L"], { budgetMs: 10_000 }), 1);
   const row = db.prepare("SELECT n, delay_sec, implausible FROM copy_replays WHERE wallet = 'L'").get() as { n: number; delay_sec: number; implausible: number };
-  assert.deepEqual([row.n, row.delay_sec, row.implausible], [1, 5, 0]);
+  // stored at the slower of the two delays (5 s and 3× that), where this fixture's price run-up makes the copy do worse
+  assert.deepEqual([row.n, row.delay_sec, row.implausible], [1, 15, 0]);
   assert.equal(await refreshCopyReplays(db, ["L"], { budgetMs: 10_000 }), 0);
 });
 

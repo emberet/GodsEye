@@ -91,6 +91,8 @@ export const config = {
   smartReplayMinCoverage: envNum("SMART_REPLAY_MIN_COVERAGE", 0.5),
   /** Delay to replay at, seconds, until GodsEye has real copies to measure its own delay from. */
   smartReplayDelaySec: envNum("SMART_REPLAY_DELAY_SEC", 5),
+  /** The copy must also pay at this multiple of that delay (the delay is a guess until real copies measure it); the worse of the two is what the gate sees. 1 = off. */
+  smartReplayStressFactor: envNum("SMART_REPLAY_STRESS_FACTOR", 3),
 
   // ---- Discovery: finding wallets worth watching ----
   discoverCron: envStr("DISCOVER_CRON", "*/30 * * * *"),

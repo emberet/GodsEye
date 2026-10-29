@@ -65,6 +65,11 @@ export function junkReason(b: BotSigns, r: CopyReplay | null, bc: BotCfg, rc: Re
   return null;
 }
 
+/** Pure: of the replays at different delays, the one that did worst (a replay with no median counts as worst). */
+export function worstCase<T extends { medianRetPct: number | null }>(summaries: T[]): T {
+  return summaries.reduce((worst, s) => ((s.medianRetPct ?? -Infinity) < (worst.medianRetPct ?? -Infinity) ? s : worst));
+}
+
 export const botCfg = (): BotCfg => ({ minHoldSec: config.smartBotMinHoldSec, maxTxPerHour: config.smartBotMaxTxPerHour, maxSameBlock: config.smartBotMaxSameBlock });
 export const replayCfg = (): ReplayCfg => ({ minCopies: config.smartReplayMinCopies, minCoverage: config.smartReplayMinCoverage });
 
@@ -104,15 +109,21 @@ export const REPLAY_MAX_AGE_MS = 6 * 3_600_000;
 const REPLAY_DAYS = 14;
 
 /**
- * Replay the wallets whose result is missing or stale (missing first, then oldest), for at most `budgetMs`,
+ * Replay the wallets whose result is missing or stale (the ones being copied first, then missing, then oldest), for at most `budgetMs`,
  * yielding between wallets. Returns how many were replayed.
  */
 export async function refreshCopyReplays(db: DB, wallets: string[], opts: { budgetMs: number; now?: number }): Promise<number> {
   const now = opts.now ?? Date.now();
   const age = new Map((db.prepare("SELECT wallet, computed_at FROM copy_replays").all() as { wallet: string; computed_at: string }[]).map((r) => [r.wallet, Date.parse(r.computed_at)]));
-  const due = wallets.filter((w) => now - (age.get(w) ?? 0) > REPLAY_MAX_AGE_MS).sort((a, b) => (age.get(a) ?? 0) - (age.get(b) ?? 0));
+  // Wallets being copied right now go first: their weight waits on the replay (e.g. after it was dropped on a deeper history read).
+  const copied = new Set((db.prepare("SELECT address FROM wallets WHERE copy_weight > 0").all() as { address: string }[]).map((r) => r.address));
+  const due = wallets
+    .filter((w) => now - (age.get(w) ?? 0) > REPLAY_MAX_AGE_MS)
+    .sort((a, b) => Number(copied.has(b)) - Number(copied.has(a)) || (age.get(a) ?? 0) - (age.get(b) ?? 0));
   if (!due.length) return 0;
   const delay = replayDelaySec(db);
+  // Replayed at the expected delay and at a slower one: a profit that vanishes when the copy lands a few seconds later isn't one to rely on.
+  const delays = config.smartReplayStressFactor > 1 ? [delay, Math.round(delay * config.smartReplayStressFactor)] : [delay];
   const endT = dataEnd(db);
   const params = {
     sizeSol: config.copyMaxTradeSol,
@@ -131,9 +142,9 @@ export async function refreshCopyReplays(db: DB, wallets: string[], opts: { budg
   let done = 0;
   for (const w of due) {
     if (Date.now() - started > opts.budgetMs) break;
-    const r = replayWallet(db, w, [delay], params, { sinceMs: endT - REPLAY_DAYS * 86_400_000, endT });
-    const s = summarize(delay, r.real.get(delay) ?? [], r.ideal);
-    up.run(w, delay, s.n, s.coverage, s.medianRetPct, s.meanRetPct, s.winRate, s.idealMeanRetPct, r.implausible, nowIso());
+    const r = replayWallet(db, w, delays, params, { sinceMs: endT - REPLAY_DAYS * 86_400_000, endT });
+    const s = worstCase(delays.map((d) => summarize(d, r.real.get(d) ?? [], r.ideal)));
+    up.run(w, s.delaySec, s.n, s.coverage, s.medianRetPct, s.meanRetPct, s.winRate, s.idealMeanRetPct, r.implausible, nowIso());
     done++;
     await new Promise((res) => setImmediate(res));
   }
