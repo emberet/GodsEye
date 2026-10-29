@@ -8,6 +8,7 @@ use crate::{time::iso_to_ms, Swap};
 use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 pub const FLOW_SCHEMA_SQL: &str = "
 CREATE TABLE IF NOT EXISTS backtest_results (
@@ -65,7 +66,7 @@ pub fn load_swaps(c: &Connection, since_ms: Option<i64>) -> rusqlite::Result<Vec
         "0"
     };
     let mut st = c.prepare(&format!(
-        "SELECT wallet, mint, signature, ts, side, token_amount, {bal}, sol_amount, price_sol
+        "SELECT wallet, mint, ts, side, token_amount, {bal}, sol_amount, price_sol
            FROM wallet_swaps WHERE price_sol > 0 ORDER BY id"
     ))?;
     let rows = st.query_map([], |r| {
@@ -74,24 +75,31 @@ pub fn load_swaps(c: &Connection, since_ms: Option<i64>) -> rusqlite::Result<Vec
             r.get::<_, String>(1)?,
             r.get::<_, String>(2)?,
             r.get::<_, String>(3)?,
-            r.get::<_, String>(4)?,
+            r.get::<_, f64>(4)?,
             r.get::<_, f64>(5)?,
             r.get::<_, f64>(6)?,
             r.get::<_, f64>(7)?,
-            r.get::<_, f64>(8)?,
         ))
     })?;
     let mut out = Vec::new();
+    let mut names: HashMap<String, Arc<str>> = HashMap::new();
+    let mut intern = |s: String| -> Arc<str> {
+        if let Some(a) = names.get(&s) {
+            return a.clone();
+        }
+        let a: Arc<str> = Arc::from(s.as_str());
+        names.insert(s, a.clone());
+        a
+    };
     for row in rows {
-        let (wallet, mint, signature, ts, side, ta, tb, sol, price) = row?;
+        let (wallet, mint, ts, side, ta, tb, sol, price) = row?;
         let Some(t) = iso_to_ms(&ts) else { continue };
         if since_ms.is_some_and(|s| t < s) {
             continue;
         }
         out.push(Swap {
-            wallet,
-            mint,
-            signature,
+            wallet: intern(wallet),
+            mint: intern(mint),
             t,
             buy: side == "buy",
             token_amount: ta,
@@ -149,7 +157,7 @@ pub fn load_leaders(
     let mut v: Vec<String> = swaps
         .iter()
         .filter(|s| s.buy)
-        .map(|s| s.wallet.clone())
+        .map(|s| s.wallet.to_string())
         .collect();
     v.sort();
     v.dedup();

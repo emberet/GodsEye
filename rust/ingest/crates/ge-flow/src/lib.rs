@@ -8,17 +8,19 @@
 //!
 //! Pure offline analysis: nothing here signs, sends or holds a key.
 
+use std::sync::Arc;
+
 pub mod backtest;
 pub mod db;
 pub mod flow;
 pub mod time;
 
-/// One stored swap (a row of `wallet_swaps`). `t` is Unix milliseconds.
+/// One stored swap (a row of `wallet_swaps`). `t` is Unix milliseconds. `wallet` and `mint` are shared
+/// (one allocation per distinct address): the live DB has ~14M swaps but only ~25k wallets and far fewer mints.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Swap {
-    pub wallet: String,
-    pub mint: String,
-    pub signature: String,
+    pub wallet: Arc<str>,
+    pub mint: Arc<str>,
     pub t: i64,
     pub buy: bool,
     pub token_amount: f64,
@@ -54,7 +56,6 @@ pub mod synth {
         Swap {
             wallet: wallet.into(),
             mint: mint.into(),
-            signature: format!("{wallet}-{mint}-{t_ms}-{buy}"),
             t: t_ms,
             buy,
             token_amount: sol / price,

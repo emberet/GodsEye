@@ -88,11 +88,7 @@ pub fn analyse(
     p: &FlowParams,
 ) -> Vec<WalletFlow> {
     // wallet ids, sorted for deterministic output
-    let mut names: Vec<&str> = swaps
-        .iter()
-        .filter(|s| s.buy)
-        .map(|s| s.wallet.as_str())
-        .collect();
+    let mut names: Vec<&str> = swaps.iter().filter(|s| s.buy).map(|s| &*s.wallet).collect();
     names.sort_unstable();
     names.dedup();
     let id: HashMap<&str, usize> = names.iter().enumerate().map(|(i, w)| (*w, i)).collect();
@@ -100,9 +96,7 @@ pub fn analyse(
     // first buy per (mint, wallet)
     let mut first: HashMap<(&str, usize), i64> = HashMap::new();
     for s in swaps.iter().filter(|s| s.buy) {
-        let e = first
-            .entry((s.mint.as_str(), id[s.wallet.as_str()]))
-            .or_insert(s.t);
+        let e = first.entry((&*s.mint, id[&*s.wallet])).or_insert(s.t);
         *e = (*e).min(s.t);
     }
     let mut by_mint: HashMap<&str, Vec<(i64, usize)>> = HashMap::new();

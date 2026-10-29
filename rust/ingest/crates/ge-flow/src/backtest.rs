@@ -416,7 +416,7 @@ impl<'a> Market<'a> {
         let mut end_t = i64::MIN;
         for s in swaps {
             end_t = end_t.max(s.t);
-            by_mint.entry(s.mint.as_str()).or_default().push(s);
+            by_mint.entry(&*s.mint).or_default().push(s);
         }
         for v in by_mint.values_mut() {
             v.sort_by_key(|s| s.t);
@@ -429,8 +429,8 @@ impl<'a> Market<'a> {
         for (m, v) in &self.by_mint {
             let mut seen = std::collections::HashSet::new();
             for s in v {
-                if seen.insert(s.wallet.as_str()) {
-                    idx.entry(s.wallet.as_str()).or_default().push(m);
+                if seen.insert(&*s.wallet) {
+                    idx.entry(&*s.wallet).or_default().push(m);
                 }
             }
         }
@@ -458,7 +458,11 @@ pub fn episodes(m: &Market, leader: &str, mints: &[&str], p: &Params) -> Vec<Epi
     for mint in mints {
         let all = &m.by_mint[mint];
         let tape = tape_for(all, p);
-        let mine: Vec<&Swap> = all.iter().copied().filter(|s| s.wallet == leader).collect();
+        let mine: Vec<&Swap> = all
+            .iter()
+            .copied()
+            .filter(|s| &*s.wallet == leader)
+            .collect();
         eps.extend(simulate_mint(&tape, &mine, m.end_t, p));
     }
     eps.sort_by_key(|e| e.entry_t);
