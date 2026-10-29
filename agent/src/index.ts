@@ -45,8 +45,9 @@ attachLogDb(db);
 const { keypair, created } = loadOrCreateWallet(db);
 const shadow = config.shadowEnabled ? new ShadowLogger(db) : null;
 const engine = new CopyEngine(db, config.copyMode === "real" ? new RealExecutor(keypair) : new PaperExecutor(), keypair.publicKey, shadow);
-// With the gRPC stream on, leaders' swaps arrive on it and the poll is the safety net: no websocket per leader.
-const watcher = new LeaderWatcher(db, engine, { logs: !streamConfigured() });
+// A websocket per leader on the copy RPC as well as the stream: if the stream is down (its provider refuses
+// the token or the IP), leaders' trades still arrive within a second or two. Duplicates are dropped.
+const watcher = new LeaderWatcher(db, engine);
 const live = streamConfigured() ? new LiveStream(db, watcher) : null;
 
 function heartbeat(status = "live"): void {

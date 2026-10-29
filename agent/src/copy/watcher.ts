@@ -1,7 +1,7 @@
 /**
  * Watches the wallets GodsEye copies, live.
  *   • with GRPC_URL set, leaders' swaps arrive on the gRPC stream (stream.ts)
- *   • without the stream, a websocket subscription per leader (Solana "logsSubscribe")
+ *   • a websocket subscription per leader (Solana "logsSubscribe", on the copy RPC)
  *     fires the moment a leader's transaction confirms (and catches non-swap moves)
  *   • a poll every LEADER_POLL_SECONDS catches anything the websocket missed
  * Each new transaction is read once: swaps go to the copy engine; SOL sent to
@@ -37,7 +37,7 @@ export class LeaderWatcher {
   constructor(
     private db: DB,
     private engine: CopyEngine,
-    /** Subscribe to each leader's logs over the websocket. Off when the gRPC stream already delivers leaders' swaps. */
+    /** Subscribe to each leader's logs over the copy RPC's websocket (off in tests). */
     private opts: { logs: boolean; callMs?: number } = { logs: true },
   ) {}
 
