@@ -35,6 +35,7 @@ import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
 import { notBots, refreshCopyReplays } from "./smart/copy-check";
 import { every } from "./schedule";
+import { createJobRunner, type JobOpts } from "./jobs";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
 /** Bump when the P&L rules change so stored stats are recomputed once at startup. */
@@ -90,19 +91,17 @@ function logSlowSql(d: typeof db): void {
   }) as typeof d.prepare;
 }
 
-/** Runs a job unless the previous run of the same job is still going. */
-const running = new Set<string>();
-async function job(name: string, fn: () => Promise<void>, publish = true): Promise<void> {
-  if (running.has(name)) return;
-  running.add(name);
-  try {
-    await fn();
-  } catch (e) {
-    say("error", `${name} failed: ${(e as Error).message}`);
-  } finally {
-    running.delete(name);
-  }
-  if (publish) await publishSnapshot(db);
+/** Runs a job unless the previous run of the same job is still going (agent/src/jobs.ts). */
+const runner = createJobRunner({ warn: (m) => say("warn", m), error: (m) => say("error", m) });
+/** Jobs that cannot trade: a hung run is abandoned after this long so the schedule resumes. */
+const NON_TRADING: JobOpts = { maxRuntimeMs: 30 * 60_000, releaseAfterMaxRuntime: true };
+/** Jobs that can trade: warn when a run is this long, never start a second copy. */
+const TRADING: JobOpts = { maxRuntimeMs: 10 * 60_000, releaseAfterMaxRuntime: false };
+/** Jobs holding a slot right now (read by the event-loop and slow-SQL logs). */
+const running = { [Symbol.iterator]: () => runner.names()[Symbol.iterator]() };
+async function job(name: string, fn: () => Promise<void>, publish = true, opts: JobOpts = NON_TRADING): Promise<void> {
+  const ran = await runner.run(name, fn, opts);
+  if (ran && publish) await publishSnapshot(db);
 }
 
 const discover = () =>
@@ -132,8 +131,8 @@ const positions = () =>
       lastReconcile = Date.now();
       await reconcile(db, heldTokens);
     }
-  });
-const poll = () => job("leader poll", () => watcher.poll(), false);
+  }, true, TRADING);
+const poll = () => job("leader poll", () => watcher.poll(), false, TRADING);
 /** Price, liquidity and a sell quote for the tokens the shadow log is following (shadow/sampler.ts). */
 const followShadow = () => job("shadow log", async () => void (await sampleDue(db)), false);
 
