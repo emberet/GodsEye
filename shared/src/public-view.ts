@@ -1,7 +1,7 @@
 /**
  * What the public website is allowed to show. The agent publishes (and the local database holds) its full
  * internal state; every public API answer passes through `publicView` first, which:
- *   • hides the hot wallet's address and balance (anyone could watch, front-run or target it);
+ *   • hides the hot wallet's address (anyone could watch, front-run or target it); its balance is shown (the owner asked);
  *   • hides the raw agent logs;
  *   • reduces each copy decision to its outcome (no internal reason text, sizing weight or latency);
  *   • hides the learned tuning thresholds (the "follow bar" and its history);
@@ -56,7 +56,7 @@ export function publicView<T>(feed: PublicFeed, body: T): T {
   if (feed === "logs") return [] as unknown as T;
   const out = walk(body);
   if (!isObj(out)) return out as T;
-  if (feed === "summary" && isObj(out.wallet)) out.wallet = { pubkey: null, balanceSol: null, checkedAt: null };
+  if (feed === "summary" && isObj(out.wallet)) out.wallet = { pubkey: null, balanceSol: out.wallet.balanceSol ?? null, checkedAt: out.wallet.checkedAt ?? null };
   if (feed === "smart" && "followBar" in out) out.followBar = null;
   if (feed === "leaders") {
     if ("followBar" in out) out.followBar = null;

@@ -45,7 +45,7 @@ export default function CopiesPage() {
         {s?.copyMode === "paper" ? (
           <Stat tile="bg-sun" label="Paper trading" value="No real SOL" sub="Fills are simulated with live quotes" />
         ) : (
-          <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : s && !s.wallet.pubkey ? "hidden on the public site" : "not checked yet"} />
+          <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `${s.wallet.balanceSol != null && s.solUsd ? `≈ $${(s.wallet.balanceSol * s.solUsd).toFixed(2)} · ` : ""}checked ${ago(s.wallet.checkedAt)}` : s && !s.wallet.pubkey ? "hidden on the public site" : "not checked yet"} />
         )}
         <Stat tile="bg-lilac" label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub={bar === null ? "Default: not learned yet" : "Moves on its own as copies win or lose"} />
       </Stats>

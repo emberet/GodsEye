@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { fullFeedEnabled, publicText, publicView } from "../src/public-view";
 import { TIER_LABELS } from "../src/constants";
 
-test("public summary hides the hot wallet address and balance, keeps the rest", () => {
+test("public summary hides the hot wallet address, shows its balance, keeps the rest", () => {
   const s = { copyMode: "real", paused: false, wallet: { pubkey: "52NhExampleExampleExampleExamplepzMQ", balanceSol: 1.11, checkedAt: "2026-10-27T00:00:00Z" }, wins: 3 };
   const out = publicView("summary", s);
-  assert.deepEqual(out.wallet, { pubkey: null, balanceSol: null, checkedAt: null });
+  assert.deepEqual(out.wallet, { pubkey: null, balanceSol: 1.11, checkedAt: "2026-10-27T00:00:00Z" });
   assert.equal(out.wins, 3);
   assert.equal(out.copyMode, "real");
   assert.ok(!JSON.stringify(out).includes("52Nh"));
