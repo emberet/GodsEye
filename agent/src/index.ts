@@ -47,7 +47,14 @@ attachLogDb(db);
 
 const { keypair, created } = loadOrCreateWallet(db);
 const shadow = config.shadowEnabled ? new ShadowLogger(db) : null;
-const engine = new CopyEngine(db, config.copyMode === "real" ? new RealExecutor(keypair) : new PaperExecutor(), keypair.publicKey, shadow);
+const realExecutor = config.copyMode === "real" ? new RealExecutor(keypair) : null;
+const engine = new CopyEngine(db, realExecutor ?? new PaperExecutor(), keypair.publicKey, shadow);
+// Once at start: empty token accounts left by earlier sells still hold ~0.002 SOL of rent each. Take it back.
+if (realExecutor)
+  void realExecutor
+    .reclaimRent()
+    .then((sol) => sol > 0 && say("info", `Closed empty token accounts: ${sol.toFixed(4)} SOL of rent back in the wallet.`))
+    .catch((e) => say("warn", `Couldn't close empty token accounts: ${(e as Error).message.slice(0, 160)}`));
 // A websocket per leader on the copy RPC as well as the stream: if the stream is down (its provider refuses
 // the token or the IP), leaders' trades still arrive within a second or two. Duplicates are dropped.
 const watcher = new LeaderWatcher(db, engine);

@@ -11,10 +11,10 @@
  *
  * Read-only. See replay/model.ts for what the replay does and doesn't model.
  */
-import { isNonMemecoinSymbol, NON_MEMECOIN_MINTS, openDbReadonly } from "@godseye/shared";
+import { openDbReadonly } from "@godseye/shared";
 import { config } from "../config";
-import { DEFAULT_PARAMS, type Episode, type LeaderSwap, MAX_PLAUSIBLE_RETURN_PCT, median, type Obs, type ReplayParams, simulateMint, Tape } from "../replay/model";
-import { dataEnd } from "../replay/run";
+import { DEFAULT_PARAMS, type Episode, MAX_PLAUSIBLE_RETURN_PCT, median, type ReplayParams, simulateMint } from "../replay/model";
+import { loadBooks, rankedCandidates, runRule, scoreRule } from "../replay/sweep";
 import { replayDelaySec } from "../smart/copy-check";
 
 const args = process.argv.slice(2);
@@ -23,74 +23,12 @@ const flag = (name: string, fallback: number): number => {
   return i >= 0 ? Number(args[i + 1]) : fallback;
 };
 const days = flag("days", 14);
-const maxWallets = flag("wallets", 150);
 
 const db = openDbReadonly();
-const endT = dataEnd(db);
-const since = endT - days * 86_400_000;
 const delay = replayDelaySec(db);
-
-const wallets = (
-  db
-    .prepare(
-      `SELECT w.address FROM wallets w JOIN wallet_stats s ON s.wallet = w.address
-        WHERE w.copy_weight > 0 OR w.weight_reason LIKE '%of its buys copyable%' ORDER BY COALESCE(s.pnl_7d_usd, 0) DESC LIMIT ?`,
-    )
-    .all(maxWallets) as { address: string }[]
-).map((r) => r.address);
-
-const passed = new Set((db.prepare("SELECT mint FROM rug_checks WHERE verdict = 'pass'").all() as { mint: string }[]).map((r) => r.mint));
-const blocked = new Set((db.prepare("SELECT mint FROM rug_checks WHERE verdict = 'blocked'").all() as { mint: string }[]).map((r) => r.mint));
-const copyable = (mint: string) => passed.has(mint) || (!blocked.has(mint) && mint.endsWith("pump"));
-
-interface Book {
-  wallet: string;
-  mint: string;
-  tape: Tape;
-  swaps: LeaderSwap[];
-  /** Leader's buy size ÷ its median buy size, by signature (conviction). */
-  conviction: Map<string, number>;
-}
-const valid = (n: number) => Number.isFinite(n) && n > 0;
-const swapRows = db.prepare(
-  `SELECT signature, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol FROM wallet_swaps WHERE wallet = ? AND ts >= ? ORDER BY ts, slot, id`,
-);
-const tapeRows = db.prepare("SELECT signature, ts, side, sol_amount, price_sol FROM wallet_swaps WHERE mint = ? AND ts >= ? AND ts <= ? ORDER BY ts, slot, id");
-const symbolOf = db.prepare("SELECT symbol FROM token_info WHERE mint = ?");
-const tapes = new Map<string, Tape>();
-const books: Book[] = [];
-const t0 = Date.now();
-for (const wallet of wallets) {
-  const rows = (swapRows.all(wallet, new Date(since).toISOString()) as {
-    signature: string; ts: string; mint: string; side: "buy" | "sell"; token_amount: number; token_balance_before: number; sol_amount: number; price_sol: number;
-  }[]).filter((r) => valid(r.price_sol) && valid(r.sol_amount) && valid(r.token_amount));
-  const buySizes = rows.filter((r) => r.side === "buy").map((r) => r.sol_amount);
-  const typical = median(buySizes) ?? 1;
-  const byMint = new Map<string, typeof rows>();
-  for (const r of rows) {
-    if (!copyable(r.mint) || NON_MEMECOIN_MINTS.has(r.mint)) continue;
-    (byMint.get(r.mint) ?? byMint.set(r.mint, []).get(r.mint)!).push(r);
-  }
-  for (const [mint, list] of byMint) {
-    const symbol = (symbolOf.get(mint) as { symbol: string | null } | undefined)?.symbol;
-    if (symbol && isNonMemecoinSymbol(symbol)) continue;
-    let tape = tapes.get(mint);
-    if (!tape) {
-      const from = new Date(since - 10 * 60_000).toISOString();
-      const obs: Obs[] = (tapeRows.all(mint, from, new Date(endT).toISOString()) as { signature: string; ts: string; side: "buy" | "sell"; sol_amount: number; price_sol: number }[])
-        .filter((o) => valid(o.price_sol) && valid(o.sol_amount))
-        .map((o) => ({ t: Date.parse(o.ts), side: o.side, price: o.price_sol, sol: o.sol_amount, sig: o.signature }));
-      tape = new Tape(obs, DEFAULT_PARAMS.feeBps, DEFAULT_PARAMS.defaultDepthSol, DEFAULT_PARAMS.depthWindowSec * 1000, null);
-      tapes.set(mint, tape);
-    }
-    books.push({
-      wallet, mint, tape,
-      swaps: list.map((r) => ({ t: Date.parse(r.ts), side: r.side, price: r.price_sol, solAmount: r.sol_amount, tokenAmount: r.token_amount, tokenBalanceBefore: r.token_balance_before, signature: r.signature })),
-      conviction: new Map(list.filter((r) => r.side === "buy").map((r) => [r.signature, r.sol_amount / typical])),
-    });
-  }
-}
-const loadSec = (Date.now() - t0) / 1000;
+const wallets = rankedCandidates(db, flag("wallets", 150));
+const data = loadBooks(db, wallets, days);
+const { books, since, endT, mid, loadSec } = data;
 
 const base: ReplayParams = {
   ...DEFAULT_PARAMS, delaySec: delay, sizeSol: config.copyMaxTradeSol, minLeaderBuySol: config.minLeaderBuySol,
@@ -108,23 +46,8 @@ for (const s of [...sets]) if (s.name === "current" || s.name.startsWith("sl35 t
 }
 for (const h of [1, 4, 12]) sets.push({ name: `current hold${h}h`, p: { maxHoldHours: h } });
 
-interface Row { name: string; n: number; wins: number; medianPct: number | null; meanPct: number; trimmedMeanPct: number; pnlSol: number; firstHalfSol: number; secondHalfSol: number }
-const score = (name: string, eps: Episode[]): Row => {
-  const rets = eps.map((e) => e.retPct).sort((a, b) => a - b);
-  const cut = Math.floor(rets.length * 0.01);
-  const trimmed = rets.slice(0, rets.length - cut);
-  const sum = (xs: Episode[]) => xs.reduce((s, e) => s + e.pnlSol, 0);
-  return {
-    name, n: eps.length, wins: eps.filter((e) => e.pnlSol > 0).length, medianPct: median(rets),
-    meanPct: rets.reduce((s, x) => s + x, 0) / (rets.length || 1), trimmedMeanPct: trimmed.reduce((s, x) => s + x, 0) / (trimmed.length || 1),
-    pnlSol: sum(eps), firstHalfSol: sum(eps.filter((e) => e.entryT < mid)), secondHalfSol: sum(eps.filter((e) => e.entryT >= mid)),
-  };
-};
-// Split at the median entry: most of these wallets are new, so the window's calendar halves would be lopsided.
-const allEntries = books.flatMap((b) => b.swaps.filter((s) => s.side === "buy" && s.t >= since).map((s) => s.t));
-const mid = median(allEntries) ?? since + (endT - since) / 2;
-const runSet = (p: ReplayParams): Episode[] =>
-  books.flatMap((b) => simulateMint(b.tape, b.mint, b.swaps, endT, p).filter((e) => e.entryT >= since && e.retPct <= MAX_PLAUSIBLE_RETURN_PCT));
+const score = (name: string, eps: Episode[]) => scoreRule(name, eps, mid);
+const runSet = (p: ReplayParams): Episode[] => runRule(data, p);
 
 const rows = sets.map((s) => score(s.name, runSet({ ...base, ...s.p })));
 

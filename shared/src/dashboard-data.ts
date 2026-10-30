@@ -342,9 +342,9 @@ export function getLogs(d: DB, limit = 40): LogRow[] {
   return rows.map((r) => ({ ...r, message: redactLog(r.message) }));
 }
 
-/** Latest rug check of every token GodsEye considered (blocked first). */
+/** The latest rug checks, newest first (passed and blocked alike: ordering blocked first hid every pass once 60 were blocked). */
 export function getRugChecks(d: DB): RugCheckEntry[] {
-  const rows = d.prepare("SELECT * FROM rug_checks ORDER BY verdict = 'pass', checked_at DESC LIMIT 60").all() as (Omit<RugCheckEntry, "blocks" | "warnings"> & { blocks: string; warnings: string })[];
+  const rows = d.prepare("SELECT * FROM rug_checks ORDER BY checked_at DESC LIMIT 60").all() as (Omit<RugCheckEntry, "blocks" | "warnings"> & { blocks: string; warnings: string })[];
   return rows.map((r) => ({ ...r, blocks: JSON.parse(r.blocks) as string[], warnings: JSON.parse(r.warnings) as string[] }));
 }
 

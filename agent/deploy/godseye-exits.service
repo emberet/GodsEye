@@ -1,0 +1,20 @@
+# /etc/systemd/system/godseye-exits.service — the exit tuner (learning/exits.ts): replays the ranked candidates under a
+# grid of stop-loss / take-profit pairs and stores the pair the copy engine uses. Run by godseye-exits.timer.
+# Memory-capped and low priority: it loads every candidate's price tapes and must never starve or OOM the agent.
+[Unit]
+Description=GodsEye exit tuner (learned stop-loss and take-profit)
+
+[Service]
+Type=oneshot
+User=godseye
+Group=godseye
+WorkingDirectory=/opt/godseye/app/agent
+Environment=HOME=/opt/godseye
+Environment=PATH=/opt/godseye/node/bin:/usr/bin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=2200
+ExecStart=/opt/godseye/app/node_modules/.bin/tsx src/cli/tune-exits.ts
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=2500M
+MemorySwapMax=0
+TimeoutStartSec=30min

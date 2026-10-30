@@ -30,6 +30,7 @@ import { fmtPct, fmtSol, say, short } from "../log";
 import type { ParsedSwap } from "../chain/parse";
 import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
+import { currentExits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
 import { rugCheck } from "../market/rugcheck";
 import type { ShadowLogger } from "../shadow/log";
@@ -57,6 +58,10 @@ interface PositionRow {
   entry_price_sol: number;
   last_price_sol: number | null;
   opened_at: string;
+  /** Best return seen on the minute checks, % (trailing stop). */
+  peak_pct: number | null;
+  /** 1 once the ladder's first part was sold. */
+  partial_done: number;
 }
 
 /** SOL → USD at this moment (null if the price is unknown). */
@@ -178,7 +183,8 @@ export class CopyEngine {
       .prepare("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN tokens_bought > 0 THEN cost_sol * token_amount / tokens_bought ELSE cost_sol END),0) c FROM positions WHERE status='open' AND mode = ?")
       .get(mode) as { n: number; c: number };
     const flying = this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(size_sol),0) c FROM copy_trades WHERE side='buy' AND status='pending' AND mode = ?").get(mode) as { n: number; c: number };
-    if (held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
+    // COPY_MAX_POSITIONS=0: no count limit; the copy budget and the wallet balance below decide how many can be open.
+    if (config.maxPositions > 0 && held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
 
     let size = copySize(weight, config);
     if (size > 0) {
@@ -307,7 +313,7 @@ export class CopyEngine {
         `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, created_at)
          VALUES (?, ?, ?, ?, ?, 'sell', ?, 'pending', ?, ?, ?, ?)`,
       )
-      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
+      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}:${reason}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
     if (row.changes === 0) return false; // already handled this leader trade
     const copyId = Number(row.lastInsertRowid);
     const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
@@ -371,6 +377,8 @@ export class CopyEngine {
     const prices = await getPrices([SOL_MINT, ...open.map((p) => p.mint)]).catch(() => new Map());
     const solUsd = prices.get(SOL_MINT)?.priceUsd;
     if (!solUsd) return;
+    // Learned by the exit tuner (learning/exits.ts), or COPY_STOP_LOSS_PCT / COPY_TAKE_PROFIT_PCT.
+    const exits = currentExits(this.db, config);
     for (const pos of open) {
       const usd = prices.get(pos.mint)?.priceUsd;
       if (!usd || !(pos.tokens_bought > 0)) continue;
@@ -380,16 +388,47 @@ export class CopyEngine {
       const heldCost = pos.cost_sol * (pos.token_amount / pos.tokens_bought);
       const pct = heldCost > 0 ? ((pos.token_amount * price - heldCost) / heldCost) * 100 : 0;
       const ageH = (Date.now() - Date.parse(pos.opened_at)) / 3_600_000;
-      let reason: string | null = null;
-      if (pct <= -config.stopLossPct) reason = `stop-loss at ${fmtPct(pct)}`;
-      else if (pct >= config.takeProfitPct) reason = `take-profit at ${fmtPct(pct)}`;
-      else if (ageH >= config.maxHoldHours) reason = `held ${config.maxHoldHours}h without the leader selling`;
+      const peak = Math.max(pos.peak_pct ?? 0, pct);
+      if (peak > (pos.peak_pct ?? 0)) this.db.prepare("UPDATE positions SET peak_pct=? WHERE id=?").run(peak, pos.id);
+      // Which exit fires at a given return (the learned rule, learning/exits.ts): checked on the feed's price, then on a quote.
+      const exitAt = (p: number): "stop" | "trail" | "take" | "ladder" | null =>
+        p <= -exits.stopLossPct ? "stop"
+        : exits.trailStopPct > 0 && peak >= exits.trailArmPct && 1 + p / 100 <= (1 + peak / 100) * (1 - exits.trailStopPct / 100) ? "trail"
+        : p >= exits.takeProfitPct ? "take"
+        : exits.partialTpPct > 0 && !pos.partial_done && p >= exits.partialTpPct ? "ladder"
+        : null;
+      const label = { stop: "stop-loss", trail: `trailing stop (${exits.trailStopPct}% below its best, +${peak.toFixed(0)}%)`, take: "take-profit", ladder: `took ${Math.round(exits.partialFraction * 100)}% off` };
+      let kind = exitAt(pct);
+      let reason: string | null = kind ? `${label[kind]} at ${fmtPct(pct)}` : ageH >= config.maxHoldHours ? `held ${config.maxHoldHours}h without the leader selling` : null;
       if (!reason) continue;
       const backoff = this.sellFailures.get(pos.id);
       if (backoff && Date.now() < backoff.until) continue;
+      // The price feed can be wrong for a thin coin (a winner once read as −52% and was sold at +48%): before a price exit,
+      // ask what a sell would really get. No quote = trust the feed (a stop must not wait on a missing route).
+      if (kind && this.executor.quoteSellSol) {
+        const got = await this.executor.quoteSellSol(pos.mint, pos.token_amount).catch(() => null);
+        if (got !== null && heldCost > 0) {
+          const real = ((got - heldCost) / heldCost) * 100;
+          const confirmed = exitAt(real);
+          if (!confirmed) {
+            const key = `confirm:${pos.id}`;
+            const q = this.quiet.get(key);
+            if (!q || Date.now() >= q.until) {
+              this.quiet.set(key, { until: Date.now() + SKIP_QUIET_MS, held: 0 });
+              say("info", `Not acting on ${label[kind]} for ${pos.symbol ?? short(pos.mint)}: the price feed says ${fmtPct(pct)}, but a sell quote gives ${fmtPct(real)}.`);
+            }
+            continue;
+          }
+          kind = confirmed;
+          reason = `${label[kind]} at ${fmtPct(real)} (sell quote)`;
+        }
+      }
+      const part = kind === "ladder";
       await this.withLock(pos.mint, async () => {
         const fresh = this.db.prepare("SELECT * FROM positions WHERE id=? AND status='open'").get(pos.id) as PositionRow | undefined;
-        if (fresh) await this.sellPosition(fresh, fresh.token_amount, true, reason!);
+        if (!fresh) return;
+        const sold = await this.sellPosition(fresh, part ? fresh.token_amount * exits.partialFraction : fresh.token_amount, !part, reason!);
+        if (sold && part) this.db.prepare("UPDATE positions SET partial_done=1 WHERE id=?").run(pos.id);
       });
     }
   }

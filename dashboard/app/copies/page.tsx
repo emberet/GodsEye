@@ -41,11 +41,11 @@ export default function CopiesPage() {
           value={signedUsd(s?.realizedPnlUsd ?? null)}
           sub={s ? `all time${s.feesUnrecorded ? `, fees not recorded on ${s.feesUnrecorded}` : ", after fees"} · ${s.wins} won · ${s.losses} lost · today (UTC) ${signedUsd(s.todayPnlUsd)}` : undefined}
         />
-        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={s?.openPositions ? (s.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} unrealized` : "value unknown") : undefined} />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? (s.maxPositions > 0 ? `of ${s.maxPositions}` : "budget-limited") : undefined} sub={s?.openPositions ? (s.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} unrealized` : "value unknown") : undefined} />
         {s?.copyMode === "paper" ? (
           <Stat tile="bg-sun" label="Paper trading" value="No real SOL" sub="Fills are simulated with live quotes" />
         ) : (
-          <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : "not checked yet"} />
+          <Stat tile="bg-sun" label="Wallet balance" value={s?.wallet.balanceSol == null ? "—" : s.wallet.balanceSol.toFixed(s.wallet.balanceSol < 1 ? 3 : 2)} unit="SOL" sub={s?.wallet.checkedAt ? `checked ${ago(s.wallet.checkedAt)}` : s && !s.wallet.pubkey ? "hidden on the public site" : "not checked yet"} />
         )}
         <Stat tile="bg-lilac" label="Follow bar" value={bar === null ? "50" : Math.round(bar * 100)} unit="% wins" sub={bar === null ? "Default: not learned yet" : "Moves on its own as copies win or lose"} />
       </Stats>

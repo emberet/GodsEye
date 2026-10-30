@@ -53,9 +53,11 @@ export default function Home() {
         <div className="min-w-0">
           <p className="k">Right now</p>
           <p className="mt-1 text-2xl font-extrabold leading-tight tracking-[-0.02em] lg:text-[26px]">
-            {st?.walletsSeen24h
-              ? `${s?.live ? "Watching" : "Offline. Last watched"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
-              : `${s?.live ? "Studying" : "Offline. Last studied"} ${s?.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
+            {!s
+              ? "Loading…"
+              : st?.walletsSeen24h
+              ? `${s.live ? "Watching" : "Offline. Last watched"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
+              : `${s.live ? "Studying" : "Offline. Last studied"} ${s.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
@@ -77,7 +79,7 @@ export default function Home() {
         />
         <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
         <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades, last 24h` : undefined} />
-        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? `of ${s.maxPositions}` : undefined} sub={open.length ? `${signedUsd(openPnl)} unrealized` : "none open"} />
+        <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? (s.maxPositions > 0 ? `of ${s.maxPositions}` : "budget-limited") : undefined} sub={open.length ? `${signedUsd(openPnl)} unrealized` : "none open"} />
       </section>
 
       <TopAlert s={s} />

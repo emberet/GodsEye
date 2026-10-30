@@ -12,6 +12,7 @@
     "replay": "tsx src/cli/replay.ts",
     "strategy": "tsx src/cli/strategy.ts",
     "archive": "tsx src/cli/archive.ts",
+    "tune-exits": "tsx src/cli/tune-exits.ts",
     "shadow": "tsx src/cli/shadow.ts",
     "audit": "tsx src/cli/audit.ts",
     "pool": "tsx src/cli/pool.ts",

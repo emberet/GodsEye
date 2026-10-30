@@ -7,7 +7,7 @@ const s = getSummary(db);
 const wr = s.winRate;
 console.log(`GodsEye is ${s.live ? "LIVE 🟢" : "OFFLINE 🔴"} (last heartbeat ${s.heartbeat ?? "never"}) · copy mode ${(s.copyMode ?? "unknown").toUpperCase()}${s.paused ? " · PAUSED" : ""}`);
 console.log(`   Wallet: ${s.wallet.pubkey ?? "not created yet (run npm run wallet)"}${s.wallet.balanceSol !== null ? ` · ${s.wallet.balanceSol.toFixed(4)} SOL` : ""}`);
-console.log(`   Copy results: ${s.closedPositions} closed · win rate ${wr === null ? "—" : (wr * 100).toFixed(1) + "%"} · realized ${s.realizedPnlSol.toFixed(4)} SOL · open ${s.openPositions}/${s.maxPositions} (${s.unrealizedPnlSol.toFixed(4)} SOL unrealized)`);
+console.log(`   Copy results: ${s.closedPositions} closed · win rate ${wr === null ? "—" : (wr * 100).toFixed(1) + "%"} · realized ${s.realizedPnlSol.toFixed(4)} SOL · open ${s.openPositions}${s.maxPositions > 0 ? `/${s.maxPositions}` : " (budget-limited)"} (${s.unrealizedPnlSol.toFixed(4)} SOL unrealized)`);
 console.log(`   Wallet database: ${s.walletsTracked} wallets · copying ${s.leaders} · fresh in last 24h ${s.freshWallets24h}`);
 console.log(`   Tiers: ${Object.entries(s.tierCounts).map(([t, n]) => `${t.replace("_", " ")} ${n}`).join(" · ")}`);
 console.log(`   AI/bot ${s.kindCounts.ai} · human ${s.kindCounts.human} · undecided ${s.kindCounts.unknown}`);
