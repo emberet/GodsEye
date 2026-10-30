@@ -154,6 +154,8 @@ export const config = {
   maxLeaders: envNum("COPY_MAX_LEADERS", 10),
   /** The most of the copy budget one leader can hold (0.25 = a quarter); 1 = no cap. */
   maxLeaderShare: envNum("COPY_MAX_LEADER_SHARE", 0.25),
+  /** A leader needs at least this share of its buys (14 days) in coins the rug screen passes, or it isn't copied; 0 = off. */
+  minCopyableShare: envNum("COPY_MIN_COPYABLE_SHARE", 0.3),
   /** Our own copies of a leader must not lose more than this (SOL) over the last 14 days, or the leader is dropped. */
   copyLossDropSol: envNum("COPY_LOSS_DROP_SOL", 0.2),
 

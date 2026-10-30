@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS wallet_evaluations (
   -- Derived from the weight gates only (state_version 1); a fuller state layer will replace it under a new version.
   state TEXT NOT NULL CHECK (state IN ('copy','watch','ignore','block')),
   state_version INTEGER NOT NULL DEFAULT 1,
-  -- the first rule that decided it: ok · not_in_top · quitter · lucky_streak · few_closed · win_rate · pnl7 · copy_loss · blocked
+  -- the first rule that decided it: ok · not_in_top · quitter · lucky_streak · few_closed · win_rate · pnl7 · copy_loss · bot · copy_replay · uncopyable · blocked
   gate TEXT NOT NULL,
   tier TEXT NOT NULL,
   tier_reason TEXT,

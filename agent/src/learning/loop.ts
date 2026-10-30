@@ -12,6 +12,7 @@ import { adaptThresholds } from "./adaptive";
 import { recordEvaluations } from "../audit/evaluations";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "./adaptive";
 import { botCfg, botReason, botSigns, copyReason, junkReason, replayCfg, storedReplays } from "../smart/copy-check";
+import { copyableOf } from "./copyable";
 
 /** Every analyzed wallet as the weight rules see it, with the bot and copy gates applied unless `gates` is false. */
 function weightInputs(db: DB, gates = true) {
@@ -35,6 +36,7 @@ function weightInputs(db: DB, gates = true) {
     address: r.address, tier: r.tier, pnl7: r.pnl_7d_usd ?? r.pnl_7d_sol * solNow, pnl30: r.pnl_30d_usd ?? r.pnl_30d_sol * solNow, closed30: r.closed_30d, winRate30: r.win_rate_30d,
     isFresh: r.is_fresh === 1, copyPnl14: r.copy_pnl, copyClosed14: r.copy_closed, oldWeight: r.copy_weight,
     leadN: r.lead_n ?? 0, leadMedian6h: r.lead_median_6h,
+    copyableBuys: copyableOf(r.address)?.buys, copyableOk: copyableOf(r.address)?.ok,
   }));
   const junk = new Map<string, string | null>();
   if (gates) {
@@ -55,14 +57,18 @@ function weightInputs(db: DB, gates = true) {
 export function copyCandidates(db: DB): string[] {
   const { inputs } = weightInputs(db, false);
   const cfg = { copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate: getParam(db, FOLLOW_MIN_WIN_RATE, config.followWinRateStart) };
-  return inputs.filter((w) => rawScore(w, cfg).weight > 0).map((w) => w.address);
+  // Before the copyable share: this list is also what gets that share measured (learning/copyable.ts).
+  return inputs.filter((w) => rawScore({ ...w, copyableBuys: undefined }, cfg).weight > 0).map((w) => w.address);
 }
 
 export function runLearning(db: DB): string[] {
   // First learn the follow bar from outcomes, then weigh wallets against it.
   const minWinRate = adaptThresholds(db);
   const { rows, inputs, junk } = weightInputs(db);
-  const cutoffs = { maxLeaders: config.maxLeaders, maxShare: config.maxLeaderShare, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate };
+  const cutoffs = {
+    maxLeaders: config.maxLeaders, maxShare: config.maxLeaderShare, copyLossDropSol: config.copyLossDropSol, minClosed: config.minClosedForProven, minWinRate,
+    minCopyableShare: config.minCopyableShare,
+  };
   const result = computeWeights(inputs, cutoffs);
 
   // junk_reason: a bot, or copying it lost in the replay. The public dashboard leaves these wallets out.

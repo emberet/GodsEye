@@ -24,6 +24,7 @@ import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
 import { backfillClosedTradesStep } from "./analysis/closed-trades";
 import { checkpointWal, pruneHistory } from "@godseye/shared";
 import { copyCandidates, currentLeaders, runLearning } from "./learning/loop";
+import { refreshCopyable } from "./learning/copyable";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
 import { LeaderWatcher } from "./copy/watcher";
@@ -113,6 +114,7 @@ const discover = () =>
 const analyze = () => job("analysis", async () => void (await runAnalysis(db)));
 const learn = () =>
   job("learning", async () => {
+    await refreshCopyable(db, copyCandidates(db));
     const leaders = runLearning(db);
     await watcher.sync(leaders);
   });

@@ -16,18 +16,20 @@
  */
 import type { DB } from "@godseye/shared";
 import { config } from "../config";
-import type { WeightInput, WeightResult } from "../learning/weights";
+import { copyableShare, tooLittleCopyable, type WeightInput, type WeightResult } from "../learning/weights";
 import { auditSettings } from "./settings";
 import { ensureAuditTables } from "./schema";
 
 export type WalletState = "copy" | "watch" | "ignore" | "block";
-export type Gate = "ok" | "not_in_top" | "quitter" | "lucky_streak" | "few_closed" | "win_rate" | "pnl7" | "copy_loss" | "bot" | "copy_replay" | "blocked";
+export type Gate = "ok" | "not_in_top" | "quitter" | "lucky_streak" | "few_closed" | "win_rate" | "pnl7" | "copy_loss" | "bot" | "copy_replay" | "uncopyable" | "blocked";
 
 export interface WeightCutoffs {
   maxLeaders: number;
   copyLossDropSol: number;
   minClosed: number;
   minWinRate: number;
+  /** COPY_MIN_COPYABLE_SHARE; unset = 0. */
+  minCopyableShare?: number;
 }
 
 const clamp = (x: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, x));
@@ -44,6 +46,7 @@ export function gateOf(w: WeightInput, cfg: WeightCutoffs): Gate {
   if (w.copyClosed14 >= 3 && w.copyPnl14 <= -cfg.copyLossDropSol) return "copy_loss";
   if (w.botGate) return "bot";
   if (w.copyGate) return "copy_replay";
+  if (tooLittleCopyable(copyableShare(w), cfg.minCopyableShare ?? 0)) return "uncopyable";
   return "ok";
 }
 
@@ -57,6 +60,8 @@ export interface ScoreComponents {
   freshFactor: number;
   /** 0.5 … 1.5 from what its buys did next, once 10+ buys are measured; else 1. */
   leadFactor: number;
+  /** Share of its buys GodsEye could copy, once 10+ buys are measured; else 1. */
+  copyableFactor: number;
   /** The product (what rawScore returns), before the top-N share-out and smoothing. */
   score: number;
 }
@@ -70,7 +75,11 @@ export function scoreComponents(w: WeightInput, cfg: WeightCutoffs): ScoreCompon
   const recoveringFactor = w.pnl30 <= 0 ? 0.5 : 1;
   const freshFactor = w.isFresh ? 0.5 : 1;
   const leadFactor = (w.leadN ?? 0) >= 10 && w.leadMedian6h !== null && w.leadMedian6h !== undefined ? clamp(1 + w.leadMedian6h / 100, 0.5, 1.5) : 1;
-  return { profit, confidence, winFactor, recoveringFactor, freshFactor, leadFactor, score: profit * confidence * winFactor * recoveringFactor * freshFactor * leadFactor };
+  const copyableFactor = copyableShare(w) ?? 1;
+  return {
+    profit, confidence, winFactor, recoveringFactor, freshFactor, leadFactor, copyableFactor,
+    score: profit * confidence * winFactor * recoveringFactor * freshFactor * leadFactor * copyableFactor,
+  };
 }
 
 export const stateOf = (w: WeightInput, weight: number, blocked: boolean): WalletState =>
@@ -125,11 +134,14 @@ export function explain(w: WeightInput, result: WeightResult, cfg: WeightCutoffs
   if ((w.leadN ?? 0) >= 10 && (w.leadMedian6h ?? 0) > 0) f.push(`its buys move +${Math.round(w.leadMedian6h as number)}% in 6 h (median of ${w.leadN})`);
   if (w.copyClosed14 > 0 && w.copyPnl14 > 0) f.push(`our copies of it made +${w.copyPnl14.toFixed(2)} SOL over 14 days`);
   if (w.tier === "proven") f.push("Proven tier");
+  const copyable = copyableShare(w);
+  if (copyable !== null && copyable >= 0.5) f.push(`${pct(copyable)} of its ${w.copyableBuys} buys in 14 days were coins GodsEye can copy`);
 
   if (result.weight <= 0 && gate !== "blocked") a.push(result.reason);
   if (w.pnl30 <= 0 && gate === "ok") a.push("losing over the history seen (half weight)");
   if (w.isFresh) a.push("fresh wallet (half weight)");
   if ((w.leadN ?? 0) >= 10 && (w.leadMedian6h ?? 0) < 0) a.push(`its buys move ${Math.round(w.leadMedian6h as number)}% in 6 h (median of ${w.leadN})`);
+  if (copyable !== null && copyable < 0.5 && gate !== "uncopyable") a.push(`only ${pct(copyable)} of its ${w.copyableBuys} buys in 14 days were coins GodsEye can copy`);
   if ((w.leadN ?? 0) < 10) a.push(`what its buys do next is not measured yet (${w.leadN ?? 0} of 10 buys)`);
   if (w.copyClosed14 > 0 && w.copyPnl14 < 0) a.push(`our copies of it lost ${w.copyPnl14.toFixed(2)} SOL over 14 days`);
   if (w.tier === "insider") a.push("insider tier: its edge may come from launch access a follower can't reproduce (still copyable by decision)");
@@ -152,6 +164,7 @@ export function explain(w: WeightInput, result: WeightResult, cfg: WeightCutoffs
     copy_loss: "the losing copies leaving the 14-day window",
     bot: "trading at a pace a delayed copy can follow (median hold 15 s+, 20 transactions an hour or fewer, no same-block round trips)",
     copy_replay: "a copy replay at GodsEye's delay with a positive median return over 10+ copies (redone every 6 hours)",
+    uncopyable: `at least ${pct(cfg.minCopyableShare ?? 0)} of its buys in coins the rug screen passes (measured hourly over 14 days)`,
     not_in_top: `a place among the top ${cfg.maxLeaders} earners`,
     ok: "any gate failing, or losing a top-earner place",
   };

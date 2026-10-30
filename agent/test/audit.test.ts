@@ -52,13 +52,16 @@ test("the deciding rule and the score components agree with the real weight form
         copyClosed14: fc.integer({ min: 0, max: 10 }),
         leadN: fc.integer({ min: 0, max: 40 }),
         leadMedian6h: fc.option(fc.double({ min: -60, max: 120, noNaN: true }), { nil: null }),
+        copyableBuys: fc.option(fc.integer({ min: 0, max: 200 }), { nil: undefined }),
+        copyableFrac: fc.double({ min: 0, max: 1, noNaN: true }),
       }),
-      (r) => {
-        const w = input({ ...r, tier: r.tier as WeightInput["tier"] });
-        const raw = rawScore(w, cfg);
-        const gate = gateOf(w, cfg);
+      ({ copyableFrac, ...r }) => {
+        const w = input({ ...r, tier: r.tier as WeightInput["tier"], copyableOk: Math.round((r.copyableBuys ?? 0) * copyableFrac) });
+        const c30 = { ...cfg, minCopyableShare: 0.3 };
+        const raw = rawScore(w, c30);
+        const gate = gateOf(w, c30);
         assert.equal(gate === "ok", raw.weight > 0, `gate ${gate} but weight ${raw.weight}`);
-        const c = scoreComponents(w, cfg);
+        const c = scoreComponents(w, c30);
         if (gate === "ok") assert.ok(Math.abs(c!.score - raw.weight) <= 1e-9 * Math.max(1, raw.weight));
         else assert.equal(c, null);
       },
