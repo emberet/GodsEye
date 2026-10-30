@@ -10,6 +10,8 @@
     "analyze": "tsx src/cli/analyze.ts",
     "learn": "tsx src/cli/learn.ts",
     "replay": "tsx src/cli/replay.ts",
+    "strategy": "tsx src/cli/strategy.ts",
+    "archive": "tsx src/cli/archive.ts",
     "shadow": "tsx src/cli/shadow.ts",
     "audit": "tsx src/cli/audit.ts",
     "pool": "tsx src/cli/pool.ts",

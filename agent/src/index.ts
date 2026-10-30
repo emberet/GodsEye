@@ -22,7 +22,7 @@ import { attachLogDb, say } from "./log";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
 import { backfillClosedTradesStep } from "./analysis/closed-trades";
-import { checkpointWal, pruneHistory } from "@godseye/shared";
+import { archiveSwapsStep, checkpointWal, dataPath, pruneHistory } from "@godseye/shared";
 import { copyCandidates, currentLeaders, runLearning } from "./learning/loop";
 import { refreshCopyable } from "./learning/copyable";
 import { CopyEngine, isPaused } from "./copy/engine";
@@ -257,6 +257,21 @@ async function main() {
     const p = pruneHistory(db, { swapsDays: config.swapsRetentionDays, activityDays: config.activityRetentionDays });
     checkpointWal(db);
     if (p.swaps || p.activity) say("info", `Housekeeping: pruned ${p.swaps.toLocaleString("en-US")} swaps older than ${config.swapsRetentionDays} days and ${p.activity.toLocaleString("en-US")} stale live-activity rows.`);
+  }, false));
+
+  // Hourly: move raw swaps past the hot window into compressed daily files (shared/src/archive.ts), a small slice at a
+  // time with pauses between, so copies never wait on it.
+  if (config.swapsHotDays > 0) every(config.archiveCron, () => void job("archive", async () => {
+    const started = Date.now();
+    let rows = 0;
+    for (;;) {
+      const step = archiveSwapsStep(db, { dir: dataPath("archive"), hotDays: config.swapsHotDays, junkHotDays: config.swapsJunkHotDays, batch: 2000 });
+      rows += step.rows;
+      if (step.done || Date.now() - started > 20 * 60_000) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    checkpointWal(db);
+    if (rows) say("info", `Archive: moved ${rows.toLocaleString("en-US")} swaps older than ${config.swapsHotDays} days (${config.swapsJunkHotDays} for junk wallets) into compressed daily files.`);
   }, false));
 
   // Resume copying whoever the last learning run picked, then get the pipeline going.

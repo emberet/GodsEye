@@ -25,6 +25,8 @@ export function openDb(file = dbFilePath()): DB {
   const db = new Database(file);
   db.pragma("journal_mode = WAL"); // lets the dashboard read while the agent writes
   db.pragma("busy_timeout = 5000");
+  // After a checkpoint the WAL file is cut back to this size, instead of staying as large as its busiest moment.
+  db.pragma("journal_size_limit = 268435456");
   db.exec(SCHEMA_SQL);
   migrate(db);
   return db;

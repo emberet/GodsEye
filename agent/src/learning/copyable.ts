@@ -9,8 +9,8 @@
  * pump.fun (mint address ending in "pump": liquidity is the bonding curve, then burned at graduation). A coin the screen
  * blocked never counts.
  *
- * Measured one wallet at a time, yielding between wallets so a cold read of a busy wallet's swaps never holds the event loop,
- * and kept for an hour: what a wallet buys changes slowly.
+ * Measured one wallet at a time on its latest MAX_BUYS buys (a busy wallet's full history read cold held the event loop for
+ * 15 s), yielding between wallets, junk wallets skipped (never copied), and kept for an hour: what a wallet buys changes slowly.
  */
 import type { DB } from "@godseye/shared";
 
@@ -23,6 +23,7 @@ export interface Copyable {
 }
 
 const cache = new Map<string, Copyable>();
+const MAX_BUYS = 2000;
 
 export const copyableOf = (address: string): Copyable | undefined => cache.get(address);
 
@@ -38,13 +39,15 @@ export async function refreshCopyable(
   const stmt = db.prepare(
     `SELECT COUNT(*) buys,
             COALESCE(SUM(CASE WHEN rc.verdict = 'pass' THEN 1 WHEN rc.verdict = 'blocked' THEN 0 WHEN sw.mint LIKE '%pump' THEN 1 ELSE 0 END), 0) ok
-       FROM wallet_swaps sw LEFT JOIN rug_checks rc ON rc.mint = sw.mint
-      WHERE sw.wallet = ? AND sw.side = 'buy' AND sw.ts >= ?`,
+       FROM (SELECT mint FROM wallet_swaps WHERE wallet = ? AND side = 'buy' AND ts >= ? ORDER BY ts DESC LIMIT ${MAX_BUYS}) sw
+       LEFT JOIN rug_checks rc ON rc.mint = sw.mint`,
   );
+  const junk = db.prepare("SELECT 1 FROM wallets WHERE address = ? AND junk_reason IS NOT NULL AND copy_weight <= 0");
   let n = 0;
   for (const address of new Set(addresses)) {
     const had = cache.get(address);
     if (had && now - had.at < maxAge) continue;
+    if (junk.get(address)) continue;
     const r = stmt.get(address, since) as { buys: number; ok: number };
     cache.set(address, { buys: r.buys, ok: r.ok, at: now });
     n++;

@@ -107,7 +107,8 @@ CREATE TABLE IF NOT EXISTS wallet_swaps (
   UNIQUE (signature, wallet, mint)
 );
 CREATE INDEX IF NOT EXISTS idx_swaps_wallet_ts ON wallet_swaps(wallet, ts);
-CREATE INDEX IF NOT EXISTS idx_swaps_mint ON wallet_swaps(mint);
+-- (mint, ts) below serves every lookup by mint; a mint-only index was ~1 GB of duplicate
+DROP INDEX IF EXISTS idx_swaps_mint;
 -- price path of a token over time (entry_price_rank) and retention pruning by age
 CREATE INDEX IF NOT EXISTS idx_swaps_mint_ts ON wallet_swaps(mint, ts);
 CREATE INDEX IF NOT EXISTS idx_swaps_ts ON wallet_swaps(ts);

@@ -11,6 +11,7 @@ import { fetchJson, HttpError } from "../src/http";
 import { rpcUsage } from "../src/chain/rpc-budget";
 import { simulateCheck } from "../src/copy/verify";
 import { stubFetch } from "./helpers";
+import { config } from "../src/config";
 
 retryTiming.scale = 0;
 const TX = { slot: 1, blockTime: 1, transaction: { message: { accountKeys: [] } }, meta: { err: null, fee: 5000, preBalances: [], postBalances: [] } };
@@ -44,6 +45,26 @@ test("RPC: entries refused inside a batch are retried on their own; the rest are
     assert.equal((txs[1] as { slot: number }).slot, 20, "the refused one came from the retry");
   } finally {
     net.restore();
+  }
+});
+
+test("RPC: with HISTORY_TX_RPC_URL, transactions come from it first; what it refuses or lacks comes from SOLANA_RPC_URL", async () => {
+  const before = config.historyTxRpcUrl;
+  config.historyTxRpcUrl = "https://tx.example/";
+  const net = stubFetch((url, body) =>
+    String(url).startsWith("https://tx.example/")
+      ? rpcReply(body, (id) => (id === 1 ? { jsonrpc: "2.0", id, error: { message: "ERPC request failed" } } : { jsonrpc: "2.0", id, result: id === 3 ? null : { ...TX, slot: id } }))
+      : rpcReply(body, (id) => ({ jsonrpc: "2.0", id, result: { ...TX, slot: 100 + id } })),
+  );
+  try {
+    const txs = (await fetchParsed(["a", "b", "c", "d"])) as { slot: number }[];
+    assert.deepEqual(txs.map((t) => t.slot), [0, 100, 2, 101], "b (refused) and d (missing) came from the main RPC, in order");
+    assert.equal(net.calls.length, 2);
+    assert.ok(!String(net.calls[1].url).startsWith("https://tx.example/"));
+    assert.equal((net.calls[1].body as unknown[]).length, 2, "only the two it lacked");
+  } finally {
+    net.restore();
+    config.historyTxRpcUrl = before;
   }
 });
 

@@ -3,7 +3,7 @@
  * Helius, any paid RPC, or — slowly — the public one).
  */
 import { PublicKey, type ConfirmedSignatureInfo } from "@solana/web3.js";
-import { copyRpcUrl, rpcUrl } from "../config";
+import { config, copyRpcUrl, rpcUrl } from "../config";
 import { connection, copyConnection } from "../rpc";
 import { findFunder, parseSwaps, type ParsedSwap, type TxLike } from "./parse";
 import { solUsdAt } from "../market/solprice";
@@ -21,15 +21,18 @@ const MAX_TX_VERSION = 1;
 
 type RpcReply = { id: number; result?: TxLike | null; error?: { message: string } };
 
-async function rpcCall(signatures: string[], metered: boolean): Promise<RpcReply[]> {
+/** `url`: send to this RPC instead (HISTORY_TX_RPC_URL), outside the metered budget, which paces SOLANA_RPC_URL. */
+async function rpcCall(signatures: string[], metered: boolean, url?: string): Promise<RpcReply[]> {
   const body = signatures.map((sig, id) => ({
     jsonrpc: "2.0", id, method: "getTransaction",
     params: [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: MAX_TX_VERSION, commitment: "confirmed" }],
   }));
   for (let attempt = 0; ; attempt++) {
-    if (metered) await takeRpc(body.length);
+    if (url) {
+      /* its own provider: not counted against SOLANA_RPC_URL's budget (BATCHES_IN_FLIGHT bounds it) */
+    } else if (metered) await takeRpc(body.length);
     else noteCopyRpc(body.length);
-    const res = await fetch(metered ? rpcUrl() : copyRpcUrl(), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(url ?? (metered ? rpcUrl() : copyRpcUrl()), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.length === 1 ? body[0] : body), signal: AbortSignal.timeout(30_000) });
     if (res.status === 429) noteThrottled();
     if (res.status === 429 && attempt < 4) {
       await sleep(1500 * 2 ** attempt); // rate-limited: back off and try again
@@ -41,11 +44,25 @@ async function rpcCall(signatures: string[], metered: boolean): Promise<RpcReply
   }
 }
 
-/** getTransaction for several signatures in one request; entries refused (e.g. per-method rate limits) are retried with backoff. */
+/** Transactions HISTORY_TX_RPC_URL returned, and how many it couldn't (read from SOLANA_RPC_URL instead). Reset by the reader. */
+export const historyTxSplit = { primary: 0, fallback: 0 };
+
+/**
+ * getTransaction for several signatures in one request; entries refused (e.g. per-method rate limits) are retried with backoff.
+ * Metered reads go to HISTORY_TX_RPC_URL first when it is set; whatever it refuses or doesn't have is read from SOLANA_RPC_URL.
+ */
 async function rpcBatch(signatures: string[], metered = false): Promise<(TxLike | null)[]> {
   const out: (TxLike | null)[] = new Array(signatures.length).fill(null);
   let pending = signatures.map((_, i) => i);
   let lastError = "";
+  if (metered && config.historyTxRpcUrl) {
+    const replies = await rpcCall(signatures, true, config.historyTxRpcUrl).catch(() => [] as RpcReply[]);
+    for (const r of replies) if (!r.error && r.result && r.id >= 0 && r.id < signatures.length) out[r.id] = r.result;
+    pending = pending.filter((i) => !out[i]);
+    historyTxSplit.primary += signatures.length - pending.length;
+    historyTxSplit.fallback += pending.length;
+    if (!pending.length) return out;
+  }
   for (let attempt = 0; pending.length && attempt < 5; attempt++) {
     if (attempt) await sleep(1500 * 2 ** (attempt - 1));
     const replies = await rpcCall(pending.map((i) => signatures[i]), metered);

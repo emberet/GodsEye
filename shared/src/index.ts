@@ -5,3 +5,4 @@ export * from "./proof";
 export * from "./stats";
 export * from "./quant-schema";
 export * from "./closed-trades";
+export * from "./archive";

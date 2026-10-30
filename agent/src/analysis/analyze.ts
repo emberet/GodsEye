@@ -13,7 +13,7 @@ import { checkpointWal, type DB, deleteClosedTradesForMints, isNonMemecoinSymbol
 import { syncClosedTrades } from "./closed-trades";
 import { config } from "../config";
 import { say, short } from "../log";
-import { mintLaunchBefore, readWalletHistory } from "../chain/history";
+import { historyTxSplit, mintLaunchBefore, readWalletHistory } from "../chain/history";
 import { rpcCallsSoFar, rpcUsage } from "../chain/rpc-budget";
 import type { ParsedSwap } from "../chain/parse";
 import { cachedTokenInfo, launchDue, recordLaunch, tokenInfo } from "../market/tokens";
@@ -325,6 +325,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
   const startedAt = Date.now();
   for (const k of Object.keys(runTime) as (keyof typeof runTime)[]) runTime[k] = 0;
   runUnavailable = 0;
+  historyTxSplit.primary = historyTxSplit.fallback = 0;
   const staleBefore = new Date(Date.now() - config.reanalyzeMinutes * 60_000).toISOString();
   const rows = db
     .prepare(
@@ -392,7 +393,7 @@ export async function runAnalysis(db: DB, limit = config.analyzePerRun): Promise
     const secs = Math.max(1, (Date.now() - startedAt) / 1000);
     say(
       "info",
-      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec, ${(rpcUsage(Math.ceil(secs / 60)).throttled).toLocaleString("en-US")} rate-limited). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.${runUnavailable ? ` ${runUnavailable.toLocaleString("en-US")} older transactions were too old for the RPC to return (Shyft keeps ~2-3 days).` : ""}`,
+      `Analyzed ${done} wallet${done === 1 ? "" : "s"}${deepened ? `, read further back for ${deepened} (${deepTx.toLocaleString("en-US")} older transactions)` : ""} · ${calls.toLocaleString("en-US")} RPC requests in ${Math.round(secs)}s (${(calls / secs).toFixed(1)}/sec, cap ${config.rpcMaxRps}/sec, ${(rpcUsage(Math.ceil(secs / 60)).throttled).toLocaleString("en-US")} rate-limited). Time: transactions ${Math.round(runTime.history / 1000)}s, coin launch times ${Math.round(runTime.launches / 1000)}s, creators ${Math.round(runTime.creators / 1000)}s, crash checks ${Math.round(runTime.crashes / 1000)}s.${historyTxSplit.primary + historyTxSplit.fallback ? ` Transactions from HISTORY_TX_RPC_URL: ${historyTxSplit.primary.toLocaleString("en-US")}, from SOLANA_RPC_URL after it had none: ${historyTxSplit.fallback.toLocaleString("en-US")}.` : ""}${runUnavailable ? ` ${runUnavailable.toLocaleString("en-US")} older transactions were too old for the RPC to return (Shyft keeps ~2-3 days).` : ""}`,
     );
   }
   return done;

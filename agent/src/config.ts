@@ -33,6 +33,9 @@ export const config = {
 
   // ---- Live gRPC stream (Shyft, Triton, Helius, QuickNode — Yellowstone protocol) ----
   /** e.g. https://grpc.ny.shyft.to — empty = no stream, GodsEye samples pools and polls instead. */
+  /** Optional second RPC for reading wallet-history transactions (getTransaction only; signature lists stay on SOLANA_RPC_URL).
+   *  Anything it refuses or doesn't return is read from SOLANA_RPC_URL, so a partial provider only saves load. */
+  historyTxRpcUrl: envStr("HISTORY_TX_RPC_URL"),
   grpcUrl: envStr("GRPC_URL"),
   grpcToken: envStr("GRPC_TOKEN"),
   /** When the provider rejects this connection's IP (allowlist), try again this often: a home connection's
@@ -125,6 +128,12 @@ export const config = {
   rpcCopyReserve: Math.min(0.9, Math.max(0.05, envNum("RPC_COPY_RESERVE", 0.2))),
   /** Delete raw wallet_swaps older than this many days (closed_trades keeps the round trips). 0 = keep forever. */
   swapsRetentionDays: envNum("SWAPS_RETENTION_DAYS", 90),
+  /** Raw swaps older than this many days move to compressed daily files in data/archive (shared/src/archive.ts); 0 = off.
+   *  Wallet stats and the quant job look back 30 days, so keep it at 30 or more. */
+  swapsHotDays: envNum("SWAPS_HOT_DAYS", 30),
+  /** The same for junk wallets (bots, copy-replay rejects): never copied, re-read rarely. */
+  swapsJunkHotDays: envNum("SWAPS_JUNK_HOT_DAYS", 7),
+  archiveCron: envStr("ARCHIVE_CRON", "25 * * * *"),
   /** Daily SQLite housekeeping (retention pruning, then a WAL checkpoint), UTC. */
   pruneCron: envStr("PRUNE_CRON", "17 3 * * *"),
   /** Wallets younger than this many days count as "fresh". */
