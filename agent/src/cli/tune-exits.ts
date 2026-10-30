@@ -5,6 +5,11 @@
  * trailing stop, with or without a ceiling), at GodsEye's real delay and real per-transaction cost, and stores the rule to use. Run every 6 hours by godseye-exits.timer, apart from
  * the agent (it loads every candidate's price tapes: about 1–2 GB for a minute).
  *
+ * Exits are replayed as the agent runs them: every coin GodsEye holds is checked on each swap the live stream sees (at
+ * most every 2 s) and the sell needs a quote and a landing, so a 5 s check grid and a 3 s landing (60 s / 2 s while
+ * GodsEye had only the minute check). The log line also gives the real stop-loss fills of the last 7 days: a stop set
+ * at −50% that really sells at −80% means the replay is too kind to wide stops.
+ *
  *   --dry-run     print the decision, store nothing
  *   --table       every rule's score, best first
  */
@@ -16,6 +21,10 @@ import { calibration } from "../replay/run";
 import { loadBooks, rankedCandidates, runRule, scoreRule } from "../replay/sweep";
 import { replayDelaySec } from "../smart/copy-check";
 
+/** Exit check grid and sell landing time the replay uses (see the note above). */
+const STREAM_CHECK_SEC = 5;
+const EXIT_LAND_SEC = 3;
+
 const dry = process.argv.includes("--dry-run");
 const ro = openDbReadonly();
 const inUse = currentExits(ro, { stopLossPct: config.stopLossPct, takeProfitPct: config.takeProfitPct });
@@ -23,7 +32,17 @@ const cal = calibration(ro);
 // A real buy's cost includes the token account's rent; split the round trip's cost over its two transactions.
 const txCostSol = Math.max(DEFAULT_PARAMS.txCostSol, cal.n >= 5 && cal.medianFeeSol !== null ? cal.medianFeeSol / 2 : 0);
 const data = loadBooks(ro, rankedCandidates(ro, 150), 14);
-const base: ReplayParams = { ...DEFAULT_PARAMS, delaySec: replayDelaySec(ro), txCostSol, sizeSol: config.copyMaxTradeSol, minLeaderBuySol: config.minLeaderBuySol, maxHoldHours: config.maxHoldHours };
+const base: ReplayParams = {
+  ...DEFAULT_PARAMS, delaySec: replayDelaySec(ro), txCostSol, sizeSol: config.copyMaxTradeSol, minLeaderBuySol: config.minLeaderBuySol, maxHoldHours: config.maxHoldHours,
+  checkEverySec: STREAM_CHECK_SEC, landSec: EXIT_LAND_SEC,
+};
+// Real stop-loss sells of the last 7 days: the exit_reason holds the return the stop fired at.
+const stops = ro
+  .prepare("SELECT pnl_pct FROM positions WHERE status='closed' AND mode='real' AND exit_reason LIKE 'stop-loss%' AND closed_at >= ?")
+  .all(new Date(Date.now() - 7 * 86_400_000).toISOString()) as { pnl_pct: number }[];
+const stopLine = stops.length
+  ? ` Real stop-loss sells, last 7 days: ${stops.length}, averaging ${(stops.reduce((s, r) => s + r.pnl_pct, 0) / stops.length).toFixed(1)}% (worst ${Math.min(...stops.map((r) => r.pnl_pct)).toFixed(1)}%) against a stop at −${inUse.stopLossPct}%.`
+  : "";
 const rules = new Map<string, ExitRule>([...candidateRules(), inUse].map((r) => [ruleName(r), r]));
 const scored = [...rules.values()].map((rule) => ({
   rule,
@@ -35,7 +54,7 @@ const scored = [...rules.values()].map((rule) => ({
 ro.close();
 
 const pick = chooseExits(scored, inUse);
-const line = `${data.wallets.length} wallets, ${data.books.length} wallet-coin books (loaded in ${data.loadSec.toFixed(0)}s), delay ${base.delaySec}s, cost ${txCostSol.toFixed(4)} SOL a transaction. In use: ${ruleName(inUse)} (${inUse.source}). ${pick.changed ? "Switching to" : "Keeping"} ${ruleName(pick)} — ${pick.reason}.`;
+const line = `${data.wallets.length} wallets, ${data.books.length} wallet-coin books (loaded in ${data.loadSec.toFixed(0)}s), delay ${base.delaySec}s, exits checked every ${base.checkEverySec}s, cost ${txCostSol.toFixed(4)} SOL a transaction. In use: ${ruleName(inUse)} (${inUse.source}). ${pick.changed ? "Switching to" : "Keeping"} ${ruleName(pick)} — ${pick.reason}.${stopLine}`;
 console.log(line);
 if (process.argv.includes("--table"))
   for (const s of scored.map((c) => c.score).sort((a, b) => Math.min(b.firstHalfTrimmedPct, b.secondHalfTrimmedPct) - Math.min(a.firstHalfTrimmedPct, a.secondHalfTrimmedPct)))

@@ -9,6 +9,7 @@
  *   • every wallet     → the live book: live P&L (USD at settlement) and AI/human score; wallets
  *                        making real money get promoted to full analysis
  *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
+ *   • a coin GodsEye holds → its price, for the copy engine's stop-loss / take-profit (seconds, not the minute check)
  * Reconnects on its own: with backoff, or every STREAM_IP_RETRY_MS while the provider rejects this IP.
  * STREAM_PARSER=rust takes the parsed stream from the Rust ingest service instead (rust-client.ts); compare keeps
  * this TypeScript path and only logs how the Rust results differ. Default "ts": unchanged.
@@ -257,6 +258,7 @@ export class LiveStream {
     for (const swap of swaps) {
       this.book.record(swap, now);
       this.smart.onSwap(swap, now);
+      this.watcher.marketSwap(swap);
     }
     if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, tx, now);
     else if (this.tracked.has(signer)) this.pendingSwaps.push(...swaps);

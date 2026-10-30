@@ -187,6 +187,8 @@ export const config = {
   /** Don't copy buys that are smaller than this (SOL) — dust or tests. */
   minLeaderBuySol: envNum("MIN_LEADER_BUY_SOL", 0.2),
   slippageBps: envNum("COPY_SLIPPAGE_BPS", 300),
+  /** Most slippage a stop-loss / trailing-stop sell may allow after slippage failures (it steps 3% → 10% → 25%). */
+  exitMaxSlippageBps: envNum("COPY_EXIT_MAX_SLIPPAGE_BPS", 2500),
   priorityFeeMaxLamports: envNum("PRIORITY_FEE_MAX_LAMPORTS", 1_000_000),
   positionCron: envStr("POSITION_CRON", "* * * * *"),
   /** Safety net for missed live events: re-read leaders' newest transactions this often. */

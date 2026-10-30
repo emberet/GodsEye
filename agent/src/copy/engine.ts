@@ -6,7 +6,8 @@
  * Leader sells → GodsEye sells the same share of its position (sold 50% → GodsEye sells 50%).
  * Every minute → GodsEye marks its positions to market and exits on its own
  *                stop-loss / take-profit / max-hold, in case a leader never sells
- *                (or moves its tokens to another wallet).
+ *                (or moves its tokens to another wallet). Between the minute checks, any swap of a coin
+ *                GodsEye holds on the live stream runs the same check at that swap's price (onMarketSwap).
  *
  * Safety checks before any buy (any one failing = no buy):
  *   not a memecoin (bridged majors, staked SOL, stablecoins…) · the leader's
@@ -30,7 +31,7 @@ import { fmtPct, fmtSol, say, short } from "../log";
 import type { ParsedSwap } from "../chain/parse";
 import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
-import { currentExits } from "../learning/exits";
+import { currentExits, type Exits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
 import { rugCheck } from "../market/rugcheck";
 import type { ShadowLogger } from "../shadow/log";
@@ -79,6 +80,23 @@ const BALANCE_CACHE_MS = 20_000;
  * on in the background and the copy goes ahead without the name.
  */
 const NAME_WAIT_MS = 3_000;
+/** Least time between two stream-driven exit checks of one coin (a busy coin swaps many times a second). */
+const STREAM_CHECK_MS = 2_000;
+/** After a sell quote didn't confirm the stream's price, the stream waits this long before asking again. */
+const UNCONFIRMED_HOLD_MS = 5_000;
+const OPEN_MINTS_TTL_MS = 30_000;
+/** Jupiter's "slippage tolerance exceeded" (0x1771): the price moved past the quote while the sell was landing. */
+const SLIPPAGE_ERROR = /6001|0x1771|slippage/i;
+
+/** Slippage for a stop-loss or trailing-stop sell after `slipFails` slippage failures: 3% (COPY_SLIPPAGE_BPS), then 10%,
+ *  then 25% (capped at COPY_EXIT_MAX_SLIPPAGE_BPS). Selling a crashing coin late costs more than a wide slippage. */
+export function exitSlippageBps(slipFails: number): number {
+  const steps = [config.slippageBps, 1000, 2500];
+  return Math.max(config.slippageBps, Math.min(config.exitMaxSlippageBps, steps[Math.min(slipFails, steps.length - 1)]));
+}
+
+/** Wait before retrying a failed sell: 15 s, 30 s, 60 s … up to 5 min. */
+export const sellRetryMs = (failures: number): number => Math.min(300, 15 * 2 ** Math.max(0, failures - 1)) * 1000;
 
 export function isPaused(db: DB): boolean {
   return getMeta(db, "copy_paused") === "1" || fs.existsSync(dataPath("PAUSE"));
@@ -88,7 +106,15 @@ export class CopyEngine {
   private locks = new Map<string, Promise<unknown>>();
   /** Serialises the last limit check + reservation of every buy (see the note at the top). */
   private buyGate: Promise<unknown> = Promise.resolve();
-  private sellFailures = new Map<number, { count: number; until: number }>();
+  /** Failed sells per position: how many, how many were slippage errors, and when to try again. */
+  private sellFailures = new Map<number, { count: number; slip: number; until: number }>();
+  /** Positions with an exit check (and maybe a sell) under way: the stream and the minute job never run one twice. */
+  private checking = new Set<number>();
+  /** Per coin: when the stream may check it again. */
+  private nextStreamCheck = new Map<string, number>();
+  private openMints: { set: Set<string>; at: number } | null = null;
+  /** Makes each own-exit sell's id unique (two tries of one exit can fall in the same millisecond). */
+  private exitSeq = 0;
   /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
   private quiet = new Map<string, { until: number; held: number }>();
   private balance: { sol: number; at: number } | null = null;
@@ -288,6 +314,7 @@ export class CopyEngine {
       this.audit?.check(swap, "execution", "pass", `${this.executor.mode} fill at ${fill.priceSol}`);
       this.audit?.finish(swap, "bought", { sizeSol: fill.solAmount });
       this.balance = null; // the wallet just spent SOL
+      this.openMints = null; // the stream now prices this coin too
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
@@ -306,20 +333,22 @@ export class CopyEngine {
     await this.sellPosition(pos, all ? pos.token_amount : pos.token_amount * fraction, all, `leader sold ${Math.round(fraction * 100)}%`, swap);
   }
 
-  private async sellPosition(pos: PositionRow, tokens: number, all: boolean, reason: string, leaderSwap?: ParsedSwap): Promise<boolean> {
+  /** `urgent` (stop-loss, trailing stop): after a slippage failure, the next try allows more slippage (exitSlippageBps). */
+  private async sellPosition(pos: PositionRow, tokens: number, all: boolean, reason: string, leaderSwap?: ParsedSwap, urgent = false): Promise<boolean> {
     const symbol = pos.symbol ?? symbolOf(this.db, pos.mint);
     const row = this.db
       .prepare(
         `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, created_at)
          VALUES (?, ?, ?, ?, ?, 'sell', ?, 'pending', ?, ?, ?, ?)`,
       )
-      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}:${reason}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
+      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}:${++this.exitSeq}:${reason}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
     if (row.changes === 0) return false; // already handled this leader trade
     const copyId = Number(row.lastInsertRowid);
     const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
     this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
-      const fill = await this.executor.sell(pos.mint, tokens, all);
+      const slip = this.sellFailures.get(pos.id)?.slip ?? 0;
+      const fill = await this.executor.sell(pos.mint, tokens, all, urgent ? exitSlippageBps(slip) : config.slippageBps);
       const remaining = all ? 0 : Math.max(0, pos.token_amount - fill.tokenAmount);
       const proceeds = pos.proceeds_sol + fill.solAmount;
       const fillUsd = usdOf(fill.solAmount);
@@ -337,6 +366,7 @@ export class CopyEngine {
         // % return in USD when known (SOL's own price move between entry and exit isn't trading profit).
         const pct = pnlUsd !== null && pos.cost_usd ? (pnlUsd / pos.cost_usd) * 100 : pos.cost_sol > 0 ? (pnl / pos.cost_sol) * 100 : 0;
         this.db.prepare("UPDATE positions SET status='closed', token_amount=0, closed_at=?, exit_reason=?, pnl_sol=?, pnl_usd=?, pnl_pct=? WHERE id=?").run(nowIso(), reason, pnl, pnlUsd, pct, pos.id);
+        this.openMints = null;
         const shown = pnlUsd !== null ? `${pnlUsd >= 0 ? "+" : "−"}$${Math.abs(pnlUsd).toFixed(2)} (${fmtSol(pnl)})` : fmtSol(pnl);
         say(pnl >= 0 ? "win" : "loss", `Closed ${symbol} (copied from ${short(pos.leader)}): ${shown} (${fmtPct(pct)}) — ${reason}.`);
       } else {
@@ -349,13 +379,38 @@ export class CopyEngine {
       return true;
     } catch (e) {
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
-      const f = this.sellFailures.get(pos.id) ?? { count: 0, until: 0 };
+      const f = this.sellFailures.get(pos.id) ?? { count: 0, slip: 0, until: 0 };
       f.count++;
-      f.until = Date.now() + Math.min(60, 2 ** f.count) * 60_000; // back off: 2, 4, 8 … up to 60 min
+      if (SLIPPAGE_ERROR.test((e as Error).message)) f.slip++; // a rate limit or an expired blockhash isn't a price problem
+      f.until = Date.now() + sellRetryMs(f.count);
       this.sellFailures.set(pos.id, f);
       say("error", `Selling ${symbol} failed (${reason}): ${(e as Error).message.slice(0, 200)}. Retrying later.`);
       return false;
     }
+  }
+
+  /** Mints of the open positions, so the stream can ignore every other coin at once. Refreshed every 30 s and on each open/close. */
+  private openMintSet(): Set<string> {
+    if (!this.openMints || Date.now() - this.openMints.at > OPEN_MINTS_TTL_MS) {
+      const rows = this.db.prepare("SELECT mint FROM positions WHERE status='open' AND mode = ?").all(this.executor.mode) as { mint: string }[];
+      this.openMints = { set: new Set(rows.map((r) => r.mint)), at: Date.now() };
+    }
+    return this.openMints.set;
+  }
+
+  /**
+   * A swap of any wallet on the live stream. For a coin GodsEye holds, its price is the coin's price this second: the same
+   * exit check as the minute job runs on it (at most every STREAM_CHECK_MS per coin), so a stop-loss fires seconds after
+   * the price crosses it, not up to a minute later. The stream doesn't wait for it; the promise (never rejected) is for tests.
+   */
+  onMarketSwap(swap: ParsedSwap): Promise<void> | undefined {
+    if (!(swap.priceSol > 0) || !this.openMintSet().has(swap.mint)) return;
+    const now = Date.now();
+    if (now < (this.nextStreamCheck.get(swap.mint) ?? 0)) return;
+    this.nextStreamCheck.set(swap.mint, now + STREAM_CHECK_MS);
+    const pos = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mode = ? AND mint = ?").get(this.executor.mode, swap.mint) as PositionRow | undefined;
+    if (!pos) return;
+    return this.checkExit(pos, swap.priceSol, currentExits(this.db, config), "stream").catch((e: Error) => say("error", `Exit check for ${pos.symbol ?? short(pos.mint)} failed: ${e.message}`));
   }
 
   /** Every minute: price open positions, exit on stop-loss / take-profit / max hold, refresh the wallet balance. */
@@ -381,16 +436,26 @@ export class CopyEngine {
     const exits = currentExits(this.db, config);
     for (const pos of open) {
       const usd = prices.get(pos.mint)?.priceUsd;
-      if (!usd || !(pos.tokens_bought > 0)) continue;
-      const price = usd / solUsd;
-      if (!Number.isFinite(price) || price <= 0) continue;
+      if (usd) await this.checkExit(pos, usd / solUsd, exits, "feed");
+    }
+  }
+
+  /**
+   * One position at one price (SOL per token): stop-loss, trailing stop, take-profit, the ladder's first sale, or max hold.
+   * The same rule for the minute job (price API) and the live stream. A price exit is confirmed by a sell quote first.
+   */
+  private async checkExit(pos: PositionRow, price: number, exits: Exits, source: "feed" | "stream"): Promise<void> {
+    if (!(pos.tokens_bought > 0) || !Number.isFinite(price) || price <= 0) return;
+    if (this.checking.has(pos.id)) return; // a check of this position (and its sell) is already under way
+    this.checking.add(pos.id);
+    try {
       this.db.prepare("UPDATE positions SET last_price_sol=?, last_price_ts=? WHERE id=?").run(price, nowIso(), pos.id);
       const heldCost = pos.cost_sol * (pos.token_amount / pos.tokens_bought);
       const pct = heldCost > 0 ? ((pos.token_amount * price - heldCost) / heldCost) * 100 : 0;
       const ageH = (Date.now() - Date.parse(pos.opened_at)) / 3_600_000;
       const peak = Math.max(pos.peak_pct ?? 0, pct);
       if (peak > (pos.peak_pct ?? 0)) this.db.prepare("UPDATE positions SET peak_pct=? WHERE id=?").run(peak, pos.id);
-      // Which exit fires at a given return (the learned rule, learning/exits.ts): checked on the feed's price, then on a quote.
+      // Which exit fires at a given return (the learned rule, learning/exits.ts): checked on the price, then on a quote.
       const exitAt = (p: number): "stop" | "trail" | "take" | "ladder" | null =>
         p <= -exits.stopLossPct ? "stop"
         : exits.trailStopPct > 0 && peak >= exits.trailArmPct && 1 + p / 100 <= (1 + peak / 100) * (1 - exits.trailStopPct / 100) ? "trail"
@@ -399,37 +464,44 @@ export class CopyEngine {
         : null;
       const label = { stop: "stop-loss", trail: `trailing stop (${exits.trailStopPct}% below its best, +${peak.toFixed(0)}%)`, take: "take-profit", ladder: `took ${Math.round(exits.partialFraction * 100)}% off` };
       let kind = exitAt(pct);
-      let reason: string | null = kind ? `${label[kind]} at ${fmtPct(pct)}` : ageH >= config.maxHoldHours ? `held ${config.maxHoldHours}h without the leader selling` : null;
-      if (!reason) continue;
+      let reason: string | null = kind ? `${label[kind]} at ${fmtPct(pct)}${source === "stream" ? " (stream)" : ""}` : ageH >= config.maxHoldHours ? `held ${config.maxHoldHours}h without the leader selling` : null;
+      if (!reason) return;
       const backoff = this.sellFailures.get(pos.id);
-      if (backoff && Date.now() < backoff.until) continue;
-      // The price feed can be wrong for a thin coin (a winner once read as −52% and was sold at +48%): before a price exit,
-      // ask what a sell would really get. No quote = trust the feed (a stop must not wait on a missing route).
+      if (backoff && Date.now() < backoff.until) return;
+      // The price can be wrong for a thin coin (a winner once read as −52% and was sold at +48%; one swap on the stream can
+      // print far off the pool): before a price exit, ask what a sell would really get. No quote = trust the price (a stop
+      // must not wait on a missing route).
       if (kind && this.executor.quoteSellSol) {
         const got = await this.executor.quoteSellSol(pos.mint, pos.token_amount).catch(() => null);
         if (got !== null && heldCost > 0) {
           const real = ((got - heldCost) / heldCost) * 100;
           const confirmed = exitAt(real);
           if (!confirmed) {
+            // Don't ask for a quote on every swap while the stream and the quote disagree.
+            this.nextStreamCheck.set(pos.mint, Date.now() + UNCONFIRMED_HOLD_MS);
             const key = `confirm:${pos.id}`;
             const q = this.quiet.get(key);
             if (!q || Date.now() >= q.until) {
               this.quiet.set(key, { until: Date.now() + SKIP_QUIET_MS, held: 0 });
-              say("info", `Not acting on ${label[kind]} for ${pos.symbol ?? short(pos.mint)}: the price feed says ${fmtPct(pct)}, but a sell quote gives ${fmtPct(real)}.`);
+              say("info", `Not acting on ${label[kind]} for ${pos.symbol ?? short(pos.mint)}: the ${source === "stream" ? "last swap" : "price feed"} says ${fmtPct(pct)}, but a sell quote gives ${fmtPct(real)}.`);
             }
-            continue;
+            return;
           }
           kind = confirmed;
-          reason = `${label[kind]} at ${fmtPct(real)} (sell quote)`;
+          reason = `${label[kind]} at ${fmtPct(real)} (sell quote${source === "stream" ? ", stream" : ""})`;
         }
       }
       const part = kind === "ladder";
+      // A falling coin: a stop that failed on slippage is sent again with more room (exitSlippageBps).
+      const urgent = kind === "stop" || kind === "trail";
       await this.withLock(pos.mint, async () => {
         const fresh = this.db.prepare("SELECT * FROM positions WHERE id=? AND status='open'").get(pos.id) as PositionRow | undefined;
-        if (!fresh) return;
-        const sold = await this.sellPosition(fresh, part ? fresh.token_amount * exits.partialFraction : fresh.token_amount, !part, reason!);
+        if (!fresh || (part && fresh.partial_done)) return;
+        const sold = await this.sellPosition(fresh, part ? fresh.token_amount * exits.partialFraction : fresh.token_amount, !part, reason!, undefined, urgent);
         if (sold && part) this.db.prepare("UPDATE positions SET partial_done=1 WHERE id=?").run(pos.id);
       });
+    } finally {
+      this.checking.delete(pos.id);
     }
   }
 }

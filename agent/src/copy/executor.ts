@@ -53,8 +53,8 @@ export interface Fill {
 export interface Executor {
   mode: "real" | "paper";
   buy(mint: string, sol: number): Promise<Fill>;
-  /** Sell `tokens` (or everything GodsEye holds of this token if `all`). */
-  sell(mint: string, tokens: number, all: boolean): Promise<Fill>;
+  /** Sell `tokens` (or everything GodsEye holds of this token if `all`), allowing `slippageBps` (default COPY_SLIPPAGE_BPS). */
+  sell(mint: string, tokens: number, all: boolean, slippageBps?: number): Promise<Fill>;
   /** SOL a sell of `tokens` would get right now (a quote, nothing sent); null if no route. */
   quoteSellSol?(mint: string, tokens: number): Promise<number | null>;
 }
@@ -87,9 +87,9 @@ export class PaperExecutor implements Executor {
     const q = await jupiterQuote(SOL_MINT, mint, BigInt(Math.floor(sol * LAMPORTS_PER_SOL)), config.slippageBps);
     return fillFromQuote("buy", q, await decimalsOf(mint), null);
   }
-  async sell(mint: string, tokens: number): Promise<Fill> {
+  async sell(mint: string, tokens: number, _all = false, slippageBps = config.slippageBps): Promise<Fill> {
     const dec = await decimalsOf(mint);
-    const q = await jupiterQuote(mint, SOL_MINT, BigInt(Math.floor(tokens * 10 ** dec)), config.slippageBps);
+    const q = await jupiterQuote(mint, SOL_MINT, BigInt(Math.floor(tokens * 10 ** dec)), slippageBps);
     return fillFromQuote("sell", q, dec, null);
   }
 }
@@ -192,13 +192,13 @@ export class RealExecutor implements Executor {
     return back;
   }
 
-  async sell(mint: string, tokens: number, all: boolean): Promise<Fill> {
+  async sell(mint: string, tokens: number, all: boolean, slippageBps = config.slippageBps): Promise<Fill> {
     const held = await this.heldAtomic(mint);
     if (held === 0n) throw new Error("GodsEye holds none of this token");
     const dec = await decimalsOf(mint);
     const wanted = BigInt(Math.floor(tokens * 10 ** dec));
     const amount = all || wanted >= held ? held : wanted;
-    const q = await jupiterQuote(mint, SOL_MINT, amount, config.slippageBps);
+    const q = await jupiterQuote(mint, SOL_MINT, amount, slippageBps);
     const fill = await this.execute("sell", mint, q);
     if (amount !== held) return fill;
     // Sold everything: the token account is empty, so take its rent back and count it against this trade's costs.

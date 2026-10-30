@@ -12,7 +12,7 @@ import type { DB } from "@godseye/shared";
 import { copyConnection } from "../rpc";
 import { say, short } from "../log";
 import { fetchParsedOne, fetchSignatures } from "../chain/history";
-import { findNewWalletsFunded, parseSwaps, type TxLike } from "../chain/parse";
+import { findNewWalletsFunded, parseSwaps, type ParsedSwap, type TxLike } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
 import { addWallet } from "../discovery/discover";
 import type { CopyEngine } from "./engine";
@@ -52,6 +52,11 @@ export class LeaderWatcher {
   /** A leader's transaction that arrived on the live gRPC stream (already read, so no RPC call). */
   async handleStreamed(leader: string, tx: TxLike, seenAt: number): Promise<void> {
     await this.handle(leader, tx.transaction.signatures[0], seenAt, tx);
+  }
+
+  /** Any swap on the live stream: prices GodsEye's open positions between the minute checks (engine.onMarketSwap). */
+  marketSwap(swap: ParsedSwap): void {
+    void this.engine.onMarketSwap(swap);
   }
 
   /** Start watching new leaders, stop watching dropped ones. */
