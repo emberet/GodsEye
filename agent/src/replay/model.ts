@@ -68,6 +68,14 @@ export interface ReplayParams {
   stopLossPct: number;
   takeProfitPct: number;
   maxHoldHours: number;
+  /** Trailing stop: once the position has been up trailArmPct, sell everything when it falls this % from its best. 0 = off. */
+  trailStopPct: number;
+  trailArmPct: number;
+  /** Sell partialTpFraction of the position once it is up partialTpPct (once per position). 0 = off. */
+  partialTpPct: number;
+  partialTpFraction: number;
+  /** After GodsEye's own stop exits a token, ignore the leader's buys of it for this long. 0 = off. */
+  reentryCooldownMin: number;
   checkEverySec: number;
   /** The leader's side: leader fills, no costs, no delay. */
   ideal: boolean;
@@ -86,6 +94,11 @@ export const DEFAULT_PARAMS: ReplayParams = {
   stopLossPct: 35,
   takeProfitPct: 300,
   maxHoldHours: 48,
+  trailStopPct: 0,
+  trailArmPct: 0,
+  partialTpPct: 0,
+  partialTpFraction: 0.5,
+  reentryCooldownMin: 0,
   checkEverySec: 60,
   ideal: false,
 };
@@ -272,6 +285,9 @@ interface Position {
   priceAge: number;
   /** Where the next risk scan starts. */
   scanT: number;
+  /** Best return seen on the risk grid, %. */
+  peakPct: number;
+  partialDone: boolean;
 }
 
 /**
@@ -287,9 +303,12 @@ export function simulateMint(tape: Tape, mint: string, swaps: LeaderSwap[], endT
   const holdMs = p.maxHoldHours * 3_600_000;
   // Closures below change the open position, so it lives in a holder (TypeScript can't see those changes on a plain variable).
   const st: { pos: Position | null } = { pos: null };
+  /** When GodsEye's own stop (stop-loss or trailing stop) last sold this token. */
+  let stoppedAt = -Infinity;
 
   const finish = (closed: boolean, reason: string) => {
     const x = st.pos!;
+    if (reason === "stop-loss" || reason === "trailing-stop") stoppedAt = x.scanT;
     const pnl = x.proceeds - x.costSol;
     out.push({
       mint,
@@ -343,8 +362,13 @@ export function simulateMint(tape: Tape, mint: string, swaps: LeaderSwap[], endT
       const r = tape.midAt(g);
       if (r && x.heldCost > 0) {
         const pct = ((x.tokens * r.mid - x.heldCost) / x.heldCost) * 100;
-        const reason = pct <= -p.stopLossPct ? "stop-loss" : pct >= p.takeProfitPct ? "take-profit" : null;
-        if (reason && sell(x.tokens, g + landMs)) return reason;
+        x.peakPct = Math.max(x.peakPct, pct);
+        const trailed = p.trailStopPct > 0 && x.peakPct >= p.trailArmPct && 1 + pct / 100 <= (1 + x.peakPct / 100) * (1 - p.trailStopPct / 100);
+        const reason = pct <= -p.stopLossPct ? "stop-loss" : pct >= p.takeProfitPct ? "take-profit" : trailed ? "trailing-stop" : null;
+        if (reason) {
+          x.scanT = g;
+          if (sell(x.tokens, g + landMs)) return reason;
+        } else if (p.partialTpPct > 0 && !x.partialDone && pct >= p.partialTpPct && sell(x.tokens * p.partialTpFraction, g + landMs)) x.partialDone = true;
       }
       i = tape.lastAtOrBefore(g) + 1;
     }
@@ -361,6 +385,7 @@ export function simulateMint(tape: Tape, mint: string, swaps: LeaderSwap[], endT
     }
     if (ev.side === "buy") {
       if (st.pos || ev.solAmount < p.minLeaderBuySol) continue;
+      if (p.reentryCooldownMin > 0 && at - stoppedAt < p.reentryCooldownMin * 60_000) continue;
       let price: number;
       let age = 0;
       let tokens: number;
@@ -392,6 +417,8 @@ export function simulateMint(tape: Tape, mint: string, swaps: LeaderSwap[], endT
         density: tape.density(ev.t, 120_000, ev.signature),
         priceAge: age,
         scanT: at,
+        peakPct: 0,
+        partialDone: false,
       };
     } else if (st.pos) {
       const pos = st.pos;
