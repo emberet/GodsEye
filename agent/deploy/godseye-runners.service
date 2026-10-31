@@ -12,7 +12,7 @@ WorkingDirectory=/opt/godseye/app/agent
 Environment=HOME=/opt/godseye
 Environment=PATH=/opt/godseye/node/bin:/usr/bin:/bin
 Environment=NODE_OPTIONS=--max-old-space-size=2200
-Environment=RPC_MAX_RPS=10
+Environment=RPC_MAX_RPS=5
 ExecStart=/opt/godseye/app/node_modules/.bin/tsx src/cli/runners-backfill.ts
 Nice=15
 IOSchedulingClass=idle

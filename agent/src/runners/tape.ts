@@ -20,6 +20,9 @@ import { ensureRunnerTables } from "./schema";
 /** pump.fun's starting price: 30 virtual SOL against 1,073,000,000 virtual tokens. */
 export const PUMP_LAUNCH_PRICE_SOL = 30 / 1_073_000_000;
 export const PUMP_SUPPLY = 1_000_000_000;
+/** No pump.fun coin goes this far above its launch price (~$1B from ~$5k): a higher price is a parsing unit error. */
+export const MAX_PLAUSIBLE_X = 200_000;
+export const plausiblePrice = (priceSol: number): boolean => priceSol > PUMP_LAUNCH_PRICE_SOL * 0.3 && priceSol < PUMP_LAUNCH_PRICE_SOL * MAX_PLAUSIBLE_X;
 
 export const tapeSettings = {
   maxCoins: envNum("RUNNER_MAX_COINS", 40_000),
@@ -107,7 +110,7 @@ export class RunnerTape {
   }
 
   record(swap: ParsedSwap, now = Date.now()): void {
-    if (!(swap.priceSol > 0)) return;
+    if (!plausiblePrice(swap.priceSol)) return;
     const t = Date.parse(swap.ts);
     const at = Number.isFinite(t) ? t : now;
     let c = this.coins.get(swap.mint);

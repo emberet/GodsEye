@@ -3,7 +3,8 @@
  *
  * The coin's bonding-curve account (seeds "bonding-curve" + mint under the pump.fun program) only trades until the coin
  * migrates, so its signatures can be paged back to the very first (`allSignatures`, metered) where the mint's can run to
- * hundreds of thousands. The oldest transactions are read (`fetchParsed`: ERPC when HISTORY_TX_RPC_URL is set) and every
+ * hundreds of thousands. Paging starts at `before` when given (a stored swap from when the coin first reached 3x): a runner's
+ * curve can hold tens of thousands of transactions, but early buys all come before that. The oldest transactions are read (`fetchParsed`: ERPC when HISTORY_TX_RPC_URL is set) and every
  * wallet whose balance of the coin changed is parsed with the same parser as everything else.
  */
 import { PublicKey } from "@solana/web3.js";
@@ -63,12 +64,13 @@ export function buyersFrom(events: LaunchEvent[], delayMs: number, maxBuyers = t
 }
 
 /**
- * The launch of a pump.fun coin from Solana, or null when its curve has more than `maxPages` × 1000 transactions (too
- * busy to page back cheaply) or none could be read. Reads the oldest `readTxs` transactions.
+ * The launch of a pump.fun coin from Solana, or null when its curve has more than `maxPages` × 1000 transactions (before
+ * `before`, when given: too busy to page back cheaply) or none could be read. Reads the oldest `readTxs` transactions.
  */
-export async function launchFromChain(mint: string, opts: { maxPages: number; readTxs: number; delayMs: number }): Promise<ChainLaunch | null> {
-  const { sigs, exhausted } = await allSignatures(pumpCurveAddress(mint), opts.maxPages);
-  if (!exhausted || !sigs.length) return null;
+export async function launchFromChain(mint: string, opts: { maxPages: number; readTxs: number; delayMs: number; before?: string }): Promise<ChainLaunch | null> {
+  const { sigs, exhausted } = await allSignatures(pumpCurveAddress(mint), opts.maxPages, opts.before);
+  if (!sigs.length) throw new Error("no transactions on its pump.fun curve");
+  if (!exhausted) return null;
   const oldest = sigs.filter((s) => !s.err).reverse().slice(0, opts.readTxs);
   const txs = await fetchParsed(oldest.map((s) => s.signature));
   const events: LaunchEvent[] = [];

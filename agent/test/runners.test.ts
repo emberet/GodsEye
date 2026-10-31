@@ -172,3 +172,12 @@ test("chain read: first buyers in order with their sells and the price a copy wo
   assert.equal(pumpCurveAddress(mint), pumpCurveAddress(mint));
   assert.equal(isWallet(pumpCurveAddress(mint)), false);
 });
+
+test("prices in the wrong units are ignored: no pump.fun coin runs 200,000x", () => {
+  const tape = new RunnerTape();
+  for (let i = 0; i < 10; i++) tape.record(swap({ mint: "UNITSpump", wallet: `w${i}`, t: T0 + i * 1000, price: P }), T0 + i * 1000);
+  for (let m = 1; m < 20; m++) tape.record(swap({ mint: "UNITSpump", wallet: `x${m}`, t: T0 + m * 60_000, price: P * 1e9 }), T0 + m * 60_000);
+  tape.evict(T0 + 25 * 3_600_000);
+  const [c] = tape.takeFinished();
+  assert.ok(c.multiple < 2);
+});

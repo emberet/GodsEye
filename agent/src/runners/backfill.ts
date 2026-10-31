@@ -14,7 +14,7 @@ import { say, short } from "../log";
 import { recordLaunch } from "../market/tokens";
 import { launchFromChain } from "./chain";
 import { ensureRunnerTables } from "./schema";
-import { type CoinRecord, PUMP_LAUNCH_PRICE_SOL, PUMP_SUPPLY, saveCoins, tapeSettings } from "./tape";
+import { type CoinRecord, plausiblePrice, PUMP_LAUNCH_PRICE_SOL, PUMP_SUPPLY, saveCoins, tapeSettings } from "./tape";
 
 export interface PricePoint {
   t: number;
@@ -59,6 +59,8 @@ export interface Candidate {
   x3At: number | null;
   minutesAbove5: number;
   peakMcapUsd: number | null;
+  /** The coin's first stored swap at 3x (early buys are all before it, by definition): the chain is paged back from it. */
+  anchor: string | null;
 }
 
 /** pump.fun coins in the stored swaps of the last `days` days that came close to running and have no buyers stored yet. */
@@ -66,7 +68,7 @@ export function backfillCandidates(db: DB, days: number, now = Date.now()): Cand
   ensureRunnerTables(db);
   const out: Candidate[] = [];
   const have = db.prepare("SELECT 1 FROM runner_buyers WHERE mint = ? LIMIT 1");
-  const swaps = db.prepare("SELECT ts, price_sol, sol_usd FROM wallet_swaps WHERE mint = ? AND quote = 'SOL' AND price_sol > 0 ORDER BY ts");
+  const swaps = db.prepare("SELECT ts, price_sol, sol_usd, signature FROM wallet_swaps WHERE mint = ? AND quote = 'SOL' AND price_sol > 0 ORDER BY ts");
   // A day at a time: one GROUP BY over 15 days of swaps holds the database too long.
   const seen = new Set<string>();
   for (let d = days; d > 0; d--) {
@@ -81,13 +83,15 @@ export function backfillCandidates(db: DB, days: number, now = Date.now()): Cand
     for (const { mint } of rows) {
       if (seen.has(mint) || have.get(mint)) continue;
       seen.add(mint);
-      const pts = (swaps.all(mint) as { ts: string; price_sol: number; sol_usd: number | null }[]).map((r) => ({ t: Date.parse(r.ts), price: r.price_sol, solUsd: r.sol_usd }));
+      // Stored prices in the wrong units (a few parse that way) would make any coin a runner.
+      const rows = (swaps.all(mint) as { ts: string; price_sol: number; sol_usd: number | null; signature: string }[]).filter((r) => plausiblePrice(r.price_sol));
+      const pts = rows.map((r) => ({ t: Date.parse(r.ts), price: r.price_sol, solUsd: r.sol_usd }));
       if (!pts.length) continue;
       const p0 = PUMP_LAUNCH_PRICE_SOL;
       const path = pricePath(pts, p0);
       const peakMcapUsd = path.peakSolUsd ? path.peak * path.peakSolUsd * PUMP_SUPPLY : null;
       if (path.peak / p0 < tapeSettings.candidateX || (peakMcapUsd ?? 0) < tapeSettings.candidateMcapUsd) continue;
-      out.push({ mint, first: pts[0].t, p0, peak: path.peak, peakAt: path.peakAt, x3At: path.x3At, minutesAbove5: path.minutesAbove5, peakMcapUsd });
+      out.push({ mint, first: pts[0].t, p0, peak: path.peak, peakAt: path.peakAt, x3At: path.x3At, minutesAbove5: path.minutesAbove5, peakMcapUsd, anchor: (rows.find((r) => r.price_sol >= p0 * tapeSettings.earlyMaxX) ?? rows[rows.length - 1]).signature });
     }
   }
   return out.sort((a, b) => (b.peakMcapUsd ?? 0) - (a.peakMcapUsd ?? 0));
@@ -115,7 +119,7 @@ export async function runBackfill(db: DB, opts: BackfillOptions): Promise<{ cand
     while (next < todo.length) {
       const c = todo[next++];
       try {
-        const launch = await launchFromChain(c.mint, { maxPages: opts.maxPages, readTxs: opts.readTxs, delayMs: opts.delayMs });
+        const launch = await launchFromChain(c.mint, { maxPages: opts.maxPages, readTxs: opts.readTxs, delayMs: opts.delayMs, before: c.anchor ?? undefined });
         if (!launch) {
           tooBusy++;
           continue;

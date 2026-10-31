@@ -110,11 +110,11 @@ async function pageSignatures(
 }
 
 /**
- * Every signature of an account, newest first, up to `maxPages` × 1000 (metered). `exhausted`: the first one was reached.
- * For reading a coin's launch from its pump.fun curve (runners/chain.ts).
+ * Every signature of an account older than `before` (or all), newest first, up to `maxPages` × 1000 (metered).
+ * `exhausted`: the first one was reached. For reading a coin's launch from its pump.fun curve (runners/chain.ts).
  */
-export async function allSignatures(address: string, maxPages: number): Promise<{ sigs: ConfirmedSignatureInfo[]; exhausted: boolean }> {
-  const p = await pageSignatures(address, { limit: maxPages * 1000, metered: true });
+export async function allSignatures(address: string, maxPages: number, before?: string): Promise<{ sigs: ConfirmedSignatureInfo[]; exhausted: boolean }> {
+  const p = await pageSignatures(address, { limit: maxPages * 1000, before, metered: true });
   return { sigs: p.sigs, exhausted: p.exhausted };
 }
 
