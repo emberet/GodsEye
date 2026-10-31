@@ -14,7 +14,10 @@ import { FOLLOW_MIN_WIN_RATE, getParam } from "./adaptive";
 import { botCfg, botReason, botSigns, copyReason, junkReason, replayCfg, storedReplays } from "../smart/copy-check";
 import { copyableOf } from "./copyable";
 
-/** Every analyzed wallet as the weight rules see it, with the bot and copy gates applied unless `gates` is false. */
+/** Research wallets (runner-catchers, runners/score.ts) are watched, never copied, until the owner clears this flag. */
+export const SHADOW_REASON = "shadow only: a research wallet, watched but not copied";
+
+/** Every analyzed wallet as the weight rules see it (shadow-only wallets left out), with the bot and copy gates applied unless `gates` is false. */
 function weightInputs(db: DB, gates = true) {
   const solNow = solUsdAt(Date.now()) ?? 0;
   const since14 = new Date(Date.now() - 14 * 86_400_000).toISOString();
@@ -24,7 +27,8 @@ function weightInputs(db: DB, gates = true) {
               COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?), 0) copy_pnl,
               (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?) copy_closed,
               sw.lead_n, sw.lead_median_6h
-         FROM wallets w JOIN wallet_stats s ON s.wallet = w.address LEFT JOIN smart_wallets sw ON sw.address = w.address`,
+         FROM wallets w JOIN wallet_stats s ON s.wallet = w.address LEFT JOIN smart_wallets sw ON sw.address = w.address
+        WHERE w.shadow_only = 0`,
     )
     .all(config.copyMode, since14, config.copyMode, since14) as {
     address: string; tier: Tier; is_fresh: number; copy_weight: number; pnl_7d_sol: number; pnl_30d_sol: number; pnl_7d_usd: number | null; pnl_30d_usd: number | null;
@@ -94,6 +98,7 @@ export function runLearning(db: DB): string[] {
       }
     }
   })();
+  db.prepare("UPDATE wallets SET copy_weight = 0, weight_reason = ? WHERE shadow_only = 1 AND (copy_weight != 0 OR weight_reason IS NOT ?)").run(SHADOW_REASON, SHADOW_REASON);
   // Why each wallet is where it is, for every one that changed (audit/evaluations.ts). Observation only.
   recordEvaluations(db, { inputs, results: result, cfg: cutoffs, mode: config.copyMode });
   setMeta(db, "last_learning_at", ts);
@@ -104,5 +109,5 @@ export function runLearning(db: DB): string[] {
 }
 
 export function currentLeaders(db: DB): string[] {
-  return (db.prepare("SELECT address FROM wallets WHERE copy_weight > 0 ORDER BY copy_weight DESC").all() as { address: string }[]).map((r) => r.address);
+  return (db.prepare("SELECT address FROM wallets WHERE copy_weight > 0 AND shadow_only = 0 ORDER BY copy_weight DESC").all() as { address: string }[]).map((r) => r.address);
 }

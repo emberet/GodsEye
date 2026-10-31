@@ -9,7 +9,7 @@ export const NAV = [
   { href: "/", label: "Home", icon: House, tile: "bg-sun", match: ["/"] },
   { href: "/wallets", label: "Wallets", icon: WalletCards, tile: "bg-lime", match: ["/wallets", "/groups"] },
   { href: "/copies", label: "Copying", icon: Copy, tile: "bg-lilac", match: ["/copies", "/leaders", "/performance", "/proof"] },
-  { href: "/stream", label: "Live", icon: Activity, tile: "bg-coral", match: ["/stream"] },
+  { href: "/stream", label: "Live", icon: Activity, tile: "bg-coral", match: ["/stream", "/runners"] },
 ];
 
 function useActive() {
@@ -91,6 +91,10 @@ export const COPYING_LINKS = [
   { href: "/leaders", label: "Who it copies" },
   { href: "/performance", label: "Results" },
   { href: "/proof", label: "Proof" },
+];
+export const LIVE_LINKS = [
+  { href: "/stream", label: "Live trades" },
+  { href: "/runners", label: "Runners" },
 ];
 export const WALLET_LINKS = [
   { href: "/wallets", label: "All wallets" },

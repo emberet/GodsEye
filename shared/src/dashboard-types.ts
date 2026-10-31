@@ -455,3 +455,61 @@ export interface SmartMoneyData {
   /** Smart trades recorded in the last 24h. */
   trades24h: number;
 }
+
+// ---- Runner research (agent/src/runners/, agent/src/x/): observation only ----
+
+export interface RunnerDefinitionInfo {
+  minMultiple: number;
+  mcapCutUsd: number;
+  minMinutesAbove5x: number;
+  coins: number;
+  runners: number;
+  at: string;
+}
+
+export interface RunnerTokenRow {
+  mint: string;
+  symbol: string | null;
+  first_seen: string;
+  multiple: number;
+  peak_mcap_usd: number | null;
+  minutes_above_5x: number;
+  buyers: number;
+  source: string;
+}
+
+export interface RunnerCatcherRow {
+  wallet: string;
+  hits: number;
+  early_buys: number;
+  hit_rate: number;
+  hit_rate_lb: number;
+  base_rate: number;
+  days: number;
+  median_entry_x: number | null;
+  median_x_to_peak: number | null;
+  capture: number | null;
+  copyable_share: number | null;
+  label: string;
+  x_handle: string | null;
+  qualifies: number;
+}
+
+export interface XCallerRow {
+  username: string | null;
+  followers: number | null;
+  runner_calls: number;
+  early_runner_calls: number;
+  control_calls: number;
+  hit_rate_lb: number;
+  median_lead_min: number | null;
+  days: number;
+}
+
+export interface RunnersData {
+  definition: RunnerDefinitionInfo | null;
+  coinsWatched: number;
+  runners: RunnerTokenRow[];
+  catchers: RunnerCatcherRow[];
+  callers: XCallerRow[];
+}

@@ -30,6 +30,12 @@ export const config = {
   copyWsUrl: envStr("COPY_WS_URL"),
   birdeyeApiKey: envStr("BIRDEYE_API_KEY"),
   jupiterApiKey: envStr("JUPITER_API_KEY"),
+  /** X (Twitter) API v2 app bearer token, for the runner research (x/): who posts coins before they run. Empty = off. */
+  xBearerToken: envStr("X_BEARER_TOKEN"),
+  /** Most tweets read in a calendar month (the plan's quota is shared with anything else using the key). */
+  xMonthlyTweetCap: envNum("X_MONTHLY_TWEET_CAP", 500_000),
+  /** Coins searched on X an hour (half runners, half non-runners as a control). */
+  xCoinsPerHour: envNum("X_COINS_PER_HOUR", 100),
 
   // ---- Live gRPC stream (Shyft, Triton, Helius, QuickNode — Yellowstone protocol) ----
   /** e.g. https://grpc.ny.shyft.to — empty = no stream, GodsEye samples pools and polls instead. */

@@ -1,0 +1,21 @@
+# /etc/systemd/system/godseye-runners.service — the runner backfill (runners/backfill.ts): reads the launches of coins that
+# ran while the live tape wasn't watching, from Solana, several at a time. Run by godseye-runners.timer.
+# Its own RPC share (RPC_MAX_RPS here, under the agent's) and low priority: it must never slow the agent's copy path.
+[Unit]
+Description=GodsEye runner backfill (first buyers of coins that ran)
+
+[Service]
+Type=oneshot
+User=godseye
+Group=godseye
+WorkingDirectory=/opt/godseye/app/agent
+Environment=HOME=/opt/godseye
+Environment=PATH=/opt/godseye/node/bin:/usr/bin:/bin
+Environment=NODE_OPTIONS=--max-old-space-size=2200
+Environment=RPC_MAX_RPS=10
+ExecStart=/opt/godseye/app/node_modules/.bin/tsx src/cli/runners-backfill.ts
+Nice=15
+IOSchedulingClass=idle
+MemoryMax=2500M
+MemorySwapMax=0
+TimeoutStartSec=90min

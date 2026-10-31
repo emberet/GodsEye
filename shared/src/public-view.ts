@@ -14,7 +14,7 @@ export const PUBLIC_TIER_LABEL = "Early-entry pattern";
 
 export type PublicFeed =
   | "summary" | "logs" | "copies" | "smart" | "leaders" | "wallets" | "wallet" | "groups"
-  | "performance" | "proof" | "rugchecks" | "stream";
+  | "performance" | "proof" | "rugchecks" | "stream" | "runners";
 
 /** True when this dashboard should show the full internal feed (owner-only deployments). */
 export function fullFeedEnabled(env: Record<string, string | undefined> = process.env): boolean {

@@ -80,7 +80,7 @@ async function rpc<T>(method: string, params: unknown[]): Promise<T> {
 }
 const getTx = (sig: string) => rpc<TxLike | null>("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]).catch(() => null);
 /** Wallets are on-curve keys; pools, curves and vaults are program accounts (off-curve). */
-const isWallet = (a: string) => {
+export const isWallet = (a: string) => {
   try {
     return PublicKey.isOnCurve(new PublicKey(a).toBytes());
   } catch {

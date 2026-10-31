@@ -8,6 +8,7 @@ import { DataState } from "@/components/data-state";
 import { ago, pnlClass, signedSol, signedUsd, streamStatusLabel } from "@/lib/format";
 import type { LiveWalletRow, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LIVE_LINKS, SubNav } from "@/components/nav";
 
 const SORTS = [
   { v: "pnl", label: "Most profit" },
@@ -37,6 +38,7 @@ export default function StreamPage() {
       <header>
         <h1 className="text-3xl font-black tracking-[-0.03em] sm:text-[38px]">Live</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Every memecoin trade on Solana, read as it happens.</p>
+        <SubNav links={LIVE_LINKS} />
       </header>
 
 

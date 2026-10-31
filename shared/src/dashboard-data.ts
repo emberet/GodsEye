@@ -11,6 +11,7 @@ import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate } from "./stat
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
   LearnedParam, ParamChange, SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
+  RunnerCatcherRow, RunnerDefinitionInfo, RunnersData, RunnerTokenRow, XCallerRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
   Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
 } from "./dashboard-types";
@@ -453,5 +454,41 @@ export function buildDashboardSnapshot(d: DB): Record<string, unknown> {
     rugchecks: getRugChecks(d),
     live: getLiveWallets(d, { sort: "pnl", limit: 2000 }),
     smart: getSmartMoney(d),
+    runners: getRunners(d),
+  };
+}
+
+/** The runner research (agent/src/runners/, agent/src/x/): its tables are created by the agent, so older databases have none. */
+export function getRunners(d: DB): RunnersData {
+  const has = (t: string) => !!d.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+  if (!has("runner_tokens")) return { definition: null, coinsWatched: 0, runners: [], catchers: [], callers: [] };
+  const raw = getMeta(d, "runner_definition");
+  let definition: RunnerDefinitionInfo | null = null;
+  try {
+    definition = raw ? (JSON.parse(String(raw)) as RunnerDefinitionInfo) : null;
+  } catch {
+    definition = null;
+  }
+  return {
+    definition,
+    coinsWatched: (d.prepare("SELECT COUNT(*) n FROM runner_tokens").get() as { n: number }).n,
+    runners: d
+      .prepare(
+        `SELECT t.mint, COALESCE(t.symbol, i.symbol) symbol, t.first_seen, t.multiple, t.peak_mcap_usd, t.minutes_above_5x, t.buyers, t.source
+           FROM runner_tokens t LEFT JOIN token_info i ON i.mint = t.mint WHERE t.is_runner = 1 ORDER BY t.first_seen DESC LIMIT 50`,
+      )
+      .all() as RunnerTokenRow[],
+    catchers: has("runner_catchers")
+      ? (d.prepare(
+          `SELECT wallet, hits, early_buys, hit_rate, hit_rate_lb, base_rate, days, median_entry_x, median_x_to_peak, capture, copyable_share, label, x_handle, qualifies
+             FROM runner_catchers ORDER BY qualifies DESC, score DESC LIMIT 50`,
+        ).all() as RunnerCatcherRow[])
+      : [],
+    callers: has("x_callers")
+      ? (d.prepare(
+          `SELECT username, followers, runner_calls, early_runner_calls, control_calls, hit_rate_lb, median_lead_min, days FROM x_callers
+            WHERE early_runner_calls > 0 ORDER BY score DESC LIMIT 30`,
+        ).all() as XCallerRow[])
+      : [],
   };
 }

@@ -1,0 +1,11 @@
+# /etc/systemd/system/godseye-runners.timer — then: systemctl enable --now godseye-runners.timer
+[Unit]
+Description=Read back the launches of coins that ran, every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 01/6:20:00
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

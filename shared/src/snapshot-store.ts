@@ -16,7 +16,7 @@
  */
 import { createClient, type Client } from "@libsql/client";
 
-export const SNAPSHOT_KEYS = ["summary", "wallets", "groups", "leaders", "copies", "performance", "proof", "logs", "rugchecks", "live", "smart"] as const;
+export const SNAPSHOT_KEYS = ["summary", "wallets", "groups", "leaders", "copies", "performance", "proof", "logs", "rugchecks", "live", "smart", "runners"] as const;
 export type FeedKey = (typeof SNAPSHOT_KEYS)[number];
 export type SnapshotKey = FeedKey | `wallet:${string}`;
 

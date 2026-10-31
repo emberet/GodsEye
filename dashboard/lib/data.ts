@@ -31,6 +31,7 @@ const EMPTY: Partial<Record<FeedKey, unknown>> = {
   wallets: [], groups: [], logs: [], rugchecks: [], live: [],
   smart: { followBar: null, activeWallets: 0, droppedWallets: 0, flows: [], signals: [], scorecard: [], wallets: [], trades24h: 0 },
   copies: { open: [], closed: [], trades: [] },
+  runners: { definition: null, coinsWatched: 0, runners: [], catchers: [], callers: [] },
   leaders: { leaders: [], changes: [], budgetSol: 0, followBar: null, followBarHistory: [] },
 };
 

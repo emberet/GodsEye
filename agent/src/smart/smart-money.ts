@@ -319,13 +319,15 @@ export class SmartMoney {
     const analyzed = this.db
       .prepare(
         `SELECT w.address, s.pnl_30d_usd pnl, s.closed_30d closed, s.win_rate_30d win FROM wallets w JOIN wallet_stats s ON s.wallet = w.address
-          WHERE s.closed_30d >= ? AND s.pnl_30d_usd > 0 AND s.win_rate_30d >= ? AND w.tier NOT IN ('quitter', 'lucky_streak')`,
+          WHERE s.closed_30d >= ? AND s.pnl_30d_usd > 0 AND s.win_rate_30d >= ? AND w.tier NOT IN ('quitter', 'lucky_streak') AND w.shadow_only = 0`,
       )
       .all(config.minClosedForProven, bar) as { address: string; pnl: number; closed: number; win: number }[];
     for (const a of analyzed) candidates.set(a.address, { source: "analyzed", pnl: a.pnl, closed: a.closed, win: a.win });
+    // Research wallets stay out: smart money moves copy weights and the learned follow bar.
+    const shadow = new Set((this.db.prepare("SELECT address FROM wallets WHERE shadow_only = 1").all() as { address: string }[]).map((r) => r.address));
     // Wallets judged on live trades alone need a bit more (less evidence than a full analysis).
     for (const w of this.book?.smartCandidates(config.smartLiveMinPnlUsd, config.smartLiveMinClosed, Math.min(1, bar + 0.05)) ?? []) {
-      if (!candidates.has(w.address)) candidates.set(w.address, { source: "live", pnl: w.pnlUsd, closed: w.closed, win: w.wins / w.closed });
+      if (!candidates.has(w.address) && !shadow.has(w.address)) candidates.set(w.address, { source: "live", pnl: w.pnlUsd, closed: w.closed, win: w.wins / w.closed });
     }
     return candidates;
   }

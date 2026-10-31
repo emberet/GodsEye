@@ -10,6 +10,7 @@
  *                        making real money get promoted to full analysis
  *   • smart money      → recorded, with signals when several smart wallets move together (smart/)
  *   • a coin GodsEye holds → its price, for the copy engine's stop-loss / take-profit (seconds, not the minute check)
+ *   • every pump.fun launch → the runner tape: its price path and first buyers (runners/tape.ts), research only
  * Reconnects on its own: with backoff, or every STREAM_IP_RETRY_MS while the provider rejects this IP.
  * STREAM_PARSER=rust takes the parsed stream from the Rust ingest service instead (rust-client.ts); compare keeps
  * this TypeScript path and only logs how the Rust results differ. Default "ts": unchanged.
@@ -30,6 +31,8 @@ import { LiveBook } from "./live-book";
 import { SmartMoney } from "../smart/smart-money";
 import { CompareStats, RustIngestClient, comparable, eventSwaps, type IngestEvent } from "./rust-client";
 import type { TxLike } from "../chain/parse";
+import { RunnerTape, fromTape, saveCoins } from "../runners/tape";
+import { replayDelaySec } from "../smart/copy-check";
 
 /** SQL: a wallet not flagged as a bot by the learning loop, or one GodsEye copies. */
 export const NOT_A_BOT = "(junk_reason IS NULL OR junk_reason NOT LIKE 'bot:%' OR copy_weight > 0)";
@@ -105,6 +108,8 @@ export class LiveStream {
   private rust: RustIngestClient | null = null;
   private compare: CompareStats | null = null;
   readonly smart: SmartMoney;
+  readonly tape = new RunnerTape();
+  private delayCheckedAt = 0;
 
   constructor(
     private db: DB,
@@ -258,6 +263,7 @@ export class LiveStream {
     for (const swap of swaps) {
       this.book.record(swap, now);
       this.smart.onSwap(swap, now);
+      this.tape.record(swap, now);
       this.watcher.marketSwap(swap);
     }
     if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, tx, now);
@@ -305,12 +311,20 @@ export class LiveStream {
         }
       })();
       this.book.evict();
+      if (Date.now() - this.delayCheckedAt > 10 * 60_000) {
+        this.delayCheckedAt = Date.now();
+        this.tape.delayMs = replayDelaySec(this.db) * 1000;
+      }
+      this.tape.evict();
+      const finished = this.tape.takeFinished();
+      if (finished.length) saveCoins(this.db, finished.map(fromTape));
       this.guardMemory();
       const secs = (Date.now() - this.stats.since) / 1000;
       setMeta(this.db, "stream_last_at", nowIso());
       setMeta(this.db, "stream_tx_per_sec", (this.stats.txs / secs).toFixed(1));
       setMeta(this.db, "stream_swaps_per_sec", (this.stats.swaps / secs).toFixed(1));
       setMeta(this.db, "stream_wallets_in_memory", this.book.size);
+      setMeta(this.db, "runner_tape_coins", this.tape.size);
       setMeta(this.db, "agent_heap_mb", Math.round(process.memoryUsage().heapUsed / 1e6));
       this.stats = { txs: 0, swaps: 0, since: Date.now() };
     } catch (e) {

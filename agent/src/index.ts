@@ -28,6 +28,10 @@ import { refreshCopyable } from "./learning/copyable";
 import { CopyEngine, isPaused } from "./copy/engine";
 import { PaperExecutor, RealExecutor } from "./copy/executor";
 import { LeaderWatcher } from "./copy/watcher";
+import { defineRunners, describeDefinition } from "./runners/define";
+import { scoreCatchers } from "./runners/score";
+import { xConfigured } from "./x/client";
+import { runXResearch } from "./x/calls";
 import { loadOrCreateWallet, walletTokenBalance } from "./wallet/wallet";
 import { reconcile, recoverPending } from "./copy/recovery";
 import { publishSnapshot } from "./publish/snapshot";
@@ -257,6 +261,18 @@ async function main() {
     }, false);
     every("2-59/5 * * * *", () => void replays());
     void replays();
+    // Runner research (runners/): what counts as a runner, and who keeps catching them early. Shadow only: never copied.
+    every("40 * * * *", () => void job("runner research", async () => {
+      const def = defineRunners(db);
+      const r = scoreCatchers(db);
+      if (r.added) live.refreshTracked();
+      say("learn", `Runner research: ${describeDefinition(def)}. ${r.wallets} wallets bought 2+ of them early, ${r.qualifying} beat the base rate (${(r.baseRate * 100).toFixed(2)}% of early buys are runners)${r.added ? `; ${r.added} added for shadow-only analysis` : ""}.`);
+    }));
+    // Who posts runners on X before they run (x/calls.ts): needs X_BEARER_TOKEN. Observation only.
+    if (xConfigured()) every("50 * * * *", () => void job("x research", async () => {
+      const line = await runXResearch(db);
+      if (line) say("learn", line);
+    }, false));
     live.start();
   }
   // Daily SQLite housekeeping: retention pruning of raw swaps and stale stream activity, then a WAL checkpoint.

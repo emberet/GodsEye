@@ -110,6 +110,15 @@ async function pageSignatures(
 }
 
 /**
+ * Every signature of an account, newest first, up to `maxPages` × 1000 (metered). `exhausted`: the first one was reached.
+ * For reading a coin's launch from its pump.fun curve (runners/chain.ts).
+ */
+export async function allSignatures(address: string, maxPages: number): Promise<{ sigs: ConfirmedSignatureInfo[]; exhausted: boolean }> {
+  const p = await pageSignatures(address, { limit: maxPages * 1000, metered: true });
+  return { sigs: p.sigs, exhausted: p.exhausted };
+}
+
+/**
  * When was this token launched, as far as Solana can tell cheaply? Walks the mint's signatures back from
  * `before` (a buy of it), up to `pages` × 1000. `exact`: the mint's first transaction was reached, so `at`
  * is the launch; otherwise `at` is the oldest transaction seen, so the buy came at least that long after
