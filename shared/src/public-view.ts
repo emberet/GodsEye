@@ -4,7 +4,8 @@
  *   • hides the hot wallet's address (anyone could watch, front-run or target it); its balance is shown (the owner asked);
  *   • hides the raw agent logs;
  *   • reduces each copy decision to its outcome (no internal reason text, sizing weight or latency);
- *   • hides the learned tuning thresholds (the "follow bar" and its history);
+ *   • hides the learned tuning thresholds (the "follow bar" and its history), also inside any reason text
+ *     (`redactThresholds`: follow-bar %, top-N leader count, budget cap %, "N needed" minimums);
  *   • words the "insider" tier as an early-entry pattern: a heuristic, not an accusation.
  * Internal enums (tier "insider" etc.) are unchanged. The owner can see everything by setting
  * GODSEYE_FULL_FEED=1 on a dashboard that is not public.
@@ -26,6 +27,29 @@ export function publicText(s: string): string {
   return s.replace(/\bInsider pattern\b/g, PUBLIC_TIER_LABEL).replace(/\binsider pattern\b/g, PUBLIC_TIER_LABEL.toLowerCase());
 }
 
+const THRESHOLD_RULES: [RegExp, string][] = [
+  // weights.ts: "wins 64% of trades; GodsEye currently follows ≥ 80% (learned)"
+  [/;?\s*GodsEye currently follows\s*(?:≥|>=)\s*[\d.,]+\s*%\s*(?:\(learned\))?/g, "; win rate below the current follow bar"],
+  // adaptive.ts: "following wallets with ≥ 55% wins"
+  [/following wallets with\s*(?:≥|>=)\s*[\d.,]+\s*%\s*wins/g, "following wallets above the follow bar"],
+  // weights.ts / evaluations.ts: "not in the top 8 earners", "a place among the top 8 earners"
+  [/\bnot in the top\s+\d+\s+earners\b/g, "not currently among the top earners"],
+  [/\bamong the top\s+\d+\s+earners\b/g, "among the top earners"],
+  // weights.ts: "capped at 25% of the budget"
+  [/\bcapped at\s+[\d.,]+\s*%\s+of the budget\b/g, "capped at its share of the budget"],
+  // many modules: "(10 needed before GodsEye copies a wallet)", "($5000 needed)"
+  [/\s*\(\$?[\d.,]+\s+needed\b[^)]*\)/g, " (below GodsEye's current minimum)"],
+  // any other "follow bar" / "bar" number, e.g. "bar 62%", "bar of 0.62"
+  [/\b(follow bar|win-rate bar)(\s*(?:of|at|is|=|:)?\s*)(?:≥|>=)?\s*[\d.,]+\s*%?/gi, "$1"],
+];
+
+/** Removes learned thresholds and settings from free text; the wallet's own stats are left as they are. */
+export function redactThresholds(s: string): string {
+  let out = s;
+  for (const [re, to] of THRESHOLD_RULES) out = out.replace(re, to);
+  return out.replace(/^;\s*/, "").replace(/;\s*;/g, ";");
+}
+
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -42,7 +66,7 @@ function publicTrade(t: Obj): Obj {
 }
 
 function walk(v: unknown): unknown {
-  if (typeof v === "string") return publicText(v);
+  if (typeof v === "string") return redactThresholds(publicText(v));
   if (Array.isArray(v)) return v.map(walk);
   if (!isObj(v)) return v;
   const out: Obj = {};

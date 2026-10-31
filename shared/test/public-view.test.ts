@@ -56,3 +56,37 @@ test("error answers pass through and the owner flag is opt-in", () => {
   assert.equal(fullFeedEnabled({ GODSEYE_FULL_FEED: "true" }), false);
   assert.equal(fullFeedEnabled({ GODSEYE_FULL_FEED: "1" }), true);
 });
+
+test("learned thresholds are redacted from leader and change reasons, wallet stats kept", () => {
+  const body = {
+    leaders: [
+      { address: "A", weight_reason: "wins 64% of trades; GodsEye currently follows ≥ 80% (learned)" },
+      { address: "B", weight_reason: "+$1,200 this week; +$3,400 this month; 22 closed trades; 71% wins; not in the top 8 earners" },
+      { address: "C", weight_reason: "+$900 this week; capped at 25% of the budget" },
+      { address: "D", weight_reason: "only 4 closed trades seen so far (10 needed before GodsEye copies a wallet)" },
+    ],
+    changes: [{ reason: "wins 52% of trades; GodsEye currently follows ≥ 55% (learned)" }],
+    followBar: null, followBarHistory: [],
+  };
+  const out = publicView("leaders", body) as typeof body;
+  const [a, b, c, d] = out.leaders.map((l) => l.weight_reason);
+  assert.equal(a, "wins 64% of trades; win rate below the current follow bar");
+  assert.equal(b, "+$1,200 this week; +$3,400 this month; 22 closed trades; 71% wins; not currently among the top earners");
+  assert.equal(c, "+$900 this week; capped at its share of the budget");
+  assert.equal(d, "only 4 closed trades seen so far (below GodsEye's current minimum)");
+  assert.equal(out.changes[0].reason, "wins 52% of trades; win rate below the current follow bar");
+  const json = JSON.stringify(out);
+  for (const leak of ["80%", "55%", "top 8", "25% of", "10 needed", "(learned)"]) assert.ok(!json.includes(leak), leak);
+  // the original object (what the owner feed returns with GODSEYE_FULL_FEED=1) is untouched
+  assert.ok(body.leaders[0].weight_reason.includes("≥ 80%"));
+});
+
+test("threshold redaction applies to every feed, including wallet pages", () => {
+  const w = publicView("wallet", { history: [{ reason: "following wallets with ≥ 55% wins: median +4%" }], evaluation: ["a place among the top 8 earners"] });
+  assert.ok(!JSON.stringify(w).match(/55%|top 8/));
+});
+
+test("owner override still reports full feed", () => {
+  assert.equal(fullFeedEnabled({ GODSEYE_FULL_FEED: "1" }), true);
+  assert.equal(fullFeedEnabled({}), false);
+});
