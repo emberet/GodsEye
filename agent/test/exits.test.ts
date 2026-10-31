@@ -267,3 +267,40 @@ test("close-all sells every open position, retrying a slippage failure at 10%", 
   const row = db.prepare("SELECT status, exit_reason FROM positions").get() as { status: string; exit_reason: string };
   assert.deepEqual(row, { status: "closed", exit_reason: "closed by owner" });
 });
+
+test("a coin the price API has no price for is priced by a sell quote, so a rugged coin still hits its stop", async () => {
+  const db = openDb(":memory:");
+  openPosition(db);
+  const ex = new FakeExecutor();
+  const net = stubFetch((url) => (url.includes("/price/") ? { [SOL_MINT]: { usdPrice: 200, decimals: 9 } } : undefined));
+  try {
+    ex.quote = null; // no route either: nothing to do but warn
+    await new CopyEngine(db, ex, null, null, null).managePositions();
+    assert.deepEqual(ex.sells, []);
+    ex.quote = 0.04; // cost 0.1 SOL: −60%
+    await new CopyEngine(db, ex, null, null, null).managePositions();
+    assert.deepEqual(ex.sells, [MINT]);
+    assert.match((db.prepare("SELECT exit_reason FROM positions").get() as { exit_reason: string }).exit_reason, /^stop-loss at -60.*sell quote/);
+  } finally {
+    net.restore();
+  }
+});
+
+test("a fresh stream price spares the quote; with no SOL price at all, positions are still checked by quote", async () => {
+  const db = openDb(":memory:");
+  openPosition(db);
+  db.prepare("UPDATE positions SET last_price_ts=?").run(new Date().toISOString());
+  const ex = new FakeExecutor();
+  let quotes = 0;
+  ex.quoteSellSol = async () => (quotes++, 0.04);
+  const net = stubFetch(() => undefined);
+  try {
+    await new CopyEngine(db, ex, null, null, null).managePositions();
+    assert.equal(quotes, 0, "priced by the stream 0 s ago");
+    db.prepare("UPDATE positions SET last_price_ts=?").run(new Date(Date.now() - 120_000).toISOString());
+    await new CopyEngine(db, ex, null, null, null).managePositions();
+    assert.deepEqual(ex.sells, [MINT]);
+  } finally {
+    net.restore();
+  }
+});

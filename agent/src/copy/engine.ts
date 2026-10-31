@@ -58,6 +58,7 @@ interface PositionRow {
   fee_sol: number | null;
   entry_price_sol: number;
   last_price_sol: number | null;
+  last_price_ts: string | null;
   opened_at: string;
   /** Best return seen on the minute checks, % (trailing stop). */
   peak_pct: number | null;
@@ -73,6 +74,8 @@ const usdOf = (sol: number): number | null => {
 
 /** How long a repeated skip message stays quiet. */
 const SKIP_QUIET_MS = 10 * 60_000;
+/** A position the stream hasn't priced for this long, and the price API doesn't know, is priced by a sell quote. */
+const UNPRICED_AFTER_MS = 90_000;
 const BALANCE_CACHE_MS = 20_000;
 /**
  * Longest a copy waits for a token's name. A brand-new token is often unknown to Shyft, and the fallback
@@ -449,20 +452,37 @@ export class CopyEngine {
     if (!open.length) return;
     const prices = await getPrices([SOL_MINT, ...open.map((p) => p.mint)]).catch(() => new Map());
     const solUsd = prices.get(SOL_MINT)?.priceUsd;
-    if (!solUsd) return;
     // Learned by the exit tuner (learning/exits.ts), or COPY_STOP_LOSS_PCT / COPY_TAKE_PROFIT_PCT.
     const exits = currentExits(this.db, config);
     for (const pos of open) {
       const usd = prices.get(pos.mint)?.priceUsd;
-      if (usd) await this.checkExit(pos, usd / solUsd, exits, "feed");
+      if (usd && solUsd) {
+        await this.checkExit(pos, usd / solUsd, exits, "feed");
+        continue;
+      }
+      // No price: a rugged coin leaves the price API and, its pool drained, the stream too. Left alone, it was never
+      // checked again and went to zero untouched (BvGQ, 7 h). Unless the stream priced it lately, a sell quote is its price.
+      if (pos.last_price_ts && Date.now() - Date.parse(pos.last_price_ts) < UNPRICED_AFTER_MS) continue;
+      const got = this.executor.quoteSellSol && pos.token_amount > 0 ? await this.executor.quoteSellSol(pos.mint, pos.token_amount).catch(() => null) : null;
+      if (got !== null) {
+        await this.checkExit(pos, got / pos.token_amount, exits, "quote");
+        continue;
+      }
+      const key = `unpriced:${pos.id}`;
+      const q = this.quiet.get(key);
+      if (!q || Date.now() >= q.until) {
+        this.quiet.set(key, { until: Date.now() + SKIP_QUIET_MS, held: 0 });
+        say("warn", `Can't price ${pos.symbol ?? short(pos.mint)}: no price and no sell route (rugged or no liquidity). Can't check its stop-loss.`);
+      }
     }
   }
 
   /**
    * One position at one price (SOL per token): stop-loss, trailing stop, take-profit, the ladder's first sale, or max hold.
-   * The same rule for the minute job (price API) and the live stream. A price exit is confirmed by a sell quote first.
+   * The same rule for the minute job (price API, or a sell quote for a coin it has no price for) and the live stream.
+   * A price exit is confirmed by a sell quote first.
    */
-  private async checkExit(pos: PositionRow, price: number, exits: Exits, source: "feed" | "stream"): Promise<void> {
+  private async checkExit(pos: PositionRow, price: number, exits: Exits, source: "feed" | "stream" | "quote"): Promise<void> {
     if (!(pos.tokens_bought > 0) || !Number.isFinite(price) || price <= 0) return;
     if (this.checking.has(pos.id)) return; // a check of this position (and its sell) is already under way
     this.checking.add(pos.id);
