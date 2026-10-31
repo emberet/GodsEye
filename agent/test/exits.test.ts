@@ -255,3 +255,15 @@ test("a failed sell isn't retried before its wait is over, and a take-profit kee
   assert.deepEqual(ex.slips, [300, 300]);
   assert.match((db.prepare("SELECT exit_reason FROM positions").get() as { exit_reason: string }).exit_reason, /^take-profit/);
 });
+
+test("close-all sells every open position, retrying a slippage failure at 10%", async () => {
+  const db = openDb(":memory:");
+  openPosition(db);
+  const ex = new FakeExecutor();
+  ex.failures = ['transaction failed on-chain: {"InstructionError":[3,{"Custom":6001}]}'];
+  const engine = new CopyEngine(db, ex, null, null, null);
+  assert.deepEqual(await engine.closeAll("closed by owner", 3, 0), { closed: 1, left: 0 });
+  assert.deepEqual(ex.slips, [300, 1000]);
+  const row = db.prepare("SELECT status, exit_reason FROM positions").get() as { status: string; exit_reason: string };
+  assert.deepEqual(row, { status: "closed", exit_reason: "closed by owner" });
+});

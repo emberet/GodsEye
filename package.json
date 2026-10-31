@@ -25,6 +25,7 @@
     "stream:ips": "npm run stream:ips -w agent",
     "pause": "npm run pause -w agent",
     "resume": "npm run resume -w agent",
+    "close-all": "npm run close-all -w agent",
     "publish-dashboard": "npm run publish-dashboard -w agent",
     "dashboard": "npm run dev -w dashboard",
     "test": "npm test -w shared && npm test -w agent && npm test -w dashboard",

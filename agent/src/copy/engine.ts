@@ -389,6 +389,24 @@ export class CopyEngine {
     }
   }
 
+  /** Sell every open position now (`npm run close-all`), each with up to `tries` attempts at the stop-loss's widening slippage. */
+  async closeAll(reason: string, tries = 3, waitMs = 3000): Promise<{ closed: number; left: number }> {
+    const open = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mode = ?").all(this.executor.mode) as PositionRow[];
+    let closed = 0;
+    for (const { id } of open) {
+      for (let i = 0; i < tries; i++) {
+        const pos = this.db.prepare("SELECT * FROM positions WHERE id = ? AND status='open'").get(id) as PositionRow | undefined;
+        if (!pos) break;
+        if (await this.withLock(pos.mint, () => this.sellPosition(pos, pos.token_amount, true, reason, undefined, true))) {
+          closed++;
+          break;
+        }
+        if (i < tries - 1) await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+    return { closed, left: open.length - closed };
+  }
+
   /** Mints of the open positions, so the stream can ignore every other coin at once. Refreshed every 30 s and on each open/close. */
   private openMintSet(): Set<string> {
     if (!this.openMints || Date.now() - this.openMints.at > OPEN_MINTS_TTL_MS) {

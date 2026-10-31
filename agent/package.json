@@ -21,6 +21,7 @@
     "stream:ips": "tsx src/cli/stream-ips.ts",
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
+    "close-all": "tsx src/cli/close-all.ts",
     "publish-dashboard": "tsx src/publish/cli.ts",
     "rust:fixtures": "tsx src/cli/rust-fixtures.ts",
     "bench:parse": "tsx src/cli/parse-bench.ts",
