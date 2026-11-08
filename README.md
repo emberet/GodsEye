@@ -19,17 +19,27 @@ Nothing here is a promise of profit. Nothing here is financial advice.
 | Copy engine | Leader buy → GodsEye buy, sized by weight. Leader sell → the same fraction. Our own stop, take-profit, and max-hold run every minute. Every transaction is checked before it is signed (`agent/src/copy/verify.ts`). | `agent/src/copy/` |
 | Smart money | Bots and wallets the copy-fill replay says do not pay are left out. Signals need several wallets and demand that is not one cluster. | `agent/src/smart/` |
 
-Tiers, first match: Quitter, Early-entry pattern, Lucky streak, Needs attention, Proven, Unrated. Rules and evidence live in `agent/src/analysis/tiers.ts`. An AI / bot score means a program is placing the trades; an agent and a script look the same on-chain (`agent/src/analysis/classifier.ts`).
+Tiers, first match: Quitter, Early-entry pattern, Lucky streak, Needs attention, Proven, Unrated. Rules and evidence live in `agent/src/analysis/tiers.ts`. An AI / bot score means a program is placing the trades; an agent and a script look the same on-chain (`agent/src/analysis/classifier.ts`). That score is not the brain below.
 
-## The brain (paper only)
+## The neural network
 
-The brain is a separate paper-trading system. It does not sign, does not hold keys, and does not replace the copy engine. `COPY_MODE` is untouched.
+The trading nets are small multilayer perceptrons, class `QNet` in `brain/brain/policy/nets.py`: a linear layer, a ReLU, a linear layer, a ReLU, then a linear output. Both hidden layers are 128 units. Training is PyTorch on the Mac. The server never runs PyTorch. It loads the exported ONNX (`brain/brain/export_onnx.py`, `agent/src/brain/model.ts`). The state-value net used inside exit training is not exported.
 
-- **Networks.** Small MLPs trained in PyTorch on the Mac (`brain/brain/policy/nets.py`) and exported to ONNX. The entry ensemble scores skip versus stake. The exit network scores hold, sell half, or sell all. Hard stops in config sit on top of that exit. A private social model is a different net and is never published.
-- **Server.** `BRAIN_MODE=paper` (the default) lets `agent/src/brain/` paper-trade Brain, Explore, and Baseline accounts when a bundle is loaded. `BRAIN_MODE=off` does none of that. Bundles live under `BRAIN_DIR` (default `data/brain`). `current` must point at a directory whose `manifest.json` and ONNX files match. With no bundle, entry decisions do not run. `brain_enabled: false` on a bundle means the Brain account skips every signal and only Explore keeps taking paper trades. That flag is a gate result, not a claim that the model is qualified or profitable, and not a claim about real SOL.
-- **Weights are not in git.** This repository does not record whether any server has a promoted bundle.
+**Entry.** Five bootstrapped members. By default each one maps the normalised entry features to two q-values in SOL: skip, or one full copy (`COPY_MAX_TRADE_SOL`). `--actions 5` trains the five stake fractions named in `brain/spec/CONTRACT.md` instead. Skip's q is fixed at 0. `brain/spec/features.yaml` lists 29 entry features (`venue_group` is one-hot; 13 features have a missing flag). The manifest is the exact column list. `social_score` and `social_missing` stay masked until those columns vary in training. Hard gates in that spec run before any network and skip the signal for every account.
 
-The contract between the Mac trainer and the server is `brain/spec/CONTRACT.md`.
+**Exit.** Twenty-one exit features, two of them with a missing flag, so 23 inputs. Three q-values: hold, sell half (once), sell all. Config hard stops sit on top of this net and can override it (`agent/src/brain/policy.ts`).
+
+**Social, separate.** `brain/brain/social/train.py` is another MLP: 32 units, 16 units, one output, with dropout only while training. `social.onnx` is a predicted 14-day copy return for an owner-linked wallet. It is not an entry or exit action, and it is not published.
+
+The decision rule is `agent/src/brain/policy.ts`. It does not send an order. For the Brain paper account, score is the members' mean q minus `margin_c` times their spread, and a stake is taken only when that score is above 0. The Explore paper account picks one member at random and adds a curiosity term to every stake.
+
+## The brain
+
+The brain is the paper-trading system around those networks. It is not the copy engine. It does not sign, does not hold keys, and does not change `COPY_MODE`.
+
+`BRAIN_MODE=paper` (the default) lets `agent/src/brain/` run three paper accounts, Brain, Explore, and Baseline, when a bundle is loaded. `BRAIN_MODE=off` runs none of them. Bundles live under `BRAIN_DIR` (default `data/brain`). `current` must point at a directory whose `manifest.json` and ONNX hashes match. With no bundle, entry decisions do not run (`decideEntry` returns null). `brain_enabled: false` means the Brain account skips every signal and only Explore keeps taking paper trades.
+
+Weights are not in this git repository. Nothing here records whether a server currently has a promoted bundle. The file both sides share is `brain/spec/CONTRACT.md`.
 
 ### Hourly training on the Mac
 
@@ -60,6 +70,27 @@ BRAIN_DATA_DIR="/path/to/GodsEyeBrainData" nohup brain/scripts/cycle-loop.sh >/d
 ```
 
 `cycle.sh` and `cycle-loop.sh` share a lock, so they do not train over each other. One cycle at a time. If `BRAIN_DATA_DIR` is unset, `cycle-loop.sh` uses the path written at the top of that file. A step whose Python module is missing is skipped. This loop does not change live trading, and a gate pass is not a real-money clearance.
+
+## Reinforcement training
+
+Learning is offline, on the Mac. The server records paper outcomes. It does not update weights while it paper-trades.
+
+**Entry is not reinforcement learning.** `brain/brain/policy/entry.py` is a contextual bandit. The simulator copies ungated signals at full stake, exits them with the chosen exit policy, once plain and once under a stressed draw, and the target is the loss-weighted net SOL result of that copy (`brain/spec/reward.yaml`). Five MLPs regress that target with a Huber loss, each on its own bootstrap sample. The hourly run warm-starts those weights and can add logged paper transitions only after their rewards are grounded. Skip's target is 0.
+
+**Exit is offline reinforcement learning.** `brain/brain/policy/exit.py` fits Implicit Q-Learning (Kostrikov, Nair, and Levine, 2021) on trajectories from a mix of behaviour policies in the simulator: a short supervised fit on the remaining value, then IQL. Step rewards are potential-based and add up to the same loss-weighted result as the closed trade. If a hand rule beats that IQL head on the selection window, the exported exit net is the rule distilled into the same shape, and only its best action is meaningful. Training does not read the held-out test window (`brain/spec/splits.yaml`).
+
+**Two different checks, and neither is proof of profit.**
+
+- `python -m brain.assure` asks whether the trainer still behaves on synthetic markets with a planted truth (skip when there is no edge, do not copy gated signals, do not read a leaked future column, and the other checks in `brain/brain/assure/learning.py`). `--real` adds read-only checks on the drive. A skipped check is not a pass. This command does not push a bundle.
+- `python -m brain.gate --bundle <dir>` is the promotion check. It replays the ONNX bundle the way the server would, on the selection window, against the B4 hand rule, and it calls `brain.assure` `check_bundle` (bundle shape, plus the trainer's synthetic learning checks). The hourly cycle passes `--no-test`, so this is not the held-out test window, and it is not GitHub CI or `npm test`.
+
+Exit codes of that gate:
+
+- **0, promote.** Sanity, stress, the comparison with B4, and the assure check all passed. The bundle can be pushed with `brain_enabled: true`. The paper Brain account may then use it. That is the "ready" state in this repo. It means the paper account is allowed to trade the bundle. It does not mean the bundle made money, and it does not mean it is safe with real SOL.
+- **3, explore-only.** Sanity and the stress checks passed. The bar did not. The cycle pushes it with `brain_enabled: false`, and only while the server has no promoted model. The Brain account skips. Explore can still take paper trades so a later run has data. `CYCLE_EXPLORE_ONLY=0` does not push this case.
+- **Anything else.** The server keeps the bundle it already has.
+
+The social model has no explore-only push. Only gate exit 0 pushes it.
 
 ## Replay worker
 
