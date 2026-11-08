@@ -675,3 +675,14 @@ def test_cycle_skips_quietly_when_the_drive_is_missing(tmp_path, cycle):
     os.symlink(gone, link)
     assert cycle(0, data_dir=link) == 0
     assert not gone.exists()
+
+
+def test_nan_in_a_manifest_is_refused_and_explore_copy_writes_null(tmp_path):
+    """The server parses manifest.json with JSON.parse: NaN must never reach it (a NaN metric once got a bundle rejected)."""
+    from brain.push import finite_json
+    assert finite_json({"a": float("nan"), "b": [1.0, float("inf")], "c": {"d": -float("inf"), "e": 2}}) == {"a": None, "b": [1.0, None], "c": {"d": None, "e": 2}}
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "manifest.json").write_text('{"version": "2026-11-07T00-00-00Z", "metrics": {"x": NaN}}')
+    with pytest.raises(push.BundleError, match="NaN"):
+        push.validate_bundle(src)

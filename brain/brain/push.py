@@ -94,7 +94,8 @@ def validate_bundle(bundle_dir: Path, social: bool = False) -> Bundle:
     if not mpath.is_file():
         raise BundleError(f"no manifest.json in {bundle_dir}")
     try:
-        manifest = json.loads(mpath.read_text())
+        # The runtime is JavaScript: NaN / Infinity are not JSON there, so a manifest holding one is refused here.
+        manifest = json.loads(mpath.read_text(), parse_constant=_no_constant)
     except (OSError, ValueError) as e:
         raise BundleError(f"manifest.json unreadable: {e}") from e
     if not isinstance(manifest, dict):
@@ -142,16 +143,31 @@ def make_tarball(bundle: Bundle, out: Path) -> Path:
     return out
 
 
+def _no_constant(name: str):
+    raise ValueError(f"{name} is not valid JSON for the server (write null)")
+
+
+def finite_json(o):
+    """`o` with every NaN / ±Infinity float replaced by None, so json.dumps(..., allow_nan=False) can write it."""
+    if isinstance(o, float):
+        return o if o == o and o not in (float("inf"), float("-inf")) else None
+    if isinstance(o, dict):
+        return {k: finite_json(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [finite_json(v) for v in o]
+    return o
+
+
 def explore_only_copy(bundle: Bundle, out_dir: Path) -> Bundle:
     """A copy of the bundle in `out_dir` with `brain_enabled: false` in its manifest; the original is left alone.
     Nothing else changes: manifest.json isn't in `sha256`, so the networks' hashes still hold."""
-    manifest = json.loads((bundle.dir / "manifest.json").read_text())
+    manifest = finite_json(json.loads((bundle.dir / "manifest.json").read_text()))
     manifest["brain_enabled"] = False
     out_dir.mkdir(parents=True, exist_ok=True)
     for name in bundle.files:
         if name != "manifest.json":
             shutil.copyfile(bundle.dir / name, out_dir / name)
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, allow_nan=False) + "\n")
     return validate_bundle(out_dir)
 
 
@@ -247,7 +263,7 @@ if [ -e {q(target)} ]; then
   # networks are this bundle's. Only manifest.json may differ (the explore-only flag): the new one is renamed over it,
   # and the runtime reloads on the manifest's mtime.
   check_nets {q(target)} || {{ echo "models/{v} is already on the server with different files" >&2; exit 3; }}
-  if ! check {q(target)}; then
+  if ! check {q(target)} 2>/dev/null; then
     check "$work"/{q(v)}
     mv -f -- "$work"/{q(v)}/manifest.json {q(target)}/manifest.json
   fi

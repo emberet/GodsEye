@@ -23,6 +23,7 @@ import numpy as np
 import torch
 
 from brain.features import spec
+from brain.push import finite_json
 
 TOL = 1e-5
 OPSET = 17
@@ -135,7 +136,8 @@ def write_bundle(out_root: Path, version: str, members: list, exit_net: torch.nn
         "sha256": {f: sha256(tmp / f) for f in [*names, "exit.onnx"]},
         **(extra or {}),
     }
-    (tmp / "manifest.json").write_text(json.dumps(manifest, indent=1, default=_json))
+    # NaN metrics become null: the server's JSON.parse refuses NaN and would reject the whole bundle.
+    (tmp / "manifest.json").write_text(json.dumps(finite_json(json.loads(json.dumps(manifest, default=_json))), indent=1, allow_nan=False))
     final = out_root / version
     if final.exists():
         shutil.rmtree(final)
