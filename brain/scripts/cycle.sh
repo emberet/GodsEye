@@ -142,6 +142,11 @@ if ! step pull "$BRAIN_ROOT/scripts/pull.sh"; then
   exit 1
 fi
 lane model brain.train "" --mode "$mode" || failed=1
+# The social model's own tables (brain.social.pull): its ledger pull copies the server's whole mirror ledger each time,
+# so at most once a day (it must run at least every 8 days, or the ledger's coverage starts over).
+if have brain.social.pull && ! find "$BRAIN_DATA_DIR/export/mirror_ledger" -name 'part-*.parquet' -mmin -1200 2>/dev/null | grep -q .; then
+  step "social pull" python -m brain.social.pull || failed=1
+fi
 lane social brain.social.train --social || failed=1
 
 log "cycle end ($([ $failed -eq 0 ] && echo ok || echo "with failures"))"
