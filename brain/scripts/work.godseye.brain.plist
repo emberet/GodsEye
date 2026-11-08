@@ -30,8 +30,8 @@
   <key>Nice</key>
   <integer>5</integer>
   <key>StandardOutPath</key>
-  <string>__BRAIN_DATA_DIR__/logs/launchd.log</string>
+  <string>__HOME__/Library/Logs/godseye-brain-launchd.log</string>
   <key>StandardErrorPath</key>
-  <string>__BRAIN_DATA_DIR__/logs/launchd.log</string>
+  <string>__HOME__/Library/Logs/godseye-brain-launchd.log</string>
 </dict>
 </plist>

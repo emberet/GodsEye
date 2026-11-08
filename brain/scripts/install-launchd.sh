@@ -28,3 +28,6 @@ launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$DEST"
 echo "installed $DEST: runs $HERE/cycle.sh every hour, logs in $BRAIN_DATA_DIR/logs/"
 echo "run one cycle now: launchctl kickstart gui/$(id -u)/$LABEL"
+# macOS privacy: a launchd job may not write to an external drive until /bin/bash has Full Disk Access (System Settings >
+# Privacy & Security > Full Disk Access > + > /bin/bash). Without it the cycle log says "Operation not permitted".
+echo "needs once: System Settings > Privacy & Security > Full Disk Access: add /bin/bash (external drive access)"
