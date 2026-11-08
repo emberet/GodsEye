@@ -155,7 +155,9 @@ def pull_archive() -> int:
         # A day file grows until the day is past the hot window, so redo it whenever the raw file is newer.
         if out.exists() and out.stat().st_mtime >= f.stat().st_mtime:
             continue
-        source = f"read_json_auto('{f}', format='newline_delimited')"
+        # sample_size=-1: infer the columns from every line. A day file archived across a deploy gains a key part-way
+        # (ins_ms appeared 3.25 M lines into 10-28), which the default 20k-line sample misses and duckdb then refuses.
+        source = f"read_json_auto('{f}', format='newline_delimited', sample_size=-1)"
         columns = [r[0] for r in con.execute(f"DESCRIBE SELECT * FROM {source}").fetchall()]
         con.execute(f"COPY ({typed_select(source, 'wallet_swaps', columns)}) TO '{out}' (FORMAT parquet, COMPRESSION zstd)")
         done += 1
