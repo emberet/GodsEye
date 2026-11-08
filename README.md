@@ -149,6 +149,42 @@ Vercel can't see GodsEye's database, so GodsEye publishes the dashboard data to 
 - Pure, tested logic: `analysis/pnl.ts`, `analysis/classifier.ts`, `analysis/tiers.ts`, `learning/weights.ts`, `copy/verify.ts`.
 - Proof ledger: `hash = sha256(prev_hash + "|" + canonical_json_payload)` (`shared/src/proof.ts`).
 
+## The neural network
+
+The networks are small multilayer perceptrons. They are not the copy engine, the wallet tiers, or the quant job. `QNet` in `brain/brain/policy/nets.py` is the trading shape: two hidden layers of 128 units, a ReLU after each, then a linear output. Training uses PyTorch on the owner's Mac (Apple GPU when that machine has one, otherwise CPU). The server never trains. It loads the same nets as ONNX (`brain/brain/export_onnx.py`, `agent/src/brain/model.ts`). A state-value network used only inside exit training is not exported.
+
+**Entry head.** A contextual bandit over stake size. The default actions, `--actions 2`, are skip or one full copy (`0` or `1` times `COPY_MAX_TRADE_SOL`). `--actions 5` trains the five fractions named in `brain/spec/CONTRACT.md` (0, 0.25, 0.5, 0.75, 1) instead. Five bootstrapped members each map the normalised entry features to a q-value per action, in SOL. The skip action's q is fixed at 0. The spec lists 29 entry features (`brain/spec/features.yaml`): `venue_group` becomes one-hot columns, and 13 features carry a missing flag. The bundle manifest is the exact column list, with the means and standard deviations from the fit window. `social_score` and `social_missing` stay masked until those columns actually vary in training, so a live social number cannot be an input the net never saw. Five hard gates run before any network and skip the signal for every account: `below_min_leader_buy`, `too_late`, `pumpswap_hiprice`, `young_amm`, `screen_dead`.
+
+**Exit head.** The spec lists 21 exit features; `sell_quote_ratio` and `leader_ps_r_7d` add missing flags, which is the 23-input vector the exit featurizer builds. Outputs are q-values for `hold`, `sell_half` (allowed once) and `sell_all`. This head is offline IQL, unless a hand rule beats IQL on the selection window, in which case the exported net is that rule distilled into the same shape and only its argmax is meaningful. Hard stops sit on top of the network and always win: a −60% stop-loss and a 24 hour maximum hold (`agent/src/brain/policy.ts`).
+
+**Social net, separate.** `brain/brain/social/train.py` trains a different MLP (32, then 16, then one output, with dropout while training). `social.onnx` outputs a predicted 14-day copy return for an owner-linked wallet. It is private, it is not an entry or exit action, and the trading nets do not read it while the mask is on.
+
+The server's decision rule is in `agent/src/brain/policy.ts`, and it does not send an order. For the Brain paper account, each action's score is the members' mean q minus `margin_c` times their standard deviation. A non-zero stake is taken only when that score is above 0. The Explore paper account picks one member at random and adds `curiosity` times the disagreement to every stake. With `brain_enabled: false` the Brain account skips every signal.
+
+## The brain
+
+"The brain" is the paper-trading system around those networks, not the networks alone. Python on the Mac (`brain/`) pulls data, trains, and exports. TypeScript on the server (`agent/src/brain/`) only loads a bundle and paper-trades. The two sides meet through `brain/spec/CONTRACT.md`. The hourly Mac cycle pulls server tables, trains, runs the promotion gate, and may push a directory of ONNX files plus `manifest.json`. The server points `data/brain/current` at the live directory and appends `brain_transitions` (features, action, and the reward once the paper trade has resolved) for the next pull. There are two paper accounts, Brain and Explore, and a Baseline log of what the hand rule would have done. This path does not sign, does not hold keys, and does not call the real copy engine. `COPY_MODE` is unchanged.
+
+Trained weights are not in this git repository. They stay in `BRAIN_DATA_DIR` on the Mac and, after a push, under the server's `data/brain/`. Nothing in the repo says whether a bundle is loaded or promoted on a server right now.
+
+## Reinforcement training
+
+Learning is offline. Paper trades on the server do not update weights in place.
+
+The entry head is not an online policy-gradient loop. On each fit day the simulator copies ungated signals at full stake and exits them with the chosen exit policy, once plain and once under a stressed draw (delay, slippage, dropped features). The target is `g` of the net SOL P&L after fees and rent, with losses up-weighted: `g(x) = x − (kappa − 1) × max(0, −x)` at kappa 1.5 and 2.0 (`brain/spec/reward.yaml`; the drawdown weight lambda is 0). Five MLPs regress that target with a Huber loss, each on its own bootstrap sample and with noise on the inputs. How many epochs to train comes from rolling-origin folds inside the fit window. Skip's reward is 0.
+
+The exit head is offline IQL (Kostrikov, Nair and Levine, 2021) on trajectories from a mix of behaviour policies in the simulator. Q is pretrained on the remaining value, then IQL. The step rewards are potential-based and add up to the same `g` of the realized net P&L. If a leader-sold rule beats that IQL head on the selection window, the exported exit network is the rule, not IQL. Training does not read the test window (2026-11-02 onward, `brain/spec/splits.yaml`).
+
+`brain/scripts/cycle.sh` is the hourly Mac loop (launchd). It pulls, warm-starts from the newest saved PyTorch state, trains a short step on fit days newer than that state and on logged paper transitions whose rewards have been grounded, gates, and pushes only when the gate says so. Margin and explore settings from the previous bundle are kept. Selection and test days stay held out. The cycle that starts in the 03:00 hour is a full retrain instead. No data directory, a cycle already running, or a failed pull stops it before a push.
+
+Qualification is `python -m brain.gate` (`brain/brain/gate.py`). It is not GitHub Actions and it is not `npm test`. It scores the ONNX bundle the way the server would, on the selection window, against the B4 hand rule.
+
+- Exit 0, promote. Sanity, the stress suite, and the bar all pass: per-copy result above B4 with a mint-clustered interval above 0, enough copies per day, drawdown no worse than B4, and the other checks named in that file. The bundle is pushed with `brain_enabled: true`. The Brain paper account may then paper-trade it.
+- Exit 3, explore-only. Sanity and the stress checks pass, the bar does not. It is pushed with `brain_enabled: false`, and only while the server has no promoted model. The Brain account skips every signal. The Explore account can still take paper trades so a later run has something to learn from.
+- Any other exit. The server keeps the bundle it already has.
+
+`brain_enabled: true` means this gate promoted the bundle for the paper Brain account. It does not mean the policy is safe to run with real SOL, and it does not mean a paper result will keep happening. Real copies stay on the copy engine, under `COPY_MODE` and its own limits. The held-out test window is scored by hand, once, and the hourly gate does not read it (`--no-test` on the cycle). This repository does not store the live bundle's gate result.
+
 ## Quant layer (Python, offline)
 
 `quant/` is an offline batch job that judges whether each wallet's record is skill or luck and writes
