@@ -1,0 +1,113 @@
+# GodsEye brain: chaos ranges for training and the stress suite of the promotion gate.
+# Sources: brain/research/regimes-chaos (stress_scenarios.json v2, chaos_calibration.json) corrected by its verifier,
+# plus execution, sim-fidelity, price-exits and coin-launch verifiers. Simulator rules: sim.yaml.
+
+version: 1
+spec_date: "2026-11-07"
+
+training_chaos:
+  # Sampled independently per episode (per hour for windowed effects) during training.
+  delay:
+    base: "sim.yaml delay.entry_land (lognormal mu 1.442, sigma 0.557)"
+    multiplier: {choices: [1, 2, 4], probs: [0.7, 0.2, 0.1]}
+    stream_tail: {p: 0.01, extra_s: "uniform 15..60"}
+    backlog_outage: {hour_rate: 0.031, effect: "every signal in the hour arrives > 60 s late -> gated (too_late); exits in that hour delayed by the same lateness (p50 1,045 s)", source: "regimes C18 confirmed: 268 of 293 late decisions in 11 of 351 hours"}
+  slippage_multiplier: {range: [0.5, 3.0], dist: "log-uniform", applies_to: "entry fill error and the 1.8 % sell slippage", source: "regimes stress_scenarios slippage; real fill vs entry15 p10/p90 -9.2 % / +15.4 % (n=25)"}
+  fees:
+    tx_cost_sol: {range: [0.0003, 0.0008]}
+    priority_spike: {multipliers: [1, 3.41, 7.49, 27.14], probs: [0.85, 0.10, 0.04, 0.01], run_hours: "mean 2.2, max 7", source: "regimes C13/C19 confirmed (leaders' fees; partly population mix)"}
+  rug_injection:
+    rate: {range: [0.0, 0.10], note: "hourly rug60 p95 0.070, p99 0.094, max 0.107 (regimes C20 confirmed)"}
+    shape: "price -> -95..-100 % at a uniform minute 1..60 after entry; sells return 0-5 % of entry; rent lost; the quote has no route afterwards"
+  dead_pool_on_stale_exit:
+    # Applied to exits priced on a tracked tape > 60 min old (on top of the grounded rule's own write-offs, for stress only).
+    pumpswap: {base: 0.958, ci95: [0.93, 0.98], n: 283, stress_range: [0.90, 1.0]}
+    pumpfun_curve: {base: 0.034, ci95: [0.006, 0.17], n: 29, stress_range: [0.0, 0.2]}
+    other_venues: {base: 0.125, n: 8, stress_range: [0.0, 0.3]}
+    source: "regimes verifier verify/v04_stale_cond.py (stale-conditioned). The 'calm' 0.26 and 'wave' 0.80 values in stress_scenarios.json are NOT used: they apply an unconditional 1 h rate to stale 24 h exits, and 'calm' was calibrated on test days."
+  liquidity_shock:
+    sell_quote_haircut: "per sell, draw from the fresh-tape quote residual (median -0.33 %, p10 -10.6 %, 4.5 % at < 10 % of tape; execution C16)"
+    alive_quote_ratio: "tape-to-quote ratio when alive p10/p50/p90 0.861 / 1.003 / 1.13 (n=971; regimes C4 weakened), scale 0.5..2"
+    sell_failure: {p_per_attempt: [0.245, 0.5], retry_delay_s: "p50 285, p90 19,000"}
+    buy_failure: {p: [0.098, 0.2]}
+  feature_dropout:
+    per_feature_random: {p: [0.0, 0.3]}
+    structural:
+      - {feature: log_token_age, missing_daily: "9-76 % (worst 10-17 76 %, 10-28 69 %)", source: "regimes C23 weakened"}
+      - {feature: venue_group, missing_daily: "up to 14 %"}
+      - {feature: cr_seen_prior_7d, missing: "about 22 %+ until creator resolution is live"}
+      - {feature: ret_since_first / dd_from_high / mint_first_seen_age_min, missing: "about 54 % (no prior swap known at t on test days)"}
+      - {feature: "mirror-ledger features (cp_*)", missing: "whole ledger empty for the first 7 days after deployment: train with cp_n_7d = 0 for a random 20 % of leaders"}
+    noise: "Gaussian noise 0.1 std (normalised units) on continuous inputs, p = 0.5 per episode"
+  tracked_universe_shrink:
+    what: "Re-derive all tracked-swap features and the exit mark tape from a random subset of tracked wallets so the active count matches 1k-3k wallets/hour (live today about 3k leaders/day), probability 0.3 per day"
+    why: "the tracked universe changed 60x inside the data (price-exits verify/v06); staleness, crowd and dead-coin features depend on it"
+  insert_lag:
+    what: "Compute features with ts-based windows (ignoring insert time) for 10 % of training days, insert-time windows otherwise; evaluate only on insert-time features"
+    why: "most offline swaps were stored late; the model must not depend on backfilled counts (coin-launch verifier x04/x05)"
+
+stress_suite:
+  # Each scenario is replayed with the frozen candidate and the same 1 SOL / 5-slot / one-per-coin / 0.5 SOL daily-loss
+  # paper account as baselines/common.py, with the REBUILT simulator (sim.yaml). Metrics: mean net SOL per decision with a
+  # mint-clustered 95 % CI, per-day means, account net SOL, max drawdown, trades, share of decisions on prices > 90 s old.
+  - name: base_selection
+    dates: ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31", "2026-11-01"]
+    params: "base sim.yaml, chaos off"
+  - name: crash_rugwave_replay
+    dates: ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]
+    params: "base sim, dead_pool stress upper ends, rug_injection 0.064"
+    why: "worst train block under tape and venue-weighted exits (regimes C7 weakened: under uniform p_dead 0.67 the block is not separable and 10-17 is worst - include 10-17 too)"
+  - name: worst_day_alt
+    dates: ["2026-10-17", "2026-10-25"]
+    params: "base sim"
+  - name: good_control
+    dates: ["2026-10-19", "2026-10-20", "2026-11-01"]
+    params: "base sim"
+    why: "a policy that only wins here is regime-fitted"
+  - name: crash_hours
+    hours_file: "GodsEyeBrainData/research/regimes-chaos/stress_scenarios.json scenarios.crash_replay.crash_hours (21 hours)"
+    params: "inject 1-5 h windows (mean 1.5) of these hours' conditions into random days"
+  - name: delay_x4
+    dates: "all selection dates"
+    params: "delay multiplier 4, stream tail p 0.05, one backlog outage hour per day"
+  - name: fee_spike
+    dates: "all selection dates"
+    params: "tx_cost 0.0008, priority spike x7.49 for 7 h per day"
+  - name: dead_pool_extreme
+    dates: "all selection dates"
+    params: "p_dead pumpswap 1.0, curve 0.2, other 0.3"
+  - name: sell_outage
+    dates: "all selection dates"
+    params: "sell failure 0.5 per attempt, retry p50 30 min (Jupiter 429 storm)"
+  - name: thin_universe
+    dates: "all selection dates"
+    params: "tracked_universe_shrink to 1k wallets/hour"
+  - name: feature_dropout_30
+    dates: "all selection dates"
+    params: "random dropout 0.3 + all structural missingness at their worst day"
+  - name: cold_ledger
+    dates: "all selection dates"
+    params: "all mirror-ledger features missing (cp_n_7d = 0) for every leader: the first week after deployment"
+  - name: combined_worst
+    dates: ["2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30"]
+    params: "delay x2, slippage x2, tx 0.0008 + spike x3.41, dead_pool upper ends, rug 0.064, dropout 0.3, 1 backlog hour/day, thin_universe"
+  - name: held_out_test
+    dates: ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"]
+    params: "base sim; run ONCE per candidate, after it is frozen; 11-06 censored (report with and without)"
+
+pass_criteria:
+  hard:
+    - "combined_worst: mean net SOL per decision >= 0 minus the exploration budget (skip-everything scores 0), and max drawdown <= 0.5 SOL on every day (the daily loss limit)."
+    - "crash_rugwave_replay and worst_day_alt: account never below 0.7 SOL; mean net per decision CI lower bound > -0.002 SOL."
+    - "base_selection: beats B1 (copy-all) and B2 (today's rules) by >= 0.005 SOL per decision with the mint-clustered CI of the difference above 0, both re-scored on the rebuilt simulator (their old numbers: B1 -0.0082 SOL/copy, account -0.987; B2 -0.0085, account -0.933)."
+    - "Not dependent on one venue or a handful of mints: removing the top 1 % of mints or any single venue_group level keeps the selection mean >= 0."
+    - "held_out_test: mean net SOL per decision >= 0 and account >= 1.0 SOL; reported, never used to tune."
+    - "Fraction of copies taken on gated or quote_failed coins = 0."
+  soft:
+    - "Positive mean on >= 4 of 6 selection days and >= 3 of 4 full test days."
+    - "Copies per day within 0.3x-3x of the kappa-1.5 reference run (not timid, not copy-all)."
+    - "Spearman of entry q with realised net per decision >= 0.25 on selection under the rebuilt sim (B3's model reached 0.34 under realistic exits but no profitable decile)."
+  before_real_money:
+    - "Paper Brain account: >= 300 closed trades over >= 14 days on the server, net SOL > 0 with a day-block CI lower bound > 0, and realized gain/loss ratio >= 1.2."
+    - "Paper exits priced by real Jupiter quotes (not tape) for >= 95 % of closes; mirror_ledger y_quote collected for >= 4 weeks and the leader features re-validated on it."
+    - "Owner's explicit OK (copying is paused; sizing and budget changes need the owner)."

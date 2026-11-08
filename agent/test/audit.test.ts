@@ -10,6 +10,9 @@ import type { ParsedSwap } from "../src/chain/parse";
 import type { WeightInput } from "../src/learning/weights";
 import { passCopyGate } from "./helpers";
 
+// The Brain's hard gates (COPY_BRAIN_GATES) would skip these fresh pumpswap coins at 0.001 SOL a token: they are
+// tested in brain-gates.test.ts; here the rest of the copy screen is.
+process.env.COPY_BRAIN_GATES = "false";
 process.env.COPY_BUDGET_SOL = "1";
 process.env.COPY_MAX_TRADE_SOL = "0.1";
 const { rawScore } = await import("../src/learning/weights");

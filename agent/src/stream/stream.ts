@@ -33,6 +33,7 @@ import { CompareStats, RustIngestClient, comparable, eventSwaps, type IngestEven
 import type { TxLike } from "../chain/parse";
 import { RunnerTape, fromTape, saveCoins } from "../runners/tape";
 import { replayDelaySec } from "../smart/copy-check";
+import type { BrainRuntime } from "../brain/runtime";
 
 /** SQL: a wallet not flagged as a bot by the learning loop, or one GodsEye copies. */
 export const NOT_A_BOT = "(junk_reason IS NULL OR junk_reason NOT LIKE 'bot:%' OR copy_weight > 0)";
@@ -109,6 +110,8 @@ export class LiveStream {
   private compare: CompareStats | null = null;
   readonly smart: SmartMoney;
   readonly tape = new RunnerTape();
+  /** The Brain's paper accounts (brain/runtime.ts), when BRAIN_MODE=paper: every swap goes to them too. */
+  brain: BrainRuntime | null = null;
   private delayCheckedAt = 0;
 
   constructor(
@@ -264,6 +267,7 @@ export class LiveStream {
       this.book.record(swap, now);
       this.smart.onSwap(swap, now);
       this.tape.record(swap, now);
+      this.brain?.onSwap(swap);
       this.watcher.marketSwap(swap);
     }
     if (this.watcher.isWatching(signer)) void this.watcher.handleStreamed(signer, tx, now);

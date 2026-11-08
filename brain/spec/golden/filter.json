@@ -1,0 +1,1148 @@
+{
+ "feature_spec_version": 1,
+ "head": "filter",
+ "window": 10,
+ "outlier_x": 10.0,
+ "min_sol": 0.001,
+ "min_tokens": 1.0,
+ "cases": [
+  {
+   "name": "steady",
+   "note": "small moves by several wallets: all ok, the first price is ok with no history",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1.05e-07,
+      "sol": 0.2,
+      "tokens": 1904761.9047619049
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1.05e-07,
+      "sol": 0.2,
+      "tokens": 1904761.9047619049
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1.05e-07,
+      "sol": 0.2,
+      "tokens": 1904761.9047619049
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.05e-07,
+      "sol": 0.2,
+      "tokens": 1904761.9047619049
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "unit_glitch",
+   "note": "one print 30x off the market by another wallet: rejected; the market around it stays ok",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1.1e-07,
+      "sol": 0.2,
+      "tokens": 1818181.8181818181
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     true,
+     true,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "rug_heals_on_the_7th_print",
+   "note": "a real lasting 100x drop: the 7th print at the new level is ok (6 of the previous 10 valid prices are low), and so is everything after",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-06,
+      "sol": 0.2,
+      "tokens": 200000.00000000003
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     true,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "pump_heals_on_the_6th_print",
+   "note": "a lasting 50x rise heals sooner: with 5 old and 5 new prices the median is their mean, within 10x of the new level",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-08,
+      "sol": 0.2,
+      "tokens": 20000000.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     false,
+     false,
+     false,
+     false,
+     true,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "invalid_rows_skip_the_window",
+   "note": "price 0, dust SOL, < 1 token, NaN-free but negative price: never ok and never in the window",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 0.0,
+      "sol": 0.2,
+      "tokens": 5.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.0005,
+      "tokens": 5000.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 50.0,
+      "sol": 0.2,
+      "tokens": 0.004
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": -1e-07,
+      "sol": 0.2,
+      "tokens": 5.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.05e-07,
+      "sol": 0.2,
+      "tokens": 1904761.9047619049
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 2e-06,
+      "sol": 0.2,
+      "tokens": 100000.00000000001
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     false,
+     false,
+     false,
+     false,
+     true,
+     false
+    ]
+   }
+  },
+  {
+   "name": "first_valid_price_is_ok_whatever_it_is",
+   "note": "invalid rows first, then an extreme first valid price: ok (no history)",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 0.0,
+      "sol": 0.2,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.0001,
+      "tokens": 1000.0000000000001
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 5.0,
+      "sol": 3.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 4.0,
+      "sol": 3.0,
+      "tokens": 1.0
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     false,
+     false,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "ten_x_is_inclusive",
+   "note": "exactly 1/10 and exactly 10x of the median pass (and count as near another wallet's print); just beyond fails",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1.0,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.0,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 0.1,
+      "sol": 1.0,
+      "tokens": 10.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 10.0,
+      "sol": 10.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 10.000001,
+      "sol": 10.0,
+      "tokens": 1.0
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   }
+  },
+  {
+   "name": "even_window_median",
+   "note": "four previous prices: the median is the mean of the middle two (1.5 and 2.5 -> 2.0), so 20.0 is exactly 10x; the next median is 2.5",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1.0,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1.5,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 2.5,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 3.0,
+      "sol": 1.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 20.0,
+      "sol": 20.0,
+      "tokens": 1.0
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 20.0001,
+      "sol": 20.0,
+      "tokens": 1.0
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "lone_wallet_run",
+   "note": "one wallet prints 30x above everyone: lone (no other wallet near it) and rejected until its own prints fill the whole window, then ok because no other wallet's print is left to contradict it",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "lone_broken_by_a_second_wallet",
+   "note": "a second wallet joining the new level makes it not lone: from then on both pass once the median moves",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletDDDD",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 3e-06,
+      "sol": 0.2,
+      "tokens": 66666.66666666667
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false,
+     false,
+     false,
+     false,
+     false,
+     true,
+     true
+    ]
+   }
+  },
+  {
+   "name": "within_range_but_lone",
+   "note": "within 10x of the median, but every other wallet's recent print is more than 10x away: lone",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldWalletCCCC",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 5e-07,
+      "sol": 0.2,
+      "tokens": 400000.00000000006
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1.5e-06,
+      "sol": 0.2,
+      "tokens": 133333.33333333334
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     true,
+     false
+    ]
+   }
+  },
+  {
+   "name": "window_is_ten",
+   "note": "one early print by another wallet 100x above keeps the only active wallet's prints lone while it is among the previous 10 valid prices; the 11th print after it is ok",
+   "input": {
+    "swaps": [
+     {
+      "wallet": "GoldWalletBBBB",
+      "price": 1e-05,
+      "sol": 0.2,
+      "tokens": 20000.0
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     },
+     {
+      "wallet": "GoldLeaderAAAA",
+      "price": 1e-07,
+      "sol": 0.2,
+      "tokens": 2000000.0000000002
+     }
+    ]
+   },
+   "expected": {
+    "ok": [
+     true,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     false,
+     true,
+     true
+    ]
+   }
+  }
+ ]
+}

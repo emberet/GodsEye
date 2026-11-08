@@ -1,0 +1,18 @@
+# /etc/systemd/system/godseye-env-watch.service — run by godseye-env-watch.path when an env file is saved: restarts the
+# Rust stream (ge-ingest) and the agent so a new Shyft gRPC URL/token or X token takes effect. data/ is never touched.
+# The 10 s sleep folds several quick saves (both files, an editor's double write) into one restart: further saves while
+# this runs don't queue another. The start limit stops a restart storm if something rewrites a file in a loop; when it
+# trips, the path unit fails too, so after fixing the cause: systemctl reset-failed godseye-env-watch.{service,path}
+# && systemctl start godseye-env-watch.path
+[Unit]
+Description=Restart the GodsEye stream and agent after an env change
+StartLimitIntervalSec=10min
+StartLimitBurst=6
+
+[Service]
+Type=oneshot
+# root: it restarts other units.
+User=root
+ExecStartPre=/bin/sleep 10
+ExecStart=/bin/systemctl restart ge-ingest.service godseye-agent.service
+TimeoutStartSec=3min

@@ -34,6 +34,7 @@ import { copySize } from "../learning/weights";
 import { currentExits, type Exits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
 import { rugCheck } from "../market/rugcheck";
+import { gate, gateReason } from "../brain/gates";
 import type { ShadowLogger } from "../shadow/log";
 import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
 import { getPrices } from "../market/prices";
@@ -272,6 +273,15 @@ export class CopyEngine {
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
     if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
     this.audit?.check(swap, "lateness", "pass", `${Math.round(lateSec)}s after the leader traded (limit ${config.maxCopyDelaySeconds}s)`);
+    // 2b) The Brain's hard gates (COPY_BRAIN_GATES, owner-approved): a pumpswap coin priced ≥ 1e-4 SOL a token, an AMM coin
+    // first seen under 10 min ago. The screen gate is left to the rug check below (stricter: LP_MIN_LOCKED_PCT, fail closed).
+    if (config.copyBrainGates) {
+      const signal = { solAmount: swap.solAmount, priceSol: swap.priceSol, venue: swap.venue, t: Date.parse(swap.ts) };
+      const ctx = { now: seenAt, firstSeenAt: firstSeenAt(this.db, swap.mint, seenAt), screen: null, minLeaderBuySol: config.minLeaderBuySol, maxLateSec: config.maxCopyDelaySeconds };
+      const g = gate(signal, ctx);
+      if (g) return this.skip(swap, weight, symbol, `gate:${g}`, `brain gate ${g}: ${gateReason(g, signal, ctx)}`);
+      this.audit?.check(swap, "brain_gates", "pass", "no hard gate (pumpswap price, young AMM coin) fires");
+    }
     // 3) GodsEye's own state (a quick look first, so the rug check isn't spent on a buy that can't happen)
     if ((await this.roomFor(swap, weight, symbol)) === null) return;
     this.audit?.check(swap, "limits", "pass", "budget, positions, daily loss, balance and pause all allow it");
@@ -542,4 +552,25 @@ export class CopyEngine {
       this.checking.delete(pos.id);
     }
   }
+}
+
+/**
+ * When GodsEye first saw this coin, as of `now` (epoch ms; null = never): the Brain's first sighting
+ * (brain_token_first_seen), else the first swap stored of it by insert time (wallet_swaps.ins_ms ≤ now; a row from before
+ * ins_ms counts at its block time). A backfilled old swap stored just now counts as now: young_amm is about what the
+ * server had seen, not when the coin launched.
+ */
+export function firstSeenAt(db: DB, mint: string, now: number): number | null {
+  let best = Infinity;
+  try {
+    const row = db.prepare("SELECT first_seen_at FROM brain_token_first_seen WHERE mint = ?").get(mint) as { first_seen_at: string } | undefined;
+    if (row) best = Math.min(best, Date.parse(row.first_seen_at));
+  } catch {
+    // no Brain tables in this database
+  }
+  const ins = db.prepare("SELECT MIN(ins_ms) v FROM wallet_swaps WHERE mint = ? AND ins_ms IS NOT NULL AND ins_ms <= ?").get(mint, now) as { v: number | null };
+  if (ins.v !== null) best = Math.min(best, ins.v);
+  const old = db.prepare("SELECT MIN(ts) v FROM wallet_swaps WHERE mint = ? AND ins_ms IS NULL").get(mint) as { v: string | null };
+  if (old.v) best = Math.min(best, Date.parse(old.v));
+  return Number.isFinite(best) && best <= now ? best : null;
 }

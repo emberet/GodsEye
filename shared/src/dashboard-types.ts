@@ -513,3 +513,63 @@ export interface RunnersData {
   catchers: RunnerCatcherRow[];
   callers: XCallerRow[];
 }
+
+// ---- Brain paper accounts (agent/src/brain/paper.ts): paper money only, never real SOL ----
+
+export type PaperAccountName = "brain" | "baseline" | "explore";
+
+/** One paper account's results. Every SOL figure is paper money, net of fees and rent. */
+export interface PaperAccount {
+  account: PaperAccountName;
+  startedAt: string | null;
+  startingSol: number;
+  /** The latest equity mark (closed trades plus open ones at their last price); without one, start + closed P&L. */
+  equitySol: number;
+  pnlSol: number;
+  returnPct: number | null;
+  /** Share of closed trades that made money, 0–100 (null before the first close). */
+  winRate: number | null;
+  /** Worst drop from a high of the equity series, ≤ 0. */
+  maxDrawdownPct: number;
+  closedTrades: number;
+  openTrades: number;
+}
+
+export interface PaperEquityPoint {
+  ts: string;
+  equity: number;
+}
+
+/** A closed paper trade. */
+export interface PaperTradeRow {
+  account: PaperAccountName;
+  symbol: string | null;
+  mint: string;
+  leader: string | null;
+  /** SOL spent on the coin (paper). */
+  stake_sol: number;
+  exit_reason: string | null;
+  pnl_pct: number | null;
+  pnl_sol: number | null;
+  closed_at: string;
+}
+
+/** The model the Brain account trades with. Only the trainer's validation, stress and baseline numbers are shown. */
+export interface PaperModelInfo {
+  version: string;
+  createdAt: string | null;
+  loadedAt: string | null;
+  metrics: { validation: Record<string, number>; stress: Record<string, number>; baseline: Record<string, number> };
+}
+
+export interface PaperData {
+  /** Brain, Baseline, Explore (those that exist). */
+  accounts: PaperAccount[];
+  /** Each account's equity over time, at most 500 points each. */
+  equity: Record<PaperAccountName, PaperEquityPoint[]>;
+  /** The 30 most recent closed trades, all accounts. */
+  trades: PaperTradeRow[];
+  model: PaperModelInfo | null;
+  /** Paper trades open only while the stream delivers swaps (same test as the Live page). */
+  live: { streaming: boolean; status: StreamStatus | null; lastAt: string | null; heartbeat: string | null; agentStatus: string | null };
+}

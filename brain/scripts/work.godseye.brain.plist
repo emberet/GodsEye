@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The GodsEye brain's hourly cycle on the Mac (brain/scripts/cycle.sh): pull, train, gate, push.
+  A template: install-launchd.sh fills in __CYCLE__, __BRAIN_DATA_DIR__ and __HOME__ and copies it to
+  ~/Library/LaunchAgents/work.godseye.brain.plist. launchd runs a missed hour once when the Mac wakes.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>work.godseye.brain</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__CYCLE__</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BRAIN_DATA_DIR</key>
+    <string>__BRAIN_DATA_DIR__</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>3600</integer>
+  <key>RunAtLoad</key>
+  <false/>
+  <key>Nice</key>
+  <integer>5</integer>
+  <key>StandardOutPath</key>
+  <string>__BRAIN_DATA_DIR__/logs/launchd.log</string>
+  <key>StandardErrorPath</key>
+  <string>__BRAIN_DATA_DIR__/logs/launchd.log</string>
+</dict>
+</plist>

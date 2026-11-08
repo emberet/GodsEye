@@ -9,6 +9,9 @@ import type { Executor, Fill } from "../src/copy/executor";
 import type { RuleScore } from "../src/replay/sweep";
 import { stubFetch } from "./helpers";
 
+// The Brain's hard gates (COPY_BRAIN_GATES) would skip these fresh pumpswap coins at 0.001 SOL a token: they are
+// tested in brain-gates.test.ts; here the rest of the copy screen is.
+process.env.COPY_BRAIN_GATES = "false";
 process.env.COPY_STOP_LOSS_PCT = "35";
 process.env.COPY_TAKE_PROFIT_PCT = "300";
 process.env.COPY_MAX_POSITIONS = "0";

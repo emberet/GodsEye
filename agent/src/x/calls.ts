@@ -18,7 +18,7 @@ import { say } from "../log";
 import { isWallet } from "../market/holders";
 import { wilson } from "../shadow/labels";
 import { ensureRunnerTables } from "../runners/schema";
-import { searchAll, tweetsReadThisMonth, type XTweet, type XUser, xConfigured } from "./client";
+import { searchAll, tweetsReadThisMonth, type XStop, type XTweet, type XUser, xConfigured } from "./client";
 
 const HOUR = 3_600_000;
 /** X refuses an end_time less than ~10 s ago. */
@@ -70,8 +70,13 @@ function storeResults(db: DB, mint: string, tweets: XTweet[], users: XUser[]): v
   })();
 }
 
-/** Search up to `limit` coins not searched yet: half runners (newest first), half crowd coins that didn't run. */
-export async function searchCoins(db: DB, limit: number, now = Date.now()): Promise<{ searched: number; tweets: number; capped: boolean }> {
+/**
+ * Search up to `limit` coins not searched yet: half runners (newest first), half crowd coins that didn't run. The run
+ * ends early when the X client stops (`stop`: the month's cap, the hour's share or the burn guard); `capped` is the
+ * month's cap only. A coin whose search stopped after some pages keeps what was read (the reads are already counted)
+ * and counts as searched.
+ */
+export async function searchCoins(db: DB, limit: number, now = Date.now()): Promise<{ searched: number; tweets: number; capped: boolean; stop?: XStop }> {
   ensureRunnerTables(db);
   const since = new Date(now - 30 * 24 * HOUR).toISOString();
   const pick = (runner: number, n: number) =>
@@ -91,11 +96,12 @@ export async function searchCoins(db: DB, limit: number, now = Date.now()): Prom
     const w = searchWindow(kind, Date.parse(c.first_seen), Date.parse(c.peak_at), now);
     if (!w) continue;
     const r = await searchAll(db, buildQuery(c.mint, c.symbol), w.from, w.to);
-    if (r.capped) return { searched, tweets, capped: true };
+    if (r.capped && !r.tweets.length) return { searched, tweets, capped: r.reason === "month", stop: r.reason };
     storeResults(db, c.mint, r.tweets, r.users);
     record.run(c.mint, kind, w.from, w.to, kind === "runner" ? c.x3_at : null, r.tweets.length, nowIso());
     searched++;
     tweets += r.tweets.length;
+    if (r.capped) return { searched, tweets, capped: r.reason === "month", stop: r.reason };
   }
   return { searched, tweets, capped: false };
 }
@@ -220,5 +226,7 @@ export async function runXResearch(db: DB): Promise<string | null> {
   const c = scoreCallers(db);
   const used = tweetsReadThisMonth(db);
   if (s.capped) say("warn", `X research: this month's tweet cap (${config.xMonthlyTweetCap.toLocaleString("en-US")}) is reached; searching again next month.`);
+  // The hour's share or the burn guard: routine pacing, not news. The next run carries on.
+  else if (s.stop) console.log(`[x] research: stopped for now (${s.stop === "hour" ? "this hour's share is read" : "burn guard"}); next run carries on.`);
   return `X research: searched ${s.searched} coins (${s.tweets} tweets; ${used.toLocaleString("en-US")} read this month), ${links} wallet links, ${c.callers} accounts scored, ${c.beating} beat the base rate (${(c.baseRate * 100).toFixed(1)}% of crowd coins run).`;
 }

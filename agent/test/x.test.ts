@@ -5,14 +5,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Keypair } from "@solana/web3.js";
-import { openDb, setMeta } from "@godseye/shared";
+import { type DB, openDb, setMeta } from "@godseye/shared";
 import { stubFetch } from "./helpers";
 
 process.env.X_BEARER_TOKEN = "test-token";
 process.env.X_MONTHLY_TWEET_CAP = "700";
 const { retryTiming } = await import("../src/backoff");
 const { searchAll, tweetsReadThisMonth } = await import("../src/x/client");
-const { addressesIn, buildQuery, callerHitRateLb, linkWallets, searchWindow } = await import("../src/x/calls");
+const { addressesIn, buildQuery, callerHitRateLb, linkWallets, runXResearch, searchCoins, searchWindow } = await import("../src/x/calls");
+const { attachLogDb } = await import("../src/log");
 const { ensureRunnerTables } = await import("../src/runners/schema");
 retryTiming.scale = 0;
 
@@ -53,6 +54,45 @@ test("X client: stops at the month's tweet cap", async () => {
     assert.equal(net.calls.length, 0);
   } finally {
     net.restore();
+  }
+});
+
+test("research: a search stopped by the hour's share keeps its pages, and only the month's cap is announced", async () => {
+  const db = openDb(":memory:");
+  ensureRunnerTables(db);
+  attachLogDb(db);
+  const now = Date.now();
+  const at = (h: number) => new Date(now - h * 3_600_000).toISOString();
+  const coin = db.prepare(
+    `INSERT INTO runner_tokens (mint, source, symbol, first_seen, p0_sol, peak_sol, peak_at, x3_at, multiple, buyers, buys, swaps, is_runner, saved_at)
+     VALUES (?, 'stream', NULL, ?, 1, 5, ?, ?, 5, 20, 20, 40, ?, ?)`,
+  );
+  for (const [mint, runner] of [["R1pump", 1], ["R2pump", 1], ["C1pump", 0]] as const) coin.run(mint, at(5), at(4), runner ? at(4.5) : null, runner, at(1));
+  // 600 of the hour's 700 (this file's test-sized cap) are read: room for one page of 100, not a second.
+  setMeta(db, "x_tweets_read_hour", `${new Date(now).toISOString().slice(0, 13)} 600`);
+  const net = stubFetch((url) => {
+    const n = Number(new URL(url).searchParams.get("max_results"));
+    return { data: tweets(n), includes: { users: [{ id: "a1", username: "caller" }] }, meta: { next_token: "more" } };
+  });
+  try {
+    const s = await searchCoins(db, 2, now);
+    assert.deepEqual(s, { searched: 1, tweets: 100, capped: false, stop: "hour" });
+    assert.equal(net.calls.length, 1);
+    const done = db.prepare("SELECT mint, tweets FROM x_searches").all();
+    assert.deepEqual(done, [{ mint: "R2pump", tweets: 100 }], "the partial search is stored and not asked again");
+    assert.equal((db.prepare("SELECT COUNT(*) n FROM x_posts").get() as { n: number }).n, 100);
+    assert.equal(tweetsReadThisMonth(db), 100);
+
+    await runXResearch(db);
+    assert.equal(net.calls.length, 1, "the hour is used up: nothing asked");
+    const warned = () => (db.prepare("SELECT COUNT(*) n FROM agent_log WHERE message LIKE '%cap%'").get() as { n: number }).n;
+    assert.equal(warned(), 0, "the hour's share isn't the month's cap");
+    setMeta(db, `x_tweets_read_${new Date().toISOString().slice(0, 7)}`, 700);
+    await runXResearch(db);
+    assert.equal(warned(), 1, "the month's cap is");
+  } finally {
+    net.restore();
+    attachLogDb(null as unknown as DB);
   }
 });
 

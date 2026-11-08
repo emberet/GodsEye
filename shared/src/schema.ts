@@ -104,6 +104,9 @@ CREATE TABLE IF NOT EXISTS wallet_swaps (
   sol_usd REAL,
   -- what the swap was worth in USD when it settled (exact for USDC/USDT, SOL × price for SOL)
   usd_amount REAL,
+  -- when GodsEye stored the row (epoch ms; NULL = stored before this column): a backfilled swap is old by ts but new here,
+  -- so "what the server knew at t" filters on ins_ms <= t, not ts
+  ins_ms INTEGER,
   UNIQUE (signature, wallet, mint)
 );
 CREATE INDEX IF NOT EXISTS idx_swaps_wallet_ts ON wallet_swaps(wallet, ts);

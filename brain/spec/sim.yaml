@@ -1,0 +1,207 @@
+# GodsEye brain simulator rules: what the Python simulator must implement.
+# Sources: brain/research/{sim-fidelity, execution, price-exits, reward-design, regimes-chaos, baselines} and their
+# adversarial verifiers. Error bars are against real fills (n=37 positions, 10-27..10-31, all TRAIN), real Jupiter sell
+# quotes from the shadow log (626 coins, 10-27..11-06), or both. Every tape number is an upper bound.
+
+version: 1
+spec_date: "2026-11-07"
+
+reference_implementation:
+  port: "brain/research/sim-fidelity/replay_model.py = agent/src/replay/model.ts (parity: 356 cases, 699 episodes, 0 mismatches, max rel diff 2.3e-16; sim-fidelity C1 confirmed)"
+  golden_fixtures: "GodsEyeBrainData/research/sim-fidelity/parity/cases.json + ts_out.json; brain/sim tests must reproduce them to 1e-9 relative"
+
+price_tape:
+  source: "derived/episode_paths + bars_1m + raw wallet_swaps (+archive); prices exist only where tracked wallets trade"
+  ok_filter: "price_sol > 0, sol_amount >= 0.001, within 10x of the median of the PREVIOUS 10 ok prices of the mint (trailing). The centered 11-swap filter in derive.py must be replaced: it looks 5 swaps ahead and hides 2.7 % of end-of-life rug prints (price-exits verify/v05). One raw outlier moved the mean entry error to -7.8 % (sim-fidelity C3)."
+  ok_flag: >-
+    brain/sim/tape.py trailing_ok (2026-11-07 fix) implements the features.yaml / derive.build_prices causal ok flag exactly:
+    valid = price > 0, sol >= 0.001, token_amount >= 1 (MIN_PRICE_TOKENS); ok = valid, within 10x of the median of the
+    mint's previous 10 valid prices, and not lone (only its own wallet backs its level). Checked against
+    brain.features.prices on random tapes and spec/golden/filter.json. The mirror ledger (cp_*) uses this flag as is. The
+    first build had neither the token floor nor the lone rule: on 166,787 selection swaps it accepted 313 prints the spec
+    rejects (252 under 1 token), and the env tape 357 (45 % more than 3x off the mint's level).
+  env_filter: >-
+    The environment's tape (fills, marks, valuations, exit state) = the spec's ok flag AND a material-level check: a print
+    must also be within 10x of the median of the mint's previous 10 material prints (sol >= 0.01, found within the last
+    40 valid prints; fewer than 3 of them: no extra check). It only rejects, so the env's ok prints are a subset of the
+    spec's. Why: some bots' dust buys are stored in the wrong units (e.g. 0.001 SOL at 1.6e-4 among prints at 1.6e-7)
+    in bursts; the lone rule catches one wallet's burst but not several wallets', and B4's 1-minute exit once sold at the
+    20x cap on them (5 of the top selection winners at +1.90 SOL each). On the 10-24..11-03 selection tape (3.14 M swaps)
+    it rejects 387 of 2.99 M spec-ok prints, 39 % more than 3x off their spec-ok neighbours (p90 42x).
+    The runtime's stream filter (paper.ts marks, features.ts) should port both the spec flag and this check (lead).
+  bad_print_rule: "drop signals whose entry price is < 1/20 or > 20x the leader's price; cap exit multiples at 20x. Do NOT drop whole dust-print mints (biased on the whole pool; on first buys the effect is unclear: baselines price-glitches weakened)."
+  insert_time: >-
+    Entry features use only swaps inserted before t (features.yaml conventions; brain/features). The simulator runs on ONE
+    clock, block time, "as if live": fills, marks, valuations, price events, leader-sell events, the exit state
+    (mins_since_tracked_price = minutes since the mark's last ok print; oth_buyers_5m / oth_sellers_5m / oth_net_sol_5m /
+    pts_5m over swaps with ts in [t - 5 min, t)) and the young_amm gate's first sighting (ts < t). A live stream delivers
+    every tracked swap within seconds of its block, so that is what paper.ts sees. Mixing clocks (marks by ts, the rest by
+    insert time) made a state the runtime never produces on backfilled days (99.8 % of 11-01..11-06 episodes stored > 60 s
+    late vs 2-4 % on 10-27..10-30): a fresh mark next to "no tracked price for > 60 min" in 85 % of fresh-mark decisions,
+    zero flow, and young_amm firing on 50 % of late signals vs 20 % of on-time ones. The point-in-time alternative (marks
+    from swaps with ins < t, only the stored-in-time slice) leaves almost nothing to score on selection and test.
+  data_end: >-
+    evaluate.data_end_ts() = derived/_meta.json label_end_t (the start of the export tail, DATA.md pitfall 18), else
+    data_end_t for builds without it. Signals, tapes, test days and the mirror ledger stop there; a position still open
+    is closed at the data end and flagged censored. The 08:29 derive build had no label_end_t: its tail from 11-04 21:00
+    (about 30 % stored) was replayed as a normal tape, and B4's whole positive test result came from it.
+  coverage_report: "Every run reports the share of decisions taken on prices older than 90 s and older than 60 min, and results by tracked_active_wallets_1h tercile."
+
+episodes:
+  population: "derived/episodes, gates applied (features.yaml gates), leader_sol >= 0.2"
+  keep_null_entry: >-
+    Do NOT drop episodes with entry_price_15 = NULL. All 5 real rugs had NULL entry_price_15 vs 0/25 of the rest
+    (Fisher p = 0.0018, one cluster of 3 leaders on one morning; sim-fidelity C16 confirmed). Fill them from the next ok
+    tracked price after the land time; if none within 120 s the coin is treated as dead from entry (value 0, rent lost)
+    when pumpswap or the tape dies within 10 min, else the copy is skipped at cost 0 (no fill).
+  one_position_per_coin: "Live paper.ts holds one position per coin per account: the sim enforces it (per-episode means are dominated by heavily copied coins; price-exits C17)."
+  weighting: "Report per-signal means with mint-clustered bootstrap CIs AND per-day means; train with day-balanced weights (10-27..10-31 are 83 % of train rows)."
+
+delay:
+  entry_land: {dist: lognormal, mu_log_s: 1.442, sigma: 0.557, median_s: 4.23, p90_s: 8.6, n: 37, source: "execution C2 confirmed (copy_trades.latency_ms = leader block -> fill confirmed)"}
+  decision_lateness: {p50_s: 0.77, p99_s: 17.3, max_s: 56.9, n: 2793, source: "execution C1 / regimes C18"}
+  max_copy_delay_s: 60
+  exit_land: "same lognormal, from the moment the exit decision is taken"
+
+entry_fill:
+  rule: "fill price = model.ts buyFill(midAt(t_leader + d), stake, depth): ok-filtered tape mid at land time, 100 bps fee, own impact = stake / depth"
+  error_vs_real: "median +0.11 % [-0.62, +1.21], mean +0.89 % [-0.23, +2.17], p10/p90 -2.5 / +4.0 % (n=37; sim-fidelity C2 confirmed). No extra slippage factor."
+  vs_leader_price: "real fills median +1.50 % [0.49, 3.13] above the leader's price (n=37; execution C3)"
+  pump_curve_note: "pre-graduation bonding-curve round trip is ~2.9 % vs 0.78 % pooled (execution C5); quoted round trip rose from p50 0.71 % (train) to 2.23 % (test): not stationary"
+  buy_failure: {p: 0.098, n: 41, effect: "no position; one tx fee (0.0003 SOL) lost", source: "execution C9 confirmed"}
+
+fees:
+  tx_cost_sol_per_tx: 0.0003
+  tx_cost_note: >-
+    Mean of clean real round trips (rent reclaimed) 0.0006 SOL [0.0002, 0.0011] (n=14; sim-fidelity C21, execution C7
+    weakened: use the MEAN, not the median 0.0002). The agent config BRAIN_TX_COST_SOL = 0.00015 is low; raising it is a
+    config change for the lead/owner. Sensitivity: 0.0008/tx (rent left locked: mean 0.0021 per round trip, n=23).
+  rent_sol: 0.00204
+  rent_rule: "refunded on a full close (close the token account on every full exit); lost on a write-off. The measured refund was about 0.0015 net of the closing tx (unconfirmed split)."
+  dex_fee: "inside model.ts fills (100 bps per side)"
+
+exit_triggers:
+  leader_follow: >-
+    When the policy/rule sells on the leader's sell, the sell lands at leader_sell_ts + d_exit (exit_land) and fills at the
+    FIRST ok tracked price at or after max(entry land time, leader_sell_ts) + d_exit - never at the close of a later
+    1-minute bar. The old minute-close rule held copies ~60 s past a 2-second leader flip and created every 'profitable'
+    baseline: B3's test picks go from +0.0205 to -0.0013 [-0.0017, -0.0007] SOL/copy under realistic timing (baselines
+    verifier x02_exit_timing.py, n=2,090); the leader-signal top quintile falls from +5.5 % to +1.3 % (leader-signal C2).
+  stop_loss: >-
+    -60 % hard stop fills at the first observed price at or below the level (gap), not at -60 %: median -63 % train /
+    -64 % test, p10 -88 % / -78 % (price-exits C6 confirmed, n=39,498 / 7,956). The 10 real stop-loss exits lost a
+    median 80.8 % (C24).
+  max_hold: "24 h: sell at the grounded value at t0 + 24 h; if no route (dead), write off (value 0, rent lost)."
+  decision_cadence: "exit network once a minute, and on stream prices at most every 15 s (CONTRACT.md)"
+
+mark_model:
+  purpose: "What the exit network SEES offline must look like what paper.ts sees live (stream price, or a sell quote after 90 s)."
+  fresh: "tracked price age <= 90 s: mark = last ok tracked price"
+  stale_alive: "age > 90 s and the coin has an ok tracked swap within the next 6 h (hindsight, environment only): mark = last ok price x m(age); minutes_since_price resets each simulated quote (<= 1.5 min)"
+  stale_dead: "age > 90 s and no ok tracked swap in the next 6 h: simulated quote = last price x f_dark(age), and from the first minute where f_dark(age) < 0.10 the quote has no route: quote_failed = 1, ret_now = -1 + epsilon (the hard stop fires as it would live)"
+  m_age_table: {"<10s": 0.996, "10-60s": 1.002, "1-5min": 0.987, "5-30min": 0.960, "30min-6h": 0.880, ">6h": 0.780, n_per_bin: [598, 189, 202, 209, 146, 51], source: "sim-fidelity C19 confirmed, fit on TRAIN sellable shadow samples; still +6 % of stake optimistic on test sellable samples"}
+  f_dark: "refit on PRE-TEST shadow quotes only (price-exits verify/v07_train_only_calibration.py; e.g. f_dark at 1-2 min 0.55, not the 0.72 of the test-contaminated table) and smooth it monotonically in age"
+
+exit_valuation:
+  grounded_rule: >-
+    A sell decided at t with tracked price age a:
+    (1) a <= 90 s: proceeds = tokens x last ok price x m(a) x (1 - 0.018) - tx fee.
+    (2) a > 90 s: the next ok tracked price in (t, t + 6 h] is the fill price (gap risk, hindsight); else the first ok
+        bars_1m price within 6 h; else write-off (proceeds 0, rent lost).
+    (3) quote_failed state (stale_dead): no fill; the sell is retried each minute; at max hold -> write-off.
+  slippage_0_018: "real sells came in 0.69 % below model.ts sellFill and 2.21 % below the last ok tape price x tokens (median, n=35 non-rug sells; in-sample; sim-fidelity C6 confirmed)"
+  error_vs_quotes: "grounded minus Jupiter quote mean -0.067 (leader-block CI [-0.137, -0.020]); last-price rule +1.015 [0.743, 1.273]; |grounded - quote| median 0.001, 83 % within 0.2 (n=2,418; reward-design C3 confirmed). Drifts to -0.18..-0.22 on 11-04..11-06 (thin coverage)."
+  dark_facts: "a coin with no tracked price for the next 6 h has quote mean -0.907, 86 % <= -0.9 (n=1,653; C2); unsellability is absorbing (4/1,288 recover) and happens only when the tracked tape dies (2/1,541 otherwise; sim-fidelity C11)"
+  pumpswap_hiprice_rule: "gated at entry; if a flagged position exists (stress injection), zero it only when its tape also dies, at a minute drawn from the hazard 10 % by 1 min, 43 % by 5 min, 100 % by 15 min (train; test 6/19/96 %). Do NOT zero every flagged episode: 55 % of flagged test episodes trade > 1 h later (sim-fidelity verifier)."
+  sell_failure: {p_per_attempt: 0.245, n: 53, causes: "6 Jupiter 429, 4 slippage, 3 blockhash", retry_delay: "lognormal-ish, p50 285 s, p90 5.3 h (n=10 retried positions); give exits their own quote budget", source: "execution C9 confirmed"}
+  rug_free_quote_haircut: "fresh-tape sell quotes: median -0.33 %, p10 -10.6 %, 4.5 % more than 90 % below (n=1,417; execution C16): drawn per sell in stress runs"
+
+never:
+  - "Never value a position at a forward-filled tracked price (hold24 +51 vs -52 mSOL per trade by valuation alone; price-exits C10 confirmed)."
+  - "Never use ret_1h / ret_6h / ret_24h / max_ret_24h episode labels as exit values (last-price based, rug-blind: tape median +14.8 % vs executable -101.6 % at 1 h, n=468; execution C12)."
+  - "Never fill a leader-follow exit at a minute close after the leader's sell."
+  - "Never fit a calibration table (m, f_dark, p_dead) on quotes sampled on/after 2026-11-02."
+
+paper_runtime_fixes_for_lead:
+  - "paper.ts priceOf: on no route the last price 'stands and ages' -> rugged coins keep their pre-rug value; set quote_failed and mark at last x f_dark(age), write off after N failures."
+  - "Add the trailing outlier filter before peak/drawdown updates (one real position recorded a +168,725,170,466 % peak)."
+  - "Store venue, leader_post_buy_tokens, last_tracked_price_ts on brain_paper_positions."
+  - "BRAIN_TX_COST_SOL 0.00015 -> 0.0003 (owner/lead decision)."
+
+validation_targets:
+  - {what: "entry fill vs 37 real fills", target: "median within +-1 %", measured: "+0.11 % [-0.62, +1.21]"}
+  - {what: "exit vs real non-rug sells", target: "median within +-2 %", measured: "-0.69 % (sellFill), -2.21 % (last price)"}
+  - {what: "per-position P&L on the 25 positions every model can price", target: "corr >= 0.95", measured: "corr 0.990, median error +0.0009 SOL (sim-fidelity C22 confirmed)"}
+  - {what: "all 37 real positions (in-sample)", target: "total within 20 %", measured: "proposed model -0.525 vs real -0.6145 SOL, corr 0.95 (C23 weakened: in-sample, slippage and flag fit on the same coins)"}
+  - {what: "real anchor bias", target: "report, do not tune", measured: "the claimed sim +6.5 % vs real -5.6 % is one broken-price row; without it sim -5.3 % vs real -2.5 % (baselines real-anchor REFUTED); n=25 shows no clear bias"}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# What brain/brain/sim reads (brain.sim.params.SimParams; every key below must exist there, tests/test_sim_engine.py
+# checks it). The prose above is the evidence; these are the numbers. Times in seconds, money in SOL.
+# Implementation notes (brain/sim, 2026-11-07):
+#  - One clock, block time ("as if live", insert_time above) for the whole environment and exit state.
+#  - Leader sells that arrive while a failed sale's retry is pending wait and are delivered once it has landed (with
+#    their own time for minutes_since_leader_sold), so a follow-the-leader exit never loses them.
+#  - Swap-level replay for `swap_level_s` after the entry fill (the whole 24 h hold: CONTRACT.md evaluates exits on every
+#    stream price, at most every 15 s). Decisions: the leader's sells (at once; a sell during the copy delay is applied
+#    right after the fill, as paper.ts does), ok tracked prints at most every `price_event_gap_s`, and the minute tick.
+#  - The -60 % hard stop fires on the mark the policy sees (paper.ts), never on a hindsight sale value; the sale itself
+#    is valued at its land time.
+#  - Per-signal metrics (per copy, per decision, paired differences, B4's exit choice) keep one position per coin with
+#    unlimited slots; the paper account adds the 5 slots, budget and the NET realized daily loss limit (paper.ts).
+#  - A window's tape ends 31 h after its last signal: anything landing later is censored (data end), not a dead coin.
+#  - The entry land delay (leader block -> fill) and the decision lateness are drawn independently, so the land time is
+#    floored at the decision + `entry_after_decision_s`: with independent draws 12 % of copies landed before they were
+#    decided and filled on a price the decision had not seen yet (2026-11-07 review).
+#  - Every fill (entry, exit, forced) = model.ts buyFill / sellFill on the ok-filtered tape (brain/sim/model.py) at the land
+#    time (decision + lognormal delay). The basis print is the last ok print at or before the land time, or the next one
+#    when it comes within `forward_price_s` and is nearer; a forward price further ahead is never used (no hindsight fill).
+#  - Basis older than `fresh_s`: the quote model (brain/sim/quotes.py, fit on PRE-TEST shadow quotes only) scales it:
+#    alive (an ok tracked print within `alive_lookahead_s`) -> m_alive(age); dead -> f_dark(age), and no route once
+#    f_dark < `no_route_below` (the sale fails; `dead_after_fails` failed minute quotes in a row = write-off, rent lost).
+#    The exit policy never sees that hindsight split: its stale mark is last x obs_ratio(age, venue, tape in the last
+#    10 min), fit across alive and dead quotes with a route; quote_failed it sees as paper.ts would (the quote fails).
+#  - Alive/dead is unknowable when the lookahead crosses an ingest outage hour or the data end: those valuations count as
+#    alive and the position is flagged `censored` (evaluators can drop it).
+#  - Real sells came in 0.69 % below model.ts sellFill (C6): `sell_resid_slip` on every sale. No extra entry slippage.
+#  - Sell failures are 0 in the base sim (paper sells are quotes); the stress suite and training chaos turn them on.
+#  - The next-ok-price-within-6-h fill of exit_valuation (2) is kept as a sensitivity mode (`fill_mode: next_price`).
+params:
+  bankroll_sol: 1.0
+  max_trade_sol: 0.1            # COPY_MAX_TRADE_SOL: stake fraction 1.0
+  min_trade_sol: 0.01           # COPY_MIN_TRADE_SOL
+  max_positions: 5              # COPY_MAX_POSITIONS (slots)
+  daily_loss_sol: 0.5           # COPY_DAILY_LOSS_LIMIT_SOL, realized, per UTC day
+  tx_cost_sol: 0.0003           # per transaction (fees: mean of clean real round trips)
+  rent_sol: 0.00204             # token-account rent: refunded on a full close, lost on a write-off
+  fee_bps: 100                  # model.ts feeBps (one-way DEX fee)
+  default_depth_sol: 30         # model.ts defaultDepthSol
+  depth_window_s: 600           # model.ts depthWindowSec
+  entry_land_mu: 1.442          # ln seconds, leader block -> our fill lands (delay.entry_land)
+  entry_land_sigma: 0.557
+  exit_land_mu: 1.442           # decision -> sell lands (delay.exit_land)
+  exit_land_sigma: 0.557
+  lateness_mu: -0.261           # ln seconds, leader block -> decision (p50 0.77 s, p99 17.3 s: delay.decision_lateness)
+  lateness_sigma: 1.338
+  entry_after_decision_s: 1     # the entry lands at least this long after the decision: E = max(t + entry_land, t_dec + 1 s)
+  max_copy_delay_s: 60          # gate too_late
+  swap_level_s: 86400           # stream-price decisions for the whole hold (CONTRACT.md), minute ticks besides
+  price_event_gap_s: 15         # stream price decisions at most every 15 s (CONTRACT.md)
+  minute_s: 60
+  fresh_s: 90                   # STALE_PRICE_MS: older marks are sell quotes
+  forward_price_s: 10           # a fill may use the next ok print only within this long after the land time
+  alive_lookahead_s: 21600      # grounded: an ok tracked print within 6 h = the coin is alive
+  no_route_below: 0.10          # f_dark below this = no route
+  no_route_mark: 0.001          # NO_ROUTE_MARK: mark of a coin whose quote found no route
+  dead_after_fails: 3           # DEAD_AFTER_FAILS
+  hard_stop: 0.60               # BRAIN_HARD_STOP_PCT
+  max_hold_s: 86400             # BRAIN_MAX_HOLD_HOURS
+  sell_resid_slip: 0.0069       # real sells vs model.ts sellFill (median, C6)
+  buy_fail_p: 0.098             # no position, one tx fee lost (execution C9)
+  sell_fail_p: 0.0              # per attempt; stress: 0.245 .. 0.5
+  sell_retry_mu: 5.652          # ln s, retry delay after a failed sell (p50 285 s, p90 5.3 h)
+  sell_retry_sigma: 3.28
+  null_entry_window_s: 120      # keep_null_entry: no ok print within this after the land time ...
+  null_entry_dead_s: 600        # ... and pumpswap or the tape dies within 10 min = dead from entry, else no fill
+  bad_print_x: 20.0             # entry basis < 1/20 or > 20x the leader's price = broken print: signal dropped; exits capped at 20x
+  fill_mode: quote              # quote | next_price (sensitivity: exit_valuation (2))

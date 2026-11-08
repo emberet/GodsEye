@@ -7,11 +7,12 @@
  */
 import { type DB, getMeta } from "./db";
 import { HEARTBEAT_STALE_MINUTES, isNonMemecoinSymbol, TIERS, WALLET_KINDS, type Tier, type WalletKind } from "./constants";
-import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate } from "./stats";
+import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate, type ClosedTrade } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
 import type {
   LearnedParam, ParamChange, SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
   RunnerCatcherRow, RunnerDefinitionInfo, RunnersData, RunnerTokenRow, XCallerRow,
+  PaperAccount, PaperAccountName, PaperData, PaperEquityPoint, PaperModelInfo, PaperTradeRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
   Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
 } from "./dashboard-types";
@@ -65,6 +66,14 @@ const tradingMode = (d: DB) => modeOf(d) ?? "real";
 const publicTrade = (t: CopyTrade): CopyTrade => ({ ...t, error: t.error ? redactLog(t.error) : null, reason: t.reason ? redactLog(t.reason) : null });
 
 const STREAM_FRESH_MS = 2 * 60_000;
+
+/** The stream is delivering: connected, the agent is live and a trade arrived in the last 2 minutes. */
+export function streamHealthy(
+  s: { heartbeat: string | null; agentStatus: string | null; status: string | null; lastAt: string | null },
+  now = Date.now(),
+): boolean {
+  return isLive(s.heartbeat, s.agentStatus, now) && s.status === "connected" && !!s.lastAt && now - Date.parse(s.lastAt) < STREAM_FRESH_MS;
+}
 
 const solUsdNow = (d: DB) => {
   const v = Number(getMeta(d, "sol_usd_now"));
@@ -131,7 +140,7 @@ export function getSummary(d: DB): Summary {
     stream: {
       enabled: getMeta(d, "stream_enabled") === "1",
       status: streamStatus,
-      healthy: live && streamStatus === "connected" && !!streamLast && Date.now() - Date.parse(streamLast) < STREAM_FRESH_MS,
+      healthy: streamHealthy({ heartbeat: hb, agentStatus: status, status: streamStatus, lastAt: streamLast }),
       ipTries: Number(getMeta(d, "stream_ip_tries") ?? 0),
       ipDistinct: Number(getMeta(d, "stream_ip_distinct") ?? 0),
       lastAt: getMeta(d, "stream_last_at"),
@@ -455,6 +464,7 @@ export function buildDashboardSnapshot(d: DB): Record<string, unknown> {
     live: getLiveWallets(d, { sort: "pnl", limit: 2000 }),
     smart: getSmartMoney(d),
     runners: getRunners(d),
+    paper: getPaper(d),
   };
 }
 
@@ -491,4 +501,115 @@ export function getRunners(d: DB): RunnersData {
         ).all() as XCallerRow[])
       : [],
   };
+}
+
+const PAPER_ACCOUNTS: readonly PaperAccountName[] = ["brain", "baseline", "explore"];
+/** Most points an account's equity series keeps in a feed. */
+export const PAPER_EQUITY_POINTS = 500;
+/** Most numbers shown per model-metrics group. */
+const PAPER_METRICS_PER_GROUP = 24;
+
+const emptyPaperEquity = (): Record<PaperAccountName, PaperEquityPoint[]> => ({ brain: [], baseline: [], explore: [] });
+
+/** At most `max` points, evenly spaced, always keeping the first and the last. */
+export function downsampleSeries<T>(rows: T[], max = PAPER_EQUITY_POINTS): T[] {
+  if (rows.length <= max) return rows;
+  const step = (rows.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => rows[Math.round(i * step)]);
+}
+
+/**
+ * The numbers the site may show from a model manifest: finite numbers in metrics.validation / stress / baseline
+ * (one level of nesting flattened as "a.b"). Never feature names, never anything social.
+ */
+export function publicModelMetrics(manifest: unknown): PaperModelInfo["metrics"] {
+  const out: PaperModelInfo["metrics"] = { validation: {}, stress: {}, baseline: {} };
+  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+  const allowed = (k: string) => !/social|feature/i.test(k);
+  const metrics = isObj(manifest) && isObj(manifest.metrics) ? manifest.metrics : {};
+  for (const group of ["validation", "stress", "baseline"] as const) {
+    const src = metrics[group];
+    if (!isObj(src)) continue;
+    const add = (k: string, v: unknown) => {
+      if (Object.keys(out[group]).length < PAPER_METRICS_PER_GROUP && typeof v === "number" && Number.isFinite(v)) out[group][k] = v;
+    };
+    for (const [k, v] of Object.entries(src)) {
+      if (!allowed(k)) continue;
+      if (isObj(v)) for (const [k2, v2] of Object.entries(v)) allowed(k2) && add(`${k}.${k2}`, v2);
+      else add(k, v);
+    }
+  }
+  return out;
+}
+
+/** The Brain's paper accounts (agent/src/brain/paper.ts). Its tables are created by the agent, so older databases have none. */
+export function getPaper(d: DB, now = Date.now()): PaperData {
+  const has = (t: string) => !!d.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+  const stream = { heartbeat: getMeta(d, "heartbeat"), agentStatus: getMeta(d, "agent_status"), status: getMeta(d, "stream_status") as PaperData["live"]["status"], lastAt: getMeta(d, "stream_last_at") };
+  const live: PaperData["live"] = { streaming: streamHealthy(stream, now), ...stream };
+  const model = has("brain_models") ? paperModel(d) : null;
+  if (!has("brain_paper_accounts")) return { accounts: [], equity: emptyPaperEquity(), trades: [], model, live };
+
+  const hasPositions = has("brain_paper_positions");
+  const hasEquity = has("brain_paper_equity");
+  const own = getMeta(d, "wallet_pubkey");
+  const rows = d.prepare("SELECT account, bankroll_sol, started_at FROM brain_paper_accounts").all() as { account: string; bankroll_sol: number; started_at: string | null }[];
+  const accounts: PaperAccount[] = [];
+  const equity = emptyPaperEquity();
+  for (const name of PAPER_ACCOUNTS) {
+    const a = rows.find((r) => r.account === name);
+    if (!a) continue;
+    const start = Number(a.bankroll_sol) || 0;
+    const closed = hasPositions
+      ? (d.prepare("SELECT closed_at exit_ts, COALESCE(pnl_sol, 0) pnl_sol, COALESCE(pnl_pct, 0) pnl_pct FROM brain_paper_positions WHERE account = ? AND status = 'closed' AND closed_at IS NOT NULL ORDER BY closed_at").all(name) as ClosedTrade[])
+      : [];
+    const openTrades = hasPositions ? (d.prepare("SELECT COUNT(*) n FROM brain_paper_positions WHERE account = ? AND status = 'open'").get(name) as { n: number }).n : 0;
+    const marks = hasEquity ? (d.prepare("SELECT ts, equity_sol equity FROM brain_paper_equity WHERE account = ? ORDER BY ts").all(name) as PaperEquityPoint[]) : [];
+    // Marked equity when the agent records it; otherwise the closed trades' running total.
+    const series: PaperEquityPoint[] = marks.length
+      ? marks
+      : [...(a.started_at ? [{ ts: a.started_at, equity: start }] : []), ...equityCurve(closed, start).map((p) => ({ ts: p.ts, equity: p.equity }))];
+    const realized = closed.reduce((s, t) => s + t.pnl_sol, 0);
+    const equitySol = series.at(-1)?.equity ?? start + realized;
+    const dd = maxDrawdown(series.map((p) => ({ ...p, cumPnl: p.equity - start, drawdownPct: 0 })), start);
+    accounts.push({
+      account: name,
+      startedAt: a.started_at,
+      startingSol: start,
+      equitySol,
+      pnlSol: equitySol - start,
+      returnPct: start > 0 ? ((equitySol - start) / start) * 100 : null,
+      winRate: winRate(closed),
+      maxDrawdownPct: dd.maxDrawdownPct,
+      closedTrades: closed.length,
+      openTrades,
+    });
+    equity[name] = downsampleSeries(series);
+  }
+  const trades = hasPositions
+    ? (d.prepare(
+        `SELECT p.account, COALESCE(p.symbol, i.symbol) symbol, p.mint, p.leader, p.cost_sol stake_sol, p.exit_reason, p.pnl_pct, p.pnl_sol, p.closed_at
+           FROM brain_paper_positions p LEFT JOIN token_info i ON i.mint = p.mint
+          WHERE p.status = 'closed' AND p.closed_at IS NOT NULL ORDER BY p.closed_at DESC LIMIT 30`,
+      ).all() as PaperTradeRow[])
+        // The agent's own wallet is never shown, even if it somehow ended up as a leader.
+        .map((t) => (own && t.leader === own ? { ...t, leader: null } : t))
+    : [];
+  return { accounts, equity, trades, model, live };
+}
+
+/** The active model (or the newest loaded one), with only its public numbers. */
+function paperModel(d: DB): PaperModelInfo | null {
+  const row = d
+    .prepare("SELECT version, loaded_at, manifest FROM brain_models WHERE status IN ('active', 'previous') ORDER BY status = 'active' DESC, loaded_at DESC LIMIT 1")
+    .get() as { version: string; loaded_at: string | null; manifest: string | null } | undefined;
+  if (!row) return null;
+  let manifest: unknown = null;
+  try {
+    manifest = row.manifest ? JSON.parse(row.manifest) : null;
+  } catch {
+    manifest = null;
+  }
+  const createdAt = typeof manifest === "object" && manifest !== null && typeof (manifest as { created_at?: unknown }).created_at === "string" ? (manifest as { created_at: string }).created_at : null;
+  return { version: String(row.version), createdAt, loadedAt: row.loaded_at, metrics: publicModelMetrics(manifest) };
 }

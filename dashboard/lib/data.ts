@@ -1,7 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { filterLiveWallets, filterWallets, isLive } from "@godseye/shared/dashboard-data";
-import type { LiveQuery, LiveWalletRow, ProofData, Summary, WalletQuery, WalletRow } from "@godseye/shared/dashboard-types";
+import { filterLiveWallets, filterWallets, isLive, streamHealthy } from "@godseye/shared/dashboard-data";
+import type { LiveQuery, LiveWalletRow, PaperData, ProofData, Summary, WalletQuery, WalletRow } from "@godseye/shared/dashboard-types";
 import { readSnapshot, snapshotStoreConfigured, walletKey, type FeedKey } from "@godseye/shared/snapshot-store";
 import { TIERS, WALLET_KINDS } from "@godseye/shared/constants";
 
@@ -32,6 +32,10 @@ const EMPTY: Partial<Record<FeedKey, unknown>> = {
   smart: { followBar: null, activeWallets: 0, droppedWallets: 0, flows: [], signals: [], scorecard: [], wallets: [], trades24h: 0 },
   copies: { open: [], closed: [], trades: [] },
   runners: { definition: null, coinsWatched: 0, runners: [], catchers: [], callers: [] },
+  paper: {
+    accounts: [], equity: { brain: [], baseline: [], explore: [] }, trades: [], model: null,
+    live: { streaming: false, status: null, lastAt: null, heartbeat: null, agentStatus: null },
+  } satisfies PaperData,
   leaders: { leaders: [], changes: [], budgetSol: 0, followBar: null, followBarHistory: [] },
 };
 
@@ -54,6 +58,8 @@ export async function feed(key: FeedKey): Promise<NextResponse> {
   let body = snap.data;
   // Recompute "live" so a stale copy can't claim GodsEye is running.
   if (key === "summary") body = { ...(body as Summary), live: isLive((body as Summary).heartbeat, (body as Summary).agentStatus) };
+  // Same for the paper page's "the stream is delivering".
+  if (key === "paper" && (body as PaperData).live) body = { ...(body as PaperData), live: { ...(body as PaperData).live, streaming: streamHealthy((body as PaperData).live) } };
   return NextResponse.json(body, { headers: { ...CACHE, "X-Data-Published-At": snap.updatedAt } });
 }
 

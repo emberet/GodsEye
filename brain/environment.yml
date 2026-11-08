@@ -1,0 +1,24 @@
+# The Mac trainer's conda env: conda env create -f environment.yml && conda run -n godseye-brain pip install -e .
+name: godseye-brain
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - llvm-openmp  # lightgbm's libomp on macOS
+  - pip
+  - pip:
+      - torch==2.15.0
+      - duckdb==2.0.0
+      - lightgbm==4.7.0
+      - onnx==1.23.2
+      - onnxruntime==1.31.1
+      - pandas==3.1.1
+      - pyarrow==26.0.1
+      - polars==2.1.0
+      - scikit-learn==1.9.1
+      - scipy==1.18.1
+      - pyyaml==6.0.3
+      - statsmodels==0.15.0
+      - matplotlib==3.11.2
+      - pytz==2026.6
+      - pytest

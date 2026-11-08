@@ -1,0 +1,784 @@
+{
+ "t": "2026-12-01T00:00:00.000Z",
+ "pop_mean": -0.08,
+ "features": [
+  "acct_age_days",
+  "acct_age_days_missing",
+  "followers_log",
+  "followers_log_missing",
+  "follower_growth_7d",
+  "follower_growth_7d_missing",
+  "post_rate_7d",
+  "post_rate_7d_missing",
+  "ca_share_30d",
+  "ca_share_30d_missing",
+  "buy_before_call_share_30d",
+  "buy_before_call_share_30d_missing",
+  "median_call_lag_min",
+  "median_call_lag_min_missing",
+  "engagement_med_30d",
+  "engagement_med_30d_missing",
+  "mentioned_by_callers_30d",
+  "mentioned_by_callers_30d_missing",
+  "wallets_per_account",
+  "wallets_per_account_missing",
+  "accounts_per_wallet",
+  "funder_cluster_size",
+  "funder_cluster_size_missing",
+  "own_record_shrunk"
+ ],
+ "fill": [
+  0.1,
+  0.2,
+  0.3,
+  0.4,
+  0.5,
+  0.6,
+  0.7,
+  0.8,
+  0.9,
+  1.0,
+  1.1,
+  1.2,
+  1.3
+ ],
+ "tables": {
+  "social_wallet_accounts": [
+   {
+    "wallet": "GoldW1aaaa",
+    "author_id": "a1",
+    "how": "bio",
+    "n": 1,
+    "first_seen_at": "2026-11-11T00:00:00.000Z",
+    "updated_at": "2026-11-11T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldX1eeee",
+    "author_id": "a1",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-28T00:00:00.000Z",
+    "updated_at": "2026-11-28T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW2bbbb",
+    "author_id": "a2",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-21T00:00:00.000Z",
+    "updated_at": "2026-11-21T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldX1eeee",
+    "author_id": "a2",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-21T00:00:00.000Z",
+    "updated_at": "2026-11-21T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldX2ffff",
+    "author_id": "a2",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-22T00:00:00.000Z",
+    "updated_at": "2026-11-22T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldX3gggg",
+    "author_id": "a2",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-23T00:00:00.000Z",
+    "updated_at": "2026-11-23T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW2bbbb",
+    "author_id": "a3",
+    "how": "mention",
+    "n": 1,
+    "first_seen_at": "2026-11-26T00:00:00.000Z",
+    "updated_at": "2026-11-26T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW3cccc",
+    "author_id": "a4",
+    "how": "bio",
+    "n": 1,
+    "first_seen_at": "2026-11-16T00:00:00.000Z",
+    "updated_at": "2026-11-16T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW3cccc",
+    "author_id": "a5",
+    "how": "tweet",
+    "n": 1,
+    "first_seen_at": "2026-11-19T00:00:00.000Z",
+    "updated_at": "2026-11-19T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW3cccc",
+    "author_id": "a6",
+    "how": "timing",
+    "n": 1,
+    "first_seen_at": "2026-12-02T00:00:00.000Z",
+    "updated_at": "2026-12-02T00:00:00.000Z"
+   },
+   {
+    "wallet": "GoldW4dddd",
+    "author_id": "a1",
+    "how": "bio",
+    "n": 1,
+    "first_seen_at": "2026-12-03T00:00:00.000Z",
+    "updated_at": "2026-12-03T00:00:00.000Z"
+   }
+  ],
+  "social_accounts": [
+   {
+    "id": "a1",
+    "username": "golden_a1",
+    "created_at": "2025-10-27T00:00:00.000Z",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "id": "a2",
+    "username": "golden_a2",
+    "created_at": "2026-10-12T00:00:00.000Z",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "id": "a3",
+    "username": "golden_a3",
+    "created_at": null,
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "id": "a4",
+    "username": "golden_a4",
+    "created_at": "2026-11-01T00:00:00.000Z",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "id": "a5",
+    "username": "golden_a5",
+    "created_at": "2024-03-06T00:00:00.000Z",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "id": "a6",
+    "username": "golden_a6",
+    "created_at": "2026-11-26T00:00:00.000Z",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   }
+  ],
+  "social_account_snapshots": [
+   {
+    "account_id": "a1",
+    "fetched_at": "2026-11-11T00:00:00.000Z",
+    "followers": 80,
+    "following": 10,
+    "tweets": 480,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a1",
+    "fetched_at": "2026-11-21T00:00:00.000Z",
+    "followers": 100,
+    "following": 10,
+    "tweets": 500,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a1",
+    "fetched_at": "2026-11-29T00:00:00.000Z",
+    "followers": 150,
+    "following": 10,
+    "tweets": 540,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a1",
+    "fetched_at": "2026-12-01T01:00:00.000Z",
+    "followers": 9999,
+    "following": 10,
+    "tweets": 9999,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a4",
+    "fetched_at": "2026-11-28T00:00:00.000Z",
+    "followers": 500,
+    "following": 10,
+    "tweets": 10,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a5",
+    "fetched_at": "2026-11-22T00:00:00.000Z",
+    "followers": 1000,
+    "following": 10,
+    "tweets": 2000,
+    "listed": 0,
+    "verified": 0
+   },
+   {
+    "account_id": "a5",
+    "fetched_at": "2026-11-30T00:00:00.000Z",
+    "followers": 900,
+    "following": 10,
+    "tweets": 1990,
+    "listed": 0,
+    "verified": 0
+   }
+  ],
+  "social_posts": [
+   {
+    "post_id": "1000",
+    "author_id": "a1",
+    "ts": "2026-11-06T00:00:00.000Z",
+    "text": "golden",
+    "likes": 10,
+    "reposts": 2,
+    "replies": 1,
+    "quotes": 0,
+    "impressions": null,
+    "mints": "[\"GoldMint0pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1001",
+    "author_id": "a1",
+    "ts": "2026-11-11T00:00:00.000Z",
+    "text": "golden",
+    "likes": 4,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint1pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1002",
+    "author_id": "a1",
+    "ts": "2026-11-16T00:00:00.000Z",
+    "text": "golden",
+    "likes": 50,
+    "reposts": 5,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint2pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1003",
+    "author_id": "a1",
+    "ts": "2026-11-19T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint3pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1004",
+    "author_id": "a1",
+    "ts": "2026-11-21T00:00:00.000Z",
+    "text": "golden",
+    "likes": 1,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1005",
+    "author_id": "a1",
+    "ts": "2026-11-30T12:00:00.000Z",
+    "text": "golden",
+    "likes": 100,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint4pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-30T14:24:00.000Z"
+   },
+   {
+    "post_id": "1006",
+    "author_id": "a1",
+    "ts": "2026-10-31T00:00:00.000Z",
+    "text": "golden",
+    "likes": 7,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint0pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1007",
+    "author_id": "a1",
+    "ts": "2026-11-30T00:00:00.000Z",
+    "text": "golden",
+    "likes": 3,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint5pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-12-01T02:00:00.000Z"
+   },
+   {
+    "post_id": "1008",
+    "author_id": "a4",
+    "ts": "2026-11-27T00:00:00.000Z",
+    "text": "golden",
+    "likes": 2,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint1pump\"]",
+    "wallets": "[\"GoldW3cccc\"]",
+    "fetched_at": "2026-11-28T00:00:00.000Z"
+   },
+   {
+    "post_id": "1009",
+    "author_id": "a5",
+    "ts": "2026-11-26T00:00:00.000Z",
+    "text": "golden",
+    "likes": 0,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint0pump\", \"GoldMint1pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "post_id": "1010",
+    "author_id": "a5",
+    "ts": "2026-10-22T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[\"GoldMint2pump\"]",
+    "wallets": "[]",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "post_id": "1011",
+    "author_id": "a7",
+    "ts": "2026-11-25T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[\"GoldW3cccc\"]",
+    "fetched_at": "2026-11-30T00:00:00.000Z"
+   },
+   {
+    "post_id": "1012",
+    "author_id": "a8",
+    "ts": "2026-11-24T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[\"GoldW3cccc\", \"GoldW1aaaa\"]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1013",
+    "author_id": "a8",
+    "ts": "2026-11-23T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[\"GoldW3cccc\"]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1014",
+    "author_id": "a9",
+    "ts": "2026-10-27T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[\"GoldW3cccc\"]",
+    "fetched_at": "2026-11-25T00:00:00.000Z"
+   },
+   {
+    "post_id": "1015",
+    "author_id": "a9",
+    "ts": "2026-11-29T00:00:00.000Z",
+    "text": "golden",
+    "likes": null,
+    "reposts": null,
+    "replies": null,
+    "quotes": null,
+    "impressions": null,
+    "mints": "[]",
+    "wallets": "[\"GoldW1aaaa\"]",
+    "fetched_at": "2026-12-01T00:05:00.000Z"
+   }
+  ],
+  "wallet_swaps": [
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig1",
+    "slot": 1,
+    "ts": "2026-11-05T23:30:00.000Z",
+    "mint": "GoldMint0pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig2",
+    "slot": 2,
+    "ts": "2026-11-07T00:00:00.000Z",
+    "mint": "GoldMint0pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig3",
+    "slot": 3,
+    "ts": "2026-11-11T02:00:00.000Z",
+    "mint": "GoldMint1pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig4",
+    "slot": 4,
+    "ts": "2026-11-15T23:50:00.000Z",
+    "mint": "GoldMint2pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig5",
+    "slot": 5,
+    "ts": "2026-11-16T00:00:00.000Z",
+    "mint": "GoldMint3pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig6",
+    "slot": 6,
+    "ts": "2026-12-01T00:10:00.000Z",
+    "mint": "GoldMint4pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW3cccc",
+    "signature": "goldsig7",
+    "slot": 7,
+    "ts": "2026-11-25T23:00:00.000Z",
+    "mint": "GoldMint0pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW3cccc",
+    "signature": "goldsig8",
+    "slot": 8,
+    "ts": "2026-11-26T01:00:00.000Z",
+    "mint": "GoldMint1pump",
+    "side": "buy",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   },
+   {
+    "wallet": "GoldW1aaaa",
+    "signature": "goldsig9",
+    "slot": 9,
+    "ts": "2026-11-10T00:00:00.000Z",
+    "mint": "GoldMint1pump",
+    "side": "sell",
+    "token_amount": 1000.0,
+    "sol_amount": 0.5,
+    "price_sol": 0.0005
+   }
+  ],
+  "mirror_ledger": [
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint0pump",
+    "buy_ts": "2026-11-25T00:00:00.000Z",
+    "y": 0.5,
+    "resolved_at": "2026-11-25T02:24:00.000Z"
+   },
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint1pump",
+    "buy_ts": "2026-11-27T00:00:00.000Z",
+    "y": -0.6,
+    "resolved_at": "2026-11-27T12:00:00.000Z"
+   },
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint2pump",
+    "buy_ts": "2026-11-30T00:00:00.000Z",
+    "y": 0.1,
+    "resolved_at": "2026-11-30T12:00:00.000Z"
+   },
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint1pump",
+    "buy_ts": "2026-11-28T00:00:00.000Z",
+    "y": 0.3,
+    "resolved_at": "2026-11-28T12:00:00.000Z"
+   },
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint3pump",
+    "buy_ts": "2026-11-22T00:00:00.000Z",
+    "y": 2.0,
+    "resolved_at": "2026-11-23T00:00:00.000Z"
+   },
+   {
+    "leader": "GoldW1aaaa",
+    "mint": "GoldMint4pump",
+    "buy_ts": "2026-11-30T19:12:00.000Z",
+    "y": 1.0,
+    "resolved_at": "2026-12-01T02:24:00.000Z"
+   },
+   {
+    "leader": "GoldW3cccc",
+    "mint": "GoldMint0pump",
+    "buy_ts": "2026-11-29T00:00:00.000Z",
+    "y": -1.0,
+    "resolved_at": "2026-11-29T12:00:00.000Z"
+   }
+  ],
+  "wallets": [
+   {
+    "address": "GoldW1aaaa",
+    "first_seen_at": "2026-10-02T00:00:00.000Z",
+    "funder": "GoldFunder1",
+    "funder_filled_at": "2026-10-12T00:00:00.000Z"
+   },
+   {
+    "address": "GoldX1eeee",
+    "first_seen_at": "2026-10-22T00:00:00.000Z",
+    "funder": "GoldFunder1",
+    "funder_filled_at": "2026-10-23T00:00:00.000Z"
+   },
+   {
+    "address": "GoldX2ffff",
+    "first_seen_at": "2026-10-22T00:00:00.000Z",
+    "funder": "GoldFunder1",
+    "funder_filled_at": "2026-12-02T00:00:00.000Z"
+   },
+   {
+    "address": "GoldX3gggg",
+    "first_seen_at": "2026-12-02T00:00:00.000Z",
+    "funder": "GoldFunder1",
+    "funder_filled_at": "2026-12-02T00:00:00.000Z"
+   },
+   {
+    "address": "GoldW2bbbb",
+    "first_seen_at": "2026-10-02T00:00:00.000Z",
+    "funder": "GoldFunder2",
+    "funder_filled_at": null
+   },
+   {
+    "address": "GoldW3cccc",
+    "first_seen_at": "2026-10-02T00:00:00.000Z",
+    "funder": null,
+    "funder_filled_at": null
+   },
+   {
+    "address": "GoldW4dddd",
+    "first_seen_at": "2026-10-02T00:00:00.000Z",
+    "funder": null,
+    "funder_filled_at": null
+   }
+  ]
+ },
+ "expected": {
+  "GoldW1aaaa": {
+   "vector": [
+    5.993961427306569,
+    0.0,
+    5.017279836814924,
+    0.0,
+    0.4021593199736649,
+    0.0,
+    1.791759469228055,
+    0.0,
+    0.8333333333333334,
+    0.0,
+    0.6666666666666666,
+    0.0,
+    2.3978952727983707,
+    0.0,
+    1.6094379124341003,
+    0.0,
+    0.6931471805599453,
+    0.0,
+    1.0986122886681098,
+    0.0,
+    0.6931471805599453,
+    1.0986122886681098,
+    0.0,
+    -0.05181818181818181
+   ],
+   "n_posts": 6
+  },
+  "GoldW2bbbb": {
+   "vector": [
+    0.1,
+    1.0,
+    0.2,
+    1.0,
+    0.3,
+    1.0,
+    0.4,
+    1.0,
+    0.5,
+    1.0,
+    0.6,
+    1.0,
+    0.7,
+    1.0,
+    0.8,
+    1.0,
+    0.0,
+    0.0,
+    0.6931471805599453,
+    0.0,
+    1.0986122886681098,
+    1.2,
+    1.0,
+    -0.08
+   ],
+   "n_posts": 0
+  },
+  "GoldW3cccc": {
+   "vector": [
+    6.90875477931522,
+    0.0,
+    6.803505257608338,
+    0.0,
+    -0.1052495217068826,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.6,
+    1.0,
+    0.7,
+    1.0,
+    0.0,
+    0.0,
+    1.0986122886681098,
+    0.0,
+    0.6931471805599453,
+    0.0,
+    1.0986122886681098,
+    1.2,
+    1.0,
+    -0.12842105263157894
+   ],
+   "n_posts": 1
+  },
+  "GoldW4dddd": null,
+  "GoldW5hhhh": null,
+  "GoldX1eeee": {
+   "vector": [
+    5.993961427306569,
+    0.0,
+    5.017279836814924,
+    0.0,
+    0.4021593199736649,
+    0.0,
+    1.791759469228055,
+    0.0,
+    0.8333333333333334,
+    0.0,
+    0.6,
+    1.0,
+    0.7,
+    1.0,
+    1.6094379124341003,
+    0.0,
+    0.0,
+    0.0,
+    1.0986122886681098,
+    0.0,
+    1.0986122886681098,
+    1.0986122886681098,
+    0.0,
+    -0.08
+   ],
+   "n_posts": 6
+  },
+  "GoldX2ffff": null,
+  "GoldX3gggg": null
+ }
+}

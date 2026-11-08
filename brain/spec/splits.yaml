@@ -1,0 +1,41 @@
+# GodsEye brain: the single definition of the time splits. Read it through brain.data.splits (Python); nothing else
+# hard-codes these dates. Every bound is a UTC instant; a period is [from, to) on the episode's ts (the leader's block time).
+#
+#   fit        2026-10-16 .. 10-29  train every model here
+#   embargo    10-30 (24 h)         dropped: a fit episode's 24 h labels reach into it, so selection never shares a price
+#                                   path with fit
+#   selection  10-31 .. 11-01       choose kappa, margin_c, early stopping, the B4 exit; the promotion gate scores here
+#   test       11-02 onward         used ONCE, at the end, never for tuning
+#
+# Selection episodes late on 11-01 have 24 h labels that read prices of 11-02 (test days). That is the market's tape,
+# not a test decision, and the brief keeps selection = 10-31..11-01; do not move the bound to hide it.
+#
+# Filter on known_at_t (the leader was in the server's wallets table at ts) for training and evaluation, and drop
+# crosses_outage episodes when a label depends on prices in the 24 h window (see brain/research/DATA.md).
+#
+# The test period's labels end early: the export tail (swaps not yet stored when the export ran) starts at
+# derived/_meta.json label_end_t, 2026-11-04 21:00 for the 11-06 export. 24 h labels are censored from 11-03 21:00 on and
+# crosses_outage drops every episode whose 24 h window reaches the tail, so a 24 h test covers 11-02 .. 11-03 until a
+# later export. Do not move the bounds to win test days back.
+
+version: 1
+timezone: UTC
+data_start: "2026-10-16T00:00:00Z"
+
+periods:
+  - {name: fit, from: "2026-10-16T00:00:00Z", to: "2026-10-30T00:00:00Z"}
+  - {name: embargo, from: "2026-10-30T00:00:00Z", to: "2026-10-31T00:00:00Z"}
+  - {name: selection, from: "2026-10-31T00:00:00Z", to: "2026-11-02T00:00:00Z"}
+  - {name: test, from: "2026-11-02T00:00:00Z", to: null}
+
+embargo_hours: 24
+
+# Rolling-origin walk-forward inside fit + selection, for anything tuned before the final fit (feature selection, network
+# size, kappa): train on everything from data_start up to train_to, skip a 24 h embargo, validate on the next two days.
+# The last fold is exactly fit -> selection. Validation days on 10-23 / 10-24 are avoided: they are an ingest outage
+# (derived/outage_hours.parquet).
+folds:
+  - {name: f1, train_to: "2026-10-24T00:00:00Z", valid_from: "2026-10-25T00:00:00Z", valid_to: "2026-10-27T00:00:00Z"}
+  - {name: f2, train_to: "2026-10-26T00:00:00Z", valid_from: "2026-10-27T00:00:00Z", valid_to: "2026-10-29T00:00:00Z"}
+  - {name: f3, train_to: "2026-10-28T00:00:00Z", valid_from: "2026-10-29T00:00:00Z", valid_to: "2026-10-31T00:00:00Z"}
+  - {name: f4, train_to: "2026-10-30T00:00:00Z", valid_from: "2026-10-31T00:00:00Z", valid_to: "2026-11-02T00:00:00Z"}

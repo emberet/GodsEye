@@ -1,0 +1,971 @@
+# GodsEye brain: the single source of truth for the brain's inputs.
+# Written by the research-lead synthesis of 2026-11-06 data (report: GodsEyeBrainData/reports/research-2026-11-06.html).
+# Both brain/brain/features/ (Python) and agent/src/brain/features.ts (TS) implement every name below, point in time.
+# Only claims the adversarial verifiers CONFIRMED or WEAKENED are used as evidence; refuted claims are listed under `dropped`.
+# brain/spec/golden/ holds input -> expected vectors (README there); both test suites reproduce them to 1e-6.
+#
+# Keys per feature:
+#   name, head, status (core | provisional | low_priority), definition, window,
+#   transform (none | log1p | clip:a,b | signed_log | log10 | onehot | share), missing_flag, default (raw value used when
+#   missing, before the transform; "train_mean" = the CONTRACT rule: normalised value 0), live_source, python_source, evidence.
+#   live_source names exactly ONE server structure (kinds under conventions.live_sources); python_source says how the
+#   offline build reproduces it (brain/brain/features/build.py).
+#   provisional = live-computable and point-in-time by definition, but the offline evidence is confounded (see evidence);
+#   keep it in the model, re-check it on paper data before any promotion.
+
+version: 1
+spec_date: "2026-11-07"
+data_end: "2026-11-06T16:05:26Z"
+test_window: "2026-11-02T00:00:00Z onward (held out; never tune on it)"
+
+conventions:
+  times: >-
+    T = the leader's block time (the incoming swap's ts, 1 s resolution). t = the decision time (live: now, when the
+    stream delivered the swap; offline: T + 1 s, DECISION_LAG_SEC, close to the stream lateness p50 0.77 s). Lateness
+    t - T is only used by signal_lateness_sec, leader_sold_at_decision and the too_late gate; the simulator may draw it
+    (stress.yaml) and recompute those three.
+  point_in_time: >-
+    A feature at t uses only data known to the server before t. Swap windows are strict [T - W, T) on BLOCK time, and a
+    swap counts only if the server had it before t (INSERT-TIME RULE); the incoming swap itself (ts = T) and anything
+    else in its block second never count. Ledger windows are strict [t - W, t) on the row's availability time
+    (resolved_at / avail_at). Live, "had it before t" is automatic (the ring and the DB only hold what arrived);
+    wallet_swaps has no inserted_at, so offline the insert time is the derive proxy ins_ts (running max of ts in id
+    order; DATA.md pitfall 15) and a swap counts when ins_ts < t. Features built from ts alone over-count: known-by-t
+    buyers_15m averages 0.03 vs 4.70 offline on test days (coin-launch verify/x04_insert_lag.py, x05_insert_lag_union.py).
+  tracked_swap: >-
+    A swap in wallet_swaps (live: a swap the stream delivers for a tracked wallet, the same rows written to wallet_swaps).
+    "ok price" = valid (price_sol > 0, sol_amount >= 0.001, token_amount >= 1) and
+    within 10x of the median of the mint's PREVIOUS 10 VALID prices IN ARRIVAL ORDER, and not "lone" (among
+    those 10, no print by another wallet is within 10x of it while at least one by another wallet is not: only its own
+    wallet backs its level). A mint's first valid price is ok. Every valid price enters the window whether it passed or
+    not, so the filter recovers after a real lasting > 10x move (a rug): a filter fed only the prices it accepted would
+    reject everything after a rug forever. The server's TrailingFilter must keep the last 10 valid prices (with their
+    wallets) per mint, not the last 10 accepted ones; spec/golden/filter.json pins the rule (brain/brain/features/prices.py
+    is the one-swap-at-a-time reference, checked against derive.build_prices). Arrival order is what keeps the flag point
+    in time: live, state.ts feeds TrailingFilter.accept the swaps as the stream delivers them; offline, build.py
+    (bucket_swaps) runs derive.build_prices' SQL with each mint's swaps ordered by insert time (ins_ts, id), so a swap's
+    flag depends only on swaps stored no later than it. derive's own `ok` orders by block time (ts, slot, id) over the
+    whole export, so a low print backfilled after t can reject, in hindsight, a print the server had and accepted before
+    t: on real data that flipped 0.2 % (fit day 10-28) to 0.57 % (selection day 11-01) of flags and moved dd_from_high on
+    1.6 % / 9.3 % of known, in-time, gate-passing episodes (features-py review 2026-11-07). The ts-ordered `ok` and
+    `ok_label` (hindsight: a drop the coin never comes back from is real) are for labels and the simulator only; no
+    feature and no ledger uses them. Live reads that warm a filter from wallet_swaps (StreamState meeting a mint, after
+    an eviction or a restart; ledger.ts ps / dd at their avail time) replay the rows stored by then in (ts, slot, id)
+    order: still point in time, and equal to arrival order except where those stored rows arrived out of ts order.
+  leader_buy: >-
+    The incoming BUY swap by any analyzed wallet (wallets table) of a mint other than wSOL/USDC/USDT. Copy-eligible =
+    sol_amount >= 0.2 SOL (MIN_LEADER_BUY_SOL). Live windows are <= 7 days (DATA.md pitfall 5: junk-wallet swaps are kept
+    7 days in wallet_swaps).
+  live_sources: >-
+    Each feature has exactly one live source, of one of these kinds. swap = a field of the incoming swap (plus the server
+    clock for t). ring = agent/src/brain/state.ts StreamState, in memory, fed by tracked swaps as the stream delivers them
+    (per-mint 60-min ring with the trailing filter, per-coin first sighting, per-leader holding, hourly active wallets).
+    db = one indexed read of a server table (wallet_swaps by idx_swaps_wallet_ts, brain_token_first_seen by creator,
+    token_info / social_scores by primary key). ledger = agent/src/brain/ledger.ts mirror_ledger / ps_ledger / dd_ledger
+    rows, read by (leader, resolved_at | avail_at). position = agent/src/brain/paper.ts ExitState of an open paper
+    position (exit head only). Offline, ring features use wallet_swaps with the insert-time rule, db features the same
+    tables as of t, ledger features the ledgers rebuilt from episodes and swaps (build.py) and read only after their
+    availability time.
+  missing_values: >-
+    Per CONTRACT.md. Order: raw value (NaN when missing) -> if missing: `<name>_missing` = 1 when missing_flag is true, and
+    the raw value becomes `default`, or for default train_mean the transformed value becomes the training mean ->
+    transform -> normalise (x - mean) / std. A non-finite raw value counts as missing.
+  transforms: >-
+    none and share: x. log1p: ln(1 + max(x, 0)). log10: log10(max(x, 1)). signed_log: sign(x) ln(1 + |x|).
+    clip:a,b: min(max(x, a), b). onehot: one column per level.
+  vector_layout: >-
+    The model's input columns are the features in spec order; a onehot feature expands to `<name>=<level>` columns in
+    the manifest's level order; a feature with missing_flag true is followed by `<name>_missing`. norm.mean / norm.std
+    are per column: continuous columns get the mean and std of the transformed value over FIT training rows
+    (period = fit, known_at_t, NOT crosses_outage, gate passed; a std below 1e-6, a column constant there, becomes 1 so
+    a value training never saw stays at its raw scale), onehot and _missing columns get mean 0, std 1 (left as 0/1).
+  categorical: >-
+    Categorical features expand to one-hot columns named <name>=<level>; the level list is fixed from FIT training rows
+    only (levels with at least 0.1 % of them, in order of frequency, then `other`) and stored in the manifest
+    (entry.categories); unseen or rare levels map to <name>=other.
+  latency_budget: >-
+    Every feature is an O(1) field of the incoming swap, a read of the in-memory StreamState, one indexed range scan
+    bounded to <= 7 days, or one ledger aggregate over an index. Target: < 50 ms for the whole entry vector, < 5 ms per
+    feature normally (the leader scan of a busy bot is the slowest part: one query feeds all five leader-style features).
+  new_server_state_required:
+    - "mirror_ledger(leader, mint, buy_ts, buy_sig, entry_ts, entry_px, leader_sell_ts, exit_ts, exit_px, exit_kind, y, lr, y_quote, resolved_at, n_tracked_wallets) with index (leader, resolved_at)"
+    - "ps_ledger(leader, mint, buy_sig, sell_ts, avail_at, r, done) and dd_ledger(leader, mint, buy_sig, buy_ts, avail_at, dead, done) with indexes (leader, avail_at) (delayed jobs, see ps_r_7d / dd_rate_7d)"
+    - "brain_token_first_seen(mint, first_seen_at, source, first_ok_price, first_ok_price_at, creator, creator_resolved_at, max_ok_price, max_ok_price_at): first sighting and creator at first sighting; index (creator, first_seen_at)"
+    - "brain_paper_positions: venue, leader_post_buy_tokens, leader_sold_tokens, leader_sold_at, last_tracked_price_ts, quote_failed columns"
+    - "StreamState (state.ts): per-mint in-memory ring of the last 60 min of tracked swaps (wallet, side, sol, price, ts, at, ok) with the trailing filter, the highest ok price from before the ring, the per-leader holding since its latest buy, and the distinct tracked wallets per whole UTC hour (brain_active_wallets_hourly)"
+  not_required: "wallet_swaps.inserted_at would let insert-time windows be audited; no feature reads it."
+
+# Hard skips applied BEFORE the entry network (the signal is logged as a baseline/skip, the network is not asked and the
+# signal is not used as an entry training example). Brain/paper side only; adding them to the REAL copy screen needs the
+# owner's OK. Applied in this order; the first that fires is the signal's `gate` (features_entry.gate, info.gate).
+gates:
+  - name: below_min_leader_buy
+    rule: "leader sol_amount < 0.2 SOL (MIN_LEADER_BUY_SOL)"
+    live_source: "swap: sol_amount"
+    evidence: "population definition used by every topic"
+  - name: too_late
+    rule: "t - T > 60 s (MAX_COPY_DELAY_SECONDS)"
+    live_source: "swap: now - ts"
+    python_source: >-
+      Offline t = T + 1 s, so it never fires in features_entry. features_entry also carries ins_lag_sec (ins_ts - ts of the
+      leader's swap) and stored_late = ins_lag_sec > 60: live, a swap the server stored that late could not have been
+      decided in time (99.1 % of test and 52.9 % of selection leader buys; DATA.md pitfall 15). Evaluators decide whether
+      to drop them; the simulator re-applies this gate with its drawn lateness.
+    evidence: "regimes C18: 9.5 % of real buy decisions > 60 s late, concentrated in 3.1 % of hours (backlog outages)"
+  - name: pumpswap_hiprice
+    rule: "venue (with ' (via bot)' stripped) starts with 'pumpswap' AND leader price_sol >= 1e-4 SOL per UI token"
+    live_source: "swap: venue, price_sol"
+    evidence: >-
+      sim-fidelity C13/C14 (weakened): coin-level precision 96-100 % for 'became unsellable' on every day (182 flagged
+      coins, 20 leaders; 18/20 leaders at 100 %); 94-97 % of 2,484 flagged episode mints' tapes die within 30 min;
+      unsellable within 15 min. Recall only 45 % in train (88 % test); threshold explored with test visible, so test is not
+      a clean holdout. Strong as a veto; NOT a per-episode 'worth 0' rule in the sim (see sim.yaml).
+  - name: young_amm
+    rule: >-
+      venue (stripped of ' (via bot)') in {pumpswap, meteora, meteora dbc, raydium, raydium launchlab, orca} AND the
+      mint's first sighting is missing or less than 10 min before t (mint_first_seen_age_min missing or < 10)
+    live_source: "swap: venue; ring: StreamState.firstSeen (as mint_first_seen_age_min)"
+    evidence: >-
+      coin-launch C4 (weakened, corrected by verifier x01/x05): G_any precision/recall 0.78/0.91 overall, test 0.63/0.78,
+      and 0.62/0.87 with first-seen limited to swaps the server had at t. Survivors' mean 1 h real-quote return -0.106
+      (n=183) vs flagged about -0.46. The earlier 'non-pump suffix' hard gate is NOT adopted (test 'other'-suffix coins were
+      not rugs: dead1h 0.15, n=48); suffix is a feature instead.
+  - name: screen_dead
+    rule: "rug screen failed, or lp_locked_pct <= 1 %, from the screen run during the copy delay; when the screen has not returned by decision time the gate does not apply"
+    live_source: "the paper screen result (async, when available)"
+    python_source: "no historical screens for episodes: never fires offline"
+    evidence: "execution C15: P(dead at 24 h) 97.5 % for lp_locked <= 1 % (n=315); screen failures 100 % dead (n=67). Only 627 historical rows, so it is a gate, not a learned feature."
+
+entry:
+  # ---------------- leader: what a late copier got (the mirror ledger) ----------------
+  - name: cp_lrshr_7d
+    head: entry
+    status: core
+    definition: >-
+      Shrunk mean log copy outcome of this leader: SUM over the leader's mirror_ledger rows with y not null and
+      resolved_at in [t-7d, t) of lr = ln(1 + clip(y, -0.99, 10)), divided by (n + 20). y is the STRICT mirror copy of a
+      copy-eligible leader buy (ledger.ts MirrorLedger): entry = first ok tracked swap by a wallet other than the leader
+      with ts in [buy_ts + 15 s, buy_ts + 135 s] (none: y = NULL, excluded); after the entry (ts > entry_ts), in ts order,
+      the first of: an ok price at or below -60 % of the entry (stop, filled at that price: the gap), or the first ok
+      tracked SELL by a non-leader at or after max(leader first sell ts + 15 s, entry_ts + 1 s) when the leader sold within
+      24 h of the buy; with neither before buy_ts + 24 h, the first ok price at or after buy_ts + 24 h if it comes by
+      buy_ts + 30 h (grounded; a stop when at or below -60 %), else y = -1 (dead, no haircut).
+      y = exit_px / entry_px - 1 - 0.026 (fixed cost haircut). resolved_at = when the deciding swap reached the server
+      (dead: buy_ts + 30 h), never earlier.
+    window: "[t-7d, t) on resolved_at"
+    transform: none
+    missing_flag: false
+    default: 0.0
+    live_source: "ledger: MirrorLedger.cp(leader, t) over mirror_ledger (leader, resolved_at)"
+    python_source: >-
+      build.py mirror_rows: the same rules over the mint's swaps from wallet_swaps (+archive) in ts order with the
+      derive ok flag; resolved_at = the latest insert time (ins_ts) of the buy, the entry swap, the leader's sell (when it
+      set the exit) and the deciding swap (dead: max(buy_ts + 30 h, those)). Rows for every copy-eligible episode (live the
+      ledger only opens rows for buys the stream delivers; see the build report for the share).
+    evidence: >-
+      leader-signal C1 confirmed: per-day IC 0.22 train / 0.35 test on first buys (0.19/0.29 capped); strict relabel on an
+      independent mint sample 0.19-0.24 / 0.24-0.37. About half of the IC is coin type (within-venue 0.10-0.15).
+      C2 weakened: strict-timing Q5 only +1.3 % [0.6, 2.0] train (-0.4 % with a 2-min exit window), while Q1 is -13 % to
+      -23 %: a VETO, not a picker. C6 confirmed: on real Jupiter quotes it ranks NEGATIVELY beyond 5 min (Spearman -0.63
+      at 15 min, n about 470, 70 leaders). Scripts: leader-signal/03_signal.py, verify/v1_ic_robust.py, v4_strict_relabel.py, v2_shadow_rerun.py.
+  - name: cp_n_7d
+    head: entry
+    status: core
+    definition: "Number of the leader's mirror_ledger rows with non-null y and resolved_at in [t-7d, t)."
+    window: "[t-7d, t) on resolved_at"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "ledger: MirrorLedger.cp(leader, t).cp_n_7d"
+    python_source: "same rows as cp_lrshr_7d"
+    evidence: "leader-signal: IC 0.13/0.30 (first buys); also the reliability weight for cp_lrshr_7d (shrinkage n+20). 03_signal.py"
+  - name: cp_win_7d
+    head: entry
+    status: core
+    definition: "Share of the leader's mirror_ledger rows with non-null y resolved in [t-7d, t) with y > 0 (y is already net of the 2.6 % haircut); missing when there are none."
+    window: "[t-7d, t) on resolved_at"
+    transform: share
+    missing_flag: true
+    default: train_mean
+    live_source: "ledger: MirrorLedger.cp(leader, t).cp_win_7d"
+    python_source: "same rows as cp_lrshr_7d"
+    evidence: "leader-signal: IC 0.21/0.34 (first), 0.16/0.29 (capped) on the tape label; re-check on the strict label. 03_signal.py"
+  - name: ps_r_7d
+    head: entry
+    status: provisional
+    definition: >-
+      Mean r over the leader's ps_ledger rows with done = 1, r not null and avail_at in [t-7d, t). One row per
+      copy-eligible buy whose leader sold (any sell) within 24 h of it: sell_min = the sell's minute, avail_at =
+      sell_min + 61 min. r (ledger.ts postSellReturn) over the mint's ok tracked swaps with ts in [sell_min, sell_min + 61
+      min): none at all -> -1 (a coin gone dark counts, it is not dropped); bar = the first of the minutes sell_min,
+      +1, +2 with an ok swap (none -> r NULL, dropped); r = clip(last ok price in [bar + 60 s, sell_min + 61 min) / last
+      ok price in the bar minute - 1, -1, 10), or -1 when there is no later ok price. Positive = this leader sells too early.
+    window: "[t-7d, t) on avail_at"
+    transform: "clip:-1,3"
+    missing_flag: true
+    default: train_mean
+    live_source: "ledger: MirrorLedger.psR(leader, t) over ps_ledger (leader, avail_at)"
+    python_source: "build.py ps_rows: the same rules over all stored swaps; avail_at = max(sell_min + 61 min, ins_ts of the buy, the sell and the two price swaps used)"
+    evidence: >-
+      leader-signal: IC 0.18/0.30 (first), side-aware 0.15/0.21; top gain in the first-buy model (C3 confirmed: the 13
+      live features alone give test IC 0.324 capped / 0.415 first). Depends on tracked-wallet density (verifier): log
+      n_tracked_wallets with each row and re-check on live-period data.
+  - name: dd_rate_7d
+    head: entry
+    status: provisional
+    definition: "Share of the leader's dd_ledger rows with done = 1 and avail_at in [t-7d, t) that are dead: one row per copy-eligible buy, avail_at = buy_ts + 2 h 15 s, dead = no ok tracked swap of the mint with ts in [buy_ts + 60 min, buy_ts + 120 min)."
+    window: "[t-7d, t) on avail_at"
+    transform: share
+    missing_flag: true
+    default: train_mean
+    live_source: "ledger: MirrorLedger.ddRate(leader, t) over dd_ledger (leader, avail_at)"
+    python_source: "build.py dd_rows; avail_at = max(buy_ts + 2 h 15 s, ins_ts of the buy and of the first ok swap in the hour when alive)"
+    evidence: >-
+      leader-signal C16 confirmed: top-tape-skill leaders' coins go silent within 2 h (Q5 75.5 %/88.1 % vs Q1 54.7 %/69.5 %);
+      IC 0.12/0.29 on the tape. With C6 (silent coins = collapsed quotes), a high value means 'fast flipper of coins that
+      rug': only copyable with an immediate exit. Depends on tracked density like ps_r_7d.
+  # ---------------- leader: style and activity (one wallet_swaps scan feeds all five) ----------------
+  - name: b_first_7d
+    head: entry
+    status: core
+    definition: >-
+      Over the leader's buys with sol_amount >= 0.05 and ts in [T-7d, T): distinct mints / buys (the share of buys that
+      were the leader's first buy of that mint inside the window). Missing when there are none.
+    window: "[T-7d, T), first-buy lookback also inside the window"
+    transform: share
+    missing_flag: true
+    default: train_mean
+    live_source: "db: SELECT mint, side, sol_amount, ts FROM wallet_swaps WHERE wallet = leader AND ts >= T - 7d AND ts < T (idx_swaps_wallet_ts)"
+    python_source: "build.py leader pass over the leader's stored swaps with ins_ts < t (interval counts; distinct mints as merged per-mint intervals)"
+    evidence: >-
+      leader-signal: IC -0.17/-0.34 (first; leaders who re-buy do better); baselines lb_first_share_7d #1 by |SHAP| (0.035,
+      sign -0.86). Fix from verifiers: the all-history first-buy flag cannot be reproduced live (7-day retention).
+  - name: lf_flip60_7d
+    head: entry
+    status: core
+    definition: >-
+      Over the leader's buys with sol_amount >= 0.05 and ts in [T-7d, T-60s) (a buy counts once its 60 s are over): the
+      share with a sell of the same mint by the leader with ts in [buy ts, buy ts + 60 s]. Missing when there are none.
+    window: "[T-7d, T-60s)"
+    transform: share
+    missing_flag: true
+    default: train_mean
+    live_source: "db: the same wallet_swaps scan as b_first_7d"
+    python_source: "build.py leader pass; a sell counts once stored (the earliest ins_ts among the qualifying sells)"
+    evidence: >-
+      baselines: |SHAP| 0.004 sign +0.88; leader-signal C12 confirmed: for bot-like leaders (>= 80 % sold within 60 s)
+      leader return ranks copy return at Spearman 0.13 vs 0.48 for others. Identifies flippers; pair with leader_sold_at_decision.
+  - name: b_n_24h
+    head: entry
+    status: core
+    definition: "Number of the leader's buys with sol_amount >= 0.05 and ts in [T-24h, T)."
+    window: "[T-24h, T)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "db: the same wallet_swaps scan as b_first_7d"
+    python_source: "build.py leader pass"
+    evidence: "leader-signal: IC 0.13/0.28 (first); baselines lb_n_24h sign -0.87 in the full model (correlated features share credit)."
+  - name: leader_n_prior7
+    head: entry
+    status: core
+    definition: "Number of distinct mints the leader bought with sol_amount >= 0.2 (a copy-eligible buy) with ts in [T-7d, T). No entry-price condition."
+    window: "[T-7d, T)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "db: the same wallet_swaps scan as b_first_7d"
+    python_source: "build.py leader pass"
+    evidence: >-
+      social C17 weakened: only the 0-prior bucket is robustly negative (test -9.4 %, mint-bootstrap CI -15.7 to -4.1 %;
+      -11.0 % under a stored-at-t recount); 1-19 buckets flip sign under the recount; 7-day window gives the same pattern
+      (0: -9.3 %). Cold-start signal and the n_own for social shrinkage.
+  - name: b_size_ratio
+    head: entry
+    status: low_priority
+    definition: "ln(leader sol_amount) minus the mean ln(sol_amount) of the leader's buys with sol_amount >= 0.05 and ts in [T-7d, T); missing when there are none."
+    window: "[T-7d, T)"
+    transform: "clip:-5,5"
+    missing_flag: true
+    default: 0.0
+    live_source: "db: the same wallet_swaps scan as b_first_7d"
+    python_source: "build.py leader pass"
+    evidence: "leader-signal IC -0.065/-0.133 (first; an unusually large buy does worse), near 0 capped; baselines lb_conv sign +0.95 (opposite, small). Weak and sign-unstable: low priority."
+  # ---------------- the incoming swap ----------------
+  - name: log_fee
+    head: entry
+    status: provisional
+    definition: "ln(1 + fee_lamports) of the leader's buy transaction (priority fee); missing when absent or negative."
+    window: "the incoming swap"
+    transform: none
+    missing_flag: true
+    default: train_mean
+    live_source: "swap: fee_lamports"
+    python_source: "episodes.fee_lamports"
+    evidence: "baselines B3 model: |SHAP| 0.018, sign -0.80 (high-fee buys worse to copy). Model-importance evidence only (no ablation)."
+  - name: venue_group
+    head: entry
+    status: core
+    definition: >-
+      Venue of the leader's swap, lower-cased with ' (via bot)' stripped, mapped by venue_groups below (first match);
+      missing venue = level 'missing'. The level list is fixed from fit training rows (conventions.categorical).
+    window: "the incoming swap"
+    transform: onehot
+    missing_flag: false
+    default: "missing"
+    venue_groups:
+      - {level: pumpfun_curve, venues: ["pumpfun"]}
+      - {level: pumpswap, venues: ["pumpswap"]}
+      - {level: meteora_damm_v2, venues: ["meteora damm v2"]}
+      - {level: meteora_other, prefix: "meteora"}
+      - {level: raydium, prefix: "raydium"}
+      - {level: orca, prefix: "orca"}
+      - {level: jupiter, venues: ["jupiter"]}
+      - {level: other, prefix: ""}
+    live_source: "swap: venue"
+    python_source: "episodes.venue"
+    evidence: >-
+      Venue dominates rug risk: real-quote 1 h dead rate given a tape-alive coin pumpswap 0.80/0.79/0.26 by period vs
+      0-0.03 other venues (regimes C3 confirmed); stale pumpswap 24 h exits 0.958 dead (n=283, regimes verifier). The
+      creator effect lives only on pumpfun_curve (coin-launch C14). meteora_damm_v2 drove every 'profitable' test number
+      (baselines, execution C22) but only through a simulator exit artifact: regime level, not an edge. 'jupiter'
+      (aggregator-routed buys, 5 % of episodes) is its own level.
+  - name: venue_via_bot
+    head: entry
+    status: low_priority
+    definition: "1 if the venue string carries ' (via bot)', else 0."
+    window: "the incoming swap"
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "swap: venue"
+    python_source: "episodes.venue"
+    evidence: "execution s11: pumpfun / pumpswap via bot about -11 % after costs with the leader-follow exit (tape, upper bound)."
+  - name: sfx_pump
+    head: entry
+    status: core
+    definition: "1 if the mint address ends in 'pump', else 0."
+    window: static
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "swap: mint"
+    python_source: "episodes.mint"
+    evidence: >-
+      coin-launch C3 confirmed: price labels agree with real quotes for safe coins (Spearman +0.86, n=107) and not for
+      unsafe ones (-0.11, n=342). C10 weakened: non-pump coins are inflated on train labels, but test 'other'-suffix coins
+      were not rugs (dead1h 0.15, n=48), so it is a feature, not a gate.
+  - name: log_mcap_sol
+    head: entry
+    status: core
+    definition: "log10(leader price_sol x 1e9) (market cap in SOL assuming a 1e9 supply); equivalently log10 of the price, so together with venue_group it carries the pumpswap high-price risk continuously. Missing when price_sol <= 0 or not finite."
+    window: "the incoming swap"
+    transform: "clip:-1,8"
+    missing_flag: true
+    default: train_mean
+    live_source: "swap: price_sol"
+    python_source: "episodes.leader_price_sol"
+    evidence: "coin-launch C21 confirmed: direction unstable (rho +0.022 train / -0.108 test) but dud AUC 0.665 test; sim-fidelity log price x pumpswap AUC 0.925 test for unsellability (test-informed)."
+  - name: leader_sold_at_decision
+    head: entry
+    status: core
+    definition: >-
+      Tokens the leader sold of this mint in sells with ts >= T delivered before t, divided by its post-buy position
+      (token_balance_before + token_amount of this buy), capped at 1; 0 if none or the position is unknown (<= 0).
+    window: "[T, t)"
+    transform: "clip:0,1"
+    missing_flag: false
+    default: 0.0
+    live_source: "ring: StreamState.leaderHolding(leader, mint): soldTokens / postBuyTokens"
+    python_source: "build.py: the leader's sells of the mint with ts >= T and ins_ts < t (offline t = T + 1 s: same-second sells already stored)"
+    evidence: >-
+      execution C14 weakened: the leader's first sell lands before a 4.2 s copier fill on 22-24 % of all first buys but
+      only 1.6 % of test copy decisions and 11 % of shadow candidates; price-exits C3: 46 %/43 % sold before a 15 s tape
+      entry. Copies into an already-exited flip are the bulk of the losing rows (baselines verifier).
+  - name: signal_lateness_sec
+    head: entry
+    status: provisional
+    definition: "t - T in seconds (decision time minus the leader's block time), floored at 0."
+    window: "the incoming swap"
+    transform: log1p
+    missing_flag: false
+    default: 1.0
+    live_source: "swap: now - ts"
+    python_source: "DECISION_LAG_SEC = 1 in features_entry; the simulator overwrites it with its drawn lateness (stress.yaml: p50 0.77 s, p99 17.3 s)"
+    evidence: "regimes C17 confirmed: on a common subset, train follow-exit net +0.0018 at 5 s vs -0.0025 SOL/copy at 60 s; C18: stream lateness p50 0.77 s, p99 17.3 s (n=2,793)."
+  # ---------------- the coin ----------------
+  - name: mint_first_seen_age_min
+    head: entry
+    status: core
+    definition: >-
+      Minutes from the mint's first sighting (brain_token_first_seen.first_seen_at) to t, capped at 10,080. Missing (value
+      0, missing = 1) when the server has no sighting, or first_seen_at >= T (this swap, or its block second, is the first
+      sighting).
+    window: "first sighting, capped at 7 d"
+    transform: log1p
+    missing_flag: true
+    default: 0.0
+    live_source: "ring: StreamState.firstSeen(mint).firstSeenAt (persisted in brain_token_first_seen)"
+    python_source: >-
+      build.py: sighting S = the mint's earliest ins_ts (the first time the server stored any of its swaps); first_seen_at
+      = the earliest ts among its swaps stored by S with ts >= S - 7 d (state.ts firstSighting: earliest stored row
+      within 7 d, or the arriving swap). Counts when S < t.
+    evidence: "baselines m_age_tracked_min |SHAP| 0.008 sign -0.49; the young_amm gate is built on it; 14.5 % of test signals are a first sighting (social C10). Survives the insert-time redefinition (coin-launch x06)."
+  - name: cr_seen_prior_7d
+    head: entry
+    status: core
+    definition: >-
+      Number of OTHER mints with the same creator whose first_seen_at is in [t-7d, t). Missing while the mint's creator is
+      unknown (not resolved yet, or resolved to none).
+    window: "[t-7d, t) on first_seen_at"
+    transform: log1p
+    missing_flag: true
+    default: train_mean
+    live_source: "db: brain_token_first_seen, COUNT(*) by index (creator, first_seen_at) for the creator recorded on the mint's own first-sighting row, mint != this one (state.ts creatorCoins7d)"
+    python_source: >-
+      build.py: creator from token_info.creator (backfilled: resolution timing cannot be checked offline, C16); each
+      other mint counts from its sighting S (S < t) while its first_seen_at >= t - 7 d.
+    evidence: >-
+      coin-launch C14 confirmed: 10+ vs first-time creators -0.185 [-0.215,-0.152] train, -0.146 [-0.216,-0.085] test
+      (creator-cluster CI); negative on 15/15 train and 4/4 test days; survives insert-time first seen (-0.129 test).
+      Confined to pumpfun_curve buys and recently first-seen coins (null on pumpswap), so the model needs venue_group
+      alongside. C15: first-time creators produce more runners (19.5 % vs 10.5 % test). Creator resolution timing could
+      not be checked offline (token_info.creator backfilled; C16 weakened).
+  - name: ret_since_first
+    head: entry
+    status: core
+    definition: >-
+      ln(leader price_sol / first_ok_price), where first_ok_price is the mint's first ok tracked price from a swap with
+      sol_amount >= 0.01 as recorded at first sighting (brain_token_first_seen.first_ok_price; set by the first such
+      stream swap when none was stored). Missing when there is none, first_ok_price_at >= T (set by this swap or its
+      block second), or price_sol <= 0.
+    window: "first sighting"
+    transform: "clip:-5,7"
+    missing_flag: true
+    default: train_mean
+    live_source: "ring: StreamState.firstSeen(mint).firstOkPrice / firstOkAt"
+    python_source: >-
+      build.py: the earliest-ts ok swap with sol_amount >= 0.01 among those stored by S (first_ok_price_at = its ts);
+      when there is none, the first such swap stored after S (first_ok_price_at = its ins_ts).
+    evidence: "coin-launch C19 confirmed: stop-60 AUC 0.778 train / 0.777 test (pump), dud AUC 0.62/0.68; mean-return effect not significant, so it informs stake and stop risk. Live missing rate will be high (54 % of test episodes had no prior swap known at t)."
+  - name: dd_from_high
+    head: entry
+    status: low_priority
+    definition: "ln(leader price_sol / the highest ok tracked price of the mint with ts in [T-7d, T-60s) delivered before t); missing when there is none or price_sol <= 0."
+    window: "[T-7d, T-60s)"
+    transform: "clip:-6,3"
+    missing_flag: true
+    default: train_mean
+    live_source: "ring: StreamState.maxOkBefore(mint, T - 60 s, t): the ring's ok prices plus the highest ok price that left the ring (max_ok_price, with its ts); the window is on BLOCK time ts, delivery only decides whether a swap is known (at < t)"
+    python_source: >-
+      build.py: exact sliding maximum over the mint's ok swaps (a swap counts from its ins_ts, for ts in the window). Live
+      keeps one max for everything that left the ring and drops it once its ts is older than T - 7 d, so for a coin whose
+      high is more than 7 days old live reads only the ring while offline reads the best price inside the 7 days (rare:
+      such coins are older than the junk-wallet retention).
+    evidence: "coin-launch C20 confirmed: rho -0.048/-0.056, negative on 14/14 train and 4/4 test days; quintile CI includes 0. Small but stable in sign."
+  - name: log_token_age
+    head: entry
+    status: provisional
+    definition: "ln(1 + max(0, T - pool_created_at) seconds), using token_info.pool_created_at ONLY if token_info.launch_checked_at < t; else missing."
+    window: "the incoming swap"
+    transform: none
+    missing_flag: true
+    default: train_mean
+    live_source: "db: token_info row of the mint (primary key); never an RPC/GeckoTerminal call on the decision path"
+    python_source: "export token_info (pool_created_at, launch_checked_at): true for only 19-26 % of episodes (coin-launch C27)"
+    evidence: >-
+      execution feature_issue: wallet_swaps.token_age_sec is backfilled later (analyze.ts fillTokenAges), not on the
+      stream swap. Within safe coins the screening token age is the strongest field (coin-launch C24 weakened: rho +0.51 at
+      24 h, n=98). The 'token age 1-10 min pays' bucket is tail-driven (execution C21 weakened). Missingness is informative.
+  - name: m_buyers_5m
+    head: entry
+    status: provisional
+    definition: "Distinct tracked wallets other than the leader with an ok BUY of the mint with ts in [T-5min, T) delivered before t."
+    window: "[T-5min, T)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "ring: StreamState ring of the mint (ok buys, leader excluded)"
+    python_source: "build.py: wallet_swaps + archive with the INSERT-TIME rule (NOT bars_1m.n_buyers, which counts backfilled swaps and the leader itself)"
+    evidence: >-
+      coin-launch C17/C18 weakened: sign flips by day and tracks both tracked-population size (+0.90) and the late-insert
+      share (-0.81); known-by-t buyers_15m averaged 0.03 vs 4.70 offline on test days. Only usable together with
+      tracked_active_wallets_1h and day-balanced training weights; re-test on real-time-ingest days.
+  - name: m_buysol_5m
+    head: entry
+    status: provisional
+    definition: "Total SOL of ok BUYS of the mint by tracked wallets other than the leader with ts in [T-5min, T) delivered before t."
+    window: "[T-5min, T)"
+    transform: log1p
+    missing_flag: false
+    default: 0.0
+    live_source: "ring: same ring as m_buyers_5m"
+    python_source: "same rebuild as m_buyers_5m"
+    evidence: "baselines |SHAP| 0.010 sign +0.66; same insert-lag confound as m_buyers_5m."
+  # ---------------- regime ----------------
+  - name: tracked_active_wallets_1h
+    head: entry
+    status: core
+    definition: "Distinct tracked wallets with a swap the stream delivered during the previous complete UTC hour before t; missing when no server process saw that whole hour."
+    window: "previous complete UTC hour"
+    transform: log10
+    missing_flag: false
+    default: train_mean
+    live_source: "ring: StreamState.activeWallets1h(t) (persisted per whole hour in brain_active_wallets_hourly)"
+    python_source: >-
+      build.py: distinct wallets with a swap whose ts is in that hour and whose ins_ts is before the hour ends (delivered
+      during the hour). Missing (build.active_hours) when no process saw the hour: nothing delivered in it (119 hours,
+      mostly 10-16..10-21 and 10-26, where every swap was backfilled), an ingest outage derive masks (outage_hours
+      without the export tail), or under 10 % of both neighbouring hours (an outage inside the hour: 10-29 16:00). Never
+      0: live sends a count or missing, so a 0 would be a value only the training data has.
+    evidence: >-
+      The tracked universe changed about 60x inside the data (353 wallets/day 10-17 to 22,896 on 10-29, about 3k on test,
+      1,199 on 11-06; price-exits verify/v06_tracked_universe.py). Crowd, staleness and dead-coin features all depend on
+      it; the model needs it to separate 'quiet coin' from 'few tracked wallets'.
+  - name: hour_sin
+    head: entry
+    status: low_priority
+    definition: "sin(2*pi*h/24), h = UTC hour (fractional) of t."
+    window: clock
+    transform: none
+    missing_flag: false
+    default: 0.0
+    live_source: "swap: server clock at t"
+    python_source: "t = T + 1 s"
+    evidence: "regimes C14/C15 weakened: train-vs-test hour profile Spearman 0.64; the 05-09 vs 15-23 UTC contrast is significant only under uniform p_dead 0.67 (the 3-level hour_block test was mis-binned and is dropped)."
+  - name: hour_cos
+    head: entry
+    status: low_priority
+    definition: "cos(2*pi*h/24), h as above."
+    window: clock
+    transform: none
+    missing_flag: false
+    default: 1.0
+    live_source: "swap: server clock at t"
+    python_source: "t = T + 1 s"
+    evidence: "as hour_sin"
+  # ---------------- social ----------------
+  - name: social_score
+    head: entry
+    status: provisional
+    definition: >-
+      social_scores.score of the leader (the social model's predicted 14-day copy return minus the population mean, written
+      hourly) times 18/(18 + leader_n_prior7) (raw count), when the row exists, its model_version is the live social model
+      and updated_at is within 48 h of t; else 0.
+    window: "lookup at t (social inputs [t-30d, t); score refreshed hourly)"
+    transform: none
+    missing_flag: false
+    default: 0.0
+    live_source: "db: social_scores row of the leader (primary key); point-in-time training needs an append-only social_score_history"
+    python_source: "social_score_history (does not exist yet); 0 for all historical rows"
+    evidence: >-
+      No X data exists (x_* tables empty). Upper bound on value: +1.9 % to +2.9 % per copy on about 6.5 % of signals at
+      rho 0.2-0.3 (social C19 confirmed). Its weight stays 0 until the social gate passes (see social.gate).
+  - name: social_missing
+    head: entry
+    status: core
+    definition: "1 when social_scores has no row for the leader, its model_version is not the live one, or updated_at is older than 48 h; else 0. 1 for every row until social data exists."
+    window: "lookup at t"
+    transform: none
+    missing_flag: false
+    default: 1
+    live_source: "db: the same social_scores row"
+    python_source: "constant 1 for all historical rows"
+    evidence: "CONTRACT.md social section; social cold-start plan."
+
+exit:
+  # ---------------- runtime exit state (agent/src/brain/paper.ts ExitState) ----------------
+  # t = the exit decision time. The simulator calls brain.features.exit.exit_raw / exit_matrix with the same fields
+  # (inputs listed in brain/brain/features/exit.py; flow() turns a ring into the oth_* / pts_5m inputs).
+  - name: ret_now
+    head: exit
+    status: core
+    definition: >-
+      Mark price / entry fill price - 1, before fees. Live mark = the stream's last ok price of the mint, or a Jupiter sell
+      quote / tokens_left when the stream price is older than 90 s. When the quote has no route the mark is NOT kept at the
+      last price: ret_now becomes the last price x the dead-coin factor and quote_failed = 1 (paper.ts priceOf fix).
+      Offline the simulator produces the same thing: at stale minutes it issues a simulated quote (sim.yaml mark_model).
+    window: "now"
+    transform: "clip:-1,20"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.ret_now (with the trailing outlier filter on stream prices)"
+    python_source: "brain sim mark_model over derived/episode_paths (dense_paths) + quote simulation"
+    evidence: "price-exits C20 confirmed: P(up next hour | seen) falls past +100 %; reward-design C15: forward-filled marks overstate the sell value by +0.085-0.114 SOL per 0.1 SOL, so offline marks must imitate live quote marks."
+  - name: peak_ret
+    head: exit
+    status: core
+    definition: "Max of ret_now since entry, computed only on prices passing the TRAILING outlier filter."
+    window: "since entry"
+    transform: "clip:-1,20"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.peak_ret (paper.ts peak_pct, with the trailing filter before updating: a real position recorded a +1.7e11 % peak; price-exits C24)"
+    python_source: "simulator state (max of its marks)"
+    evidence: "price-exits C20: P(up next hour | seen) 54/62 % at +5-20 % peak vs 32/33 % above 4x; C24 confirmed: the corrupt live peak."
+  - name: drawdown_from_peak
+    head: exit
+    status: core
+    definition: "max(0, 1 - (1 + ret_now) / (1 + peak_ret)); 0 when 1 + peak_ret <= 0."
+    window: "since entry"
+    transform: "clip:0,1"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: computed from ExitState.ret_now and peak_ret"
+    python_source: "from ret_now and peak_ret"
+    evidence: "price-exits C20 confirmed: P(up next hour | seen) 59/63 % at dd <= 5 % vs 22/30 % at dd > 70 %, monotone in train and test (survivor-conditioned; not a decision value on its own)."
+  - name: minutes_held
+    head: exit
+    status: core
+    definition: "(t - entry fill time) / 60 s."
+    window: "since entry"
+    transform: log1p
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.minutes_held"
+    python_source: "simulator state (k of the dense path)"
+    evidence: "price-exits C23: 2nd gain for y15s (17 %); holding past ~15 min loses under every rule (C11 ordering is the robust part)."
+  - name: leader_sold
+    head: exit
+    status: core
+    definition: "1 once the stream has delivered any sell of this mint by the leader after its copied buy, else 0."
+    window: "since the leader's buy"
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "position: ExitState.leader_sold"
+    python_source: "simulator state (the leader's first sell, delivered before t)"
+    evidence: "execution C13 weakened: the leader sold before the coin died in 238/280 dead coins counting sells that land while alive, but 31 % of dead coins never had a leader sell (those lose -80 to -97 % under leader-follow)."
+  - name: half_sold
+    head: exit
+    status: core
+    definition: "1 after a sell_half was executed on this position, else 0."
+    window: "since entry"
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "position: ExitState.half_sold"
+    python_source: "simulator state"
+    evidence: "CONTRACT.md: sell_half allowed once."
+  - name: minutes_since_price
+    head: exit
+    status: core
+    definition: >-
+      Minutes since the position last had a fresh price from the stream OR a successful sell quote, capped at 60. Live this
+      is almost always < 1.5 unless quotes fail. Offline it is the simulated equivalent: min(tracked age, 1.5) while the
+      simulated quote has a route, else the age since the last successful (simulated) quote.
+    window: "since the last price"
+    transform: "clip:0,60"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.minutes_since_price"
+    python_source: "brain sim mark_model"
+    evidence: "reward-design and regimes verifiers: the raw offline value (89-96 % of hold minutes stale on the tracked tape) does not match live (quote every 90 s); feeding the raw offline age would teach 'stale = dead' from a state live rarely sees."
+  - name: position
+    head: exit
+    status: core
+    definition: "tokens_left / tokens bought (1.0 before a sell_half, 0.5 after); 1 when tokens bought <= 0."
+    window: "now"
+    transform: none
+    missing_flag: false
+    default: 1.0
+    live_source: "position: ExitState.position (PaperPosition tokens_left / tokens)"
+    python_source: "simulator state"
+    evidence: "required runtime state (CONTRACT.md)."
+  # ---------------- extra path features supported by the evidence ----------------
+  - name: mins_since_tracked_price
+    head: exit
+    status: core
+    definition: "Minutes since the last ok-priced swap of this mint by ANY tracked wallet delivered before t (not reset by quotes or untracked stream swaps); capped at 1440."
+    window: "since entry (cap 1440)"
+    transform: log1p
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.mins_since_tracked_price (StreamState.lastTracked, kept as last_tracked_price_ts on the position)"
+    python_source: "simulator state (dense_paths minutes with n > 0)"
+    evidence: >-
+      price-exits C23: top gain for hold-vs-sell (35-42 %), but the verifier showed much of that encodes the f(age)
+      calibration used in the target (C21 weakened: on freshly priced points the model reaches Spearman 0.33). Real
+      quotes fall from -0.3 % (age <= 1 min) to -75 % (5-30 min) to -99.98 % (3-24 h) of the last tracked price (C7
+      confirmed, n=4,188). Depends on tracked_active_wallets_1h (carried below).
+  - name: quote_failed
+    head: exit
+    status: core
+    definition: "1 if the latest sell quote attempt for this position returned no route / below-minimum / error, else 0."
+    window: "latest quote attempt"
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "position: ExitState.quote_failed (brain_paper_positions.quote_failed)"
+    python_source: "brain sim mark_model (simulated quote has no route once the coin is dead)"
+    evidence: "sim-fidelity C11 confirmed: unsellability is absorbing (0.3 % recover) and happens only when the tracked tape dies; C12: 'no Jupiter price' detects it at the same moment with precision/recall 0.98-0.99 (concurrent, near-tautological with quote failure)."
+  - name: sell_quote_ratio
+    head: exit
+    status: provisional
+    definition: "Latest successful sell quote (SOL) / (tokens_left x last ok stream price), clipped to [0, 2]; missing when no quote in the last 5 min or no stream price."
+    window: "latest quote within 5 min"
+    transform: "clip:0,2"
+    missing_flag: true
+    default: 1.0
+    live_source: "position: ExitState.sell_quote_ratio (null = missing); no extra Jupiter load (exit quotes need their own rate budget: 6/13 failed real sells were HTTP 429)"
+    python_source: "simulated quote / tape price (mostly m(age) or 0); historical real values only in shadow_samples (about 4.3k)"
+    evidence: "execution C16 confirmed: 4.5 % of quotes taken against a fresh tape price come back > 90 % below it (n=1,417); C17: 5/40 real sells did."
+  - name: mom5
+    head: exit
+    status: core
+    definition: "ln(max(1e-9, 1 + ret_now)) - ln(max(1e-9, 1 + ret_now 5 minutes earlier)), using the same marks (the entry, ret 0, for a position younger than 5 min)."
+    window: "last 5 min"
+    transform: "clip:-3,3"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.ret_now and ret_5m_ago (the position's own ring of minute marks)"
+    python_source: "simulator marks"
+    evidence: "price-exits C20 confirmed: after a > +30 % 5-min spike P(up) 32/41 % vs 56/70 % after +5-30 %; 5.5 % of y15s gain."
+  - name: oth_buyers_5m
+    head: exit
+    status: core
+    definition: "Distinct tracked wallets other than the leader with a BUY (any price) of this mint with ts in [t-5min, t) delivered before t."
+    window: "[t-5min, t)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "ring: StreamState ring of the mint (flow, leader excluded)"
+    python_source: "simulator: wallet_swaps + archive with the insert-time rule (not bars_1m.n_buyers); brain.features.flow on a ring"
+    evidence: "price-exits C21/C23: top gain for the next-hour return (15 %); flow group lifts test Spearman 0.34 -> 0.44 (offline, survivor-conditioned target). Insert-lag caveat as m_buyers_5m."
+  - name: oth_sellers_5m
+    head: exit
+    status: core
+    definition: "Distinct tracked wallets other than the leader with a SELL of this mint with ts in [t-5min, t) delivered before t."
+    window: "[t-5min, t)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "ring: same ring"
+    python_source: "same rebuild"
+    evidence: "price-exits C23: 11 % of r60 gain."
+  - name: oth_net_sol_5m
+    head: exit
+    status: core
+    definition: "SOL bought minus SOL sold of this mint by tracked wallets other than the leader, ts in [t-5min, t), delivered before t (every swap, priced or not)."
+    window: "[t-5min, t)"
+    transform: signed_log
+    missing_flag: false
+    default: 0.0
+    live_source: "ring: same ring"
+    python_source: "same rebuild"
+    evidence: "price-exits C23: oth_buy_sol / oth_sell_sol 8 % each of r60 gain."
+  - name: pts_5m
+    head: exit
+    status: core
+    definition: "Number of ok-priced tracked swaps of the mint (anyone's, the leader's included) with ts in [t-5min, t) delivered before t."
+    window: "[t-5min, t)"
+    transform: log1p
+    missing_flag: false
+    default: 0
+    live_source: "ring: same ring"
+    python_source: "same rebuild"
+    evidence: "price-exits: P(dark next 60 min) 89-92 % with 0 points vs 13-22 % with > 50; 5 % of y60s gain."
+  - name: leader_sold_frac
+    head: exit
+    status: core
+    definition: "Cumulative tokens sold by the leader in this mint since its copied buy (delivered before t) / leader_post_buy_tokens (token_balance_before + token_amount of the copied buy), capped at 1; 0 when the holding is unknown. ONE definition on both sides."
+    window: "since the leader's buy"
+    transform: "clip:0,1"
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.leader_sold_frac (brain_paper_positions.leader_sold_tokens / leader_post_buy_tokens)"
+    python_source: "episodes leader_pos_tokens + raw leader sells delivered before t (simulator)"
+    evidence: "price-exits C23: 10 % of r60 gain; leader group lifts r60 Spearman 0.28 -> 0.34. As an exit RULE leader-follow loses (price-exits C11 ordering) - use as a feature. Verifier: live and offline definitions differed; fixed here."
+  - name: minutes_since_leader_sold
+    head: exit
+    status: core
+    definition: "Minutes since the leader's first sell after its copied buy (0 when leader_sold = 0)."
+    window: "since the leader's buy"
+    transform: log1p
+    missing_flag: false
+    default: 0.0
+    live_source: "position: ExitState.minutes_since_leader_sold (brain_paper_positions.leader_sold_at)"
+    python_source: "episodes.leader_first_sell_ts (simulator, once delivered)"
+    evidence: "baselines verifier: every simulated profit on fast flips came from holding ~60 s past the leader's exit; under a realistic follow exit the same picks lose -0.0013 SOL/copy. The exit head must see how long ago the leader left."
+  - name: entry_venue_pumpswap
+    head: exit
+    status: core
+    definition: "1 if the position's entry swap venue (lower-cased, ' (via bot)' stripped) starts with 'pumpswap', else 0 (carried from entry)."
+    window: static per position
+    transform: none
+    missing_flag: false
+    default: 0
+    live_source: "position: brain_paper_positions.venue"
+    python_source: "episodes.venue"
+    evidence: "regimes C3 confirmed + verifier: stale pumpswap exits 0.958 dead (n=283) vs pumpfun curve 0.034 (n=29); 32 % of pumpswap 1 h quotes dead even with a fresh tape."
+  - name: entry_tracked_active_wallets_1h
+    head: exit
+    status: core
+    definition: "tracked_active_wallets_1h at the exit decision time t (previous complete UTC hour before t); missing when no process saw that hour."
+    window: "previous complete hour"
+    transform: log10
+    missing_flag: false
+    default: train_mean
+    live_source: "ring: StreamState.activeWallets1h(t), the same cache as the entry feature"
+    python_source: "the entry feature's hourly table at t"
+    evidence: "price-exits feature_issue: staleness and flow features depend on the tracked-universe size, which changed 60x."
+  - name: leader_ps_r_7d
+    head: exit
+    status: provisional
+    definition: "ps_r_7d of the position's leader as of entry time (carried); missing when it was missing at entry."
+    window: "as ps_r_7d"
+    transform: "clip:-1,3"
+    missing_flag: true
+    default: train_mean
+    live_source: "position: the entry decision's ps_r_7d, stored with the position"
+    python_source: "features_entry.ps_r_7d of the episode"
+    evidence: "leader-signal: positive = leader sells too early (a candidate 'hold longer than the leader' input); IC 0.18/0.30 on the tape. Provisional like ps_r_7d."
+
+social:
+  privacy: "Private. Never rendered on the site, API, snapshots or logs; the collector logs counts only. brain_transitions feature vectors containing social_score are never published."
+  target: >-
+    y14(w, t) = mean reference net copy return over w's copy-eligible first buys in [t, t+14d), only when there are >= 5;
+    training weight n/(n+18); matures at t + 15 d. Reference return = the strict mirror y of cp_lrshr_7d (same ledger),
+    switching to realised paper P&L per copy after a month of paper trading.
+  gate: >-
+    social_score enters with weight > 0 only after >= 300 owner-linked wallets with matured y14 pass ONE pre-registered
+    out-of-time test (raw and partial on the wallet's own record, both lower CIs > 0). Power: rho 0.3 needs 399 linked
+    wallets at 5 copies or 164 at 20 copies (social C22 weakened: under the 'mid' link-rate scenario only 192 wallets with
+    >= 5 copies exist, so the gate may be unreachable with today's population). Earliest: X start + about 29 days.
+  link_rule: "Owner-grade links only (bio / tweet / timing, or a mention by an author linked to <= 3 wallets) with first_seen_at < t; authors posting > 3 distinct wallets are trackers."
+  inputs:
+    - name: acct_age_days
+      definition: "(t - created_at)/86400 for the linked owner account (most followers if several)"
+      window: static
+      transform: log1p
+      missing_flag: true
+      default: train_mean
+      live_source: "social_accounts.created_at (hourly scorer)"
+      evidence: "design only (no X data)"
+    - name: followers_log
+      definition: "log1p(followers) from the latest social_account_snapshots row with fetched_at < t"
+      window: "latest snapshot before t"
+      transform: none
+      missing_flag: true
+      default: train_mean
+      live_source: "social_account_snapshots (append-only)"
+      evidence: "design only"
+    - name: follower_growth_7d
+      definition: "ln(followers now / followers at the newest snapshot >= 7 d older)"
+      window: "7 d"
+      transform: "clip:-3,3"
+      missing_flag: true
+      default: 0.0
+      live_source: "social_account_snapshots"
+      evidence: "design only"
+    - name: post_rate_7d
+      definition: "(tweet_count at the latest snapshot - tweet_count at the snapshot >= 7 d older) / days between"
+      window: "7 d"
+      transform: log1p
+      missing_flag: true
+      default: train_mean
+      live_source: "social_account_snapshots (profile reads cost no posts)"
+      evidence: "design only"
+    - name: ca_share_30d
+      definition: "Share of the account's original posts in [t-30d, t) with fetched_at < t containing >= 1 mint (text + expanded URLs + note_tweet)"
+      window: "[t-30d, t)"
+      transform: share
+      missing_flag: true
+      default: train_mean
+      live_source: "social_posts.mints (needs tweet.fields=entities,note_tweet and unknown-mint resolution)"
+      evidence: "design only; today mints inside links are invisible (social gap 3)"
+    - name: buy_before_call_share_30d
+      definition: "Over pairs (post with mint m in [t-30d,t), linked wallet's first buy of m within +-24 h, both before t): share where the buy came first; missing if < 3 pairs"
+      window: "[t-30d, t)"
+      transform: share
+      missing_flag: true
+      default: train_mean
+      live_source: "social_posts join wallet_swaps(wallet, mint, ts) in the hourly scorer"
+      evidence: "design only (x/calls.ts timing links use the same idea)"
+    - name: median_call_lag_min
+      definition: "Median signed minutes from the wallet's buy to the post, over the same pairs"
+      window: "[t-30d, t)"
+      transform: signed_log
+      missing_flag: true
+      default: 0.0
+      live_source: "same join"
+      evidence: "design only"
+    - name: engagement_med_30d
+      definition: "Median log1p(likes+reposts+replies+quotes) over posts in [t-30d,t) read >= 24 h after posting"
+      window: "[t-30d, t)"
+      transform: none
+      missing_flag: true
+      default: train_mean
+      live_source: "social_posts"
+      evidence: "design only (today engagement is read at a random age)"
+    - name: mentioned_by_callers_30d
+      definition: "Distinct caller-panel accounts that tagged the account or posted the wallet address in [t-30d, t)"
+      window: "[t-30d, t)"
+      transform: log1p
+      missing_flag: true
+      default: 0
+      live_source: "caller-panel posts with entities.mentions"
+      evidence: "design only"
+    - name: wallets_per_account
+      definition: "Distinct wallets linked to the account with link first_seen_at < t"
+      window: "all time before t"
+      transform: log1p
+      missing_flag: true
+      default: 0
+      live_source: "social_wallet_accounts (with link history)"
+      evidence: "design only; > 3 marks a tracker"
+    - name: accounts_per_wallet
+      definition: "Distinct accounts linked to the wallet with link first_seen_at < t"
+      window: "all time before t"
+      transform: log1p
+      missing_flag: false
+      default: 0
+      live_source: "social_wallet_accounts"
+      evidence: "design only"
+    - name: funder_cluster_size
+      definition: "Analyzed wallets sharing w's funder, counting only wallets with first_seen_at < t AND funder filled before t"
+      window: "all time before t"
+      transform: log1p
+      missing_flag: true
+      default: 0
+      live_source: "wallets.funder with a funder_filled_at column"
+      evidence: "social: 738 funders fund 2+ analyzed wallets (7,893 wallets), max 182; verifier: without the time filter it leaks."
+    - name: own_record_shrunk
+      definition: "The leader's own shrunk copy record, the social model's baseline: (sum y + 18 x pop_mean)/(n + 18) over mirror_ledger rows resolved in [t-7d, t)"
+      window: "[t-7d, t)"
+      transform: none
+      missing_flag: false
+      default: 0.0
+      live_source: "mirror_ledger"
+      evidence: "social C15 confirmed: own train vs test record Spearman 0.674 (n=2,089), but 0.24 after removing each mint's average return (persistence is mostly coin/cluster level). n* = 18 is a judgment call in a 7-36 range (C16)."
+
+# Logged on the server now (shadow), NOT trained on: too little history, too slow for 50 ms, or unvalidated.
+shadow_log:
+  - {name: screen_lp_locked_pct, why: "627 historical rows; ~0.56 s (p90 2.2 s) screen latency; used as gate input"}
+  - {name: screen_verdict, why: "same; pass 27 % vs blocked 83 % dead at 24 h (execution C15)"}
+  - {name: rugcheck_score, why: "fails the Bonferroni bar inside safe coins (coin-launch C24 weakened)"}
+  - {name: screen_token_age_sec, why: "strongest screening field inside safe coins (rho +0.51, n=98); check it is point-in-time"}
+  - {name: gate_quote_impact_pct, why: "1,312 rows only; Jupiter call ~1.3 s, 429-prone; not stationary (test round trip p50 2.2 % vs train 0.7 %)"}
+  - {name: gate_quote_drift_pct, why: "same"}
+  - {name: mirror_y_quote, why: "real Jupiter sell quote at the mirror exit: the label that should replace the tape y once >= 4 weeks exist"}
+  - {name: mkt_dead_rate_6h_pumpswap, why: "regime gauge from shadow quotes vs stream price; unvalidated, depends on the shadow population"}
+  - {name: coin_x_mentions_first_seen, why: "needs X; readiness only (14.5 % of signals are a first sighting)"}
+  - {name: jup_price_missing, why: "concurrent rug detector (precision/recall 0.98-0.99); the per-minute getPrices fetch runs only for real positions, not on the paper path"}
+  - {name: n_tracked_wallets_at_row, why: "stored on every ledger row so density-dependent features can be re-validated"}
+
+dropped:
+  - {name: ev_weight / wallet copy weight, why: "leader-signal C11: IC 0.018-0.034 train, sign flips on test; low-power null"}
+  - {name: leader own P&L (lt_pnl_7d, lt_ret_7d, ct_mlr_7d), why: "baselines |SHAP| 0.002-0.004 vs lc_mean_7d 0.033; leader returns are not copy returns (leader-signal C12)."}
+  - {name: ct_win_7d, why: "closed_trades is a batch table (coverage varies ~100x by day, no insert time) and no live structure computes it from wallet_swaps; weak (IC 0.15/0.30 first) and redundant with cp_win_7d. Dropped 2026-11-07 (one live source per feature)."}
+  - {name: entry-slippage history (sl_mean_7d), why: "leader-signal C14: persistent trait, IC ~0"}
+  - {name: entry_price_rank / token-age-at-entry history / *_all windows, why: "null or not live-reproducible; the 13 live features lose nothing (leader-signal C3)"}
+  - {name: c1_y_7d, why: "1 h tape return contradicted by real quotes (leader-signal C6)"}
+  - {name: lc_mean_7d / lc_ret7 (baselines, reward-design), why: "same concept as cp_lrshr_7d but built on the minute-close leader-follow artifact; replaced by the strict ledger"}
+  - {name: crowd regime features mkt_trail_stop_1h / mkt_trail_rug_1h / mkt_trail_ret_1h / mkt_buys_60m, why: "regimes C16: do not replicate on test with the follow exit"}
+  - {name: hour_block (3-level), why: "regimes C15: evaluation was mis-binned; only sin/cos kept, low priority"}
+  - {name: on-chain audience proxy, why: "social C21: adds nothing beyond own record (partial 0.028, CI -0.014 to 0.072); C20: it counts the leader itself"}
+  - {name: imb_sol_5m / log_sec_since_last_price / first_tracked_buyer, why: "coin-launch C21: no stable direction; regime-dependent sign"}
+  - {name: pool_age_sec / token_info pool age as training feature, why: "backfilled after the episode (coin-launch C27); log_token_age is used only when cached before t"}
+  - {name: mint_prior_swaps (all history), why: "archive-inflated and non-stationary (reward-design, execution verifiers); replaced by mint_first_seen_age_min and the 5-min ring features"}
+  - {name: ret_mark (price-exits f table), why: "f(age) table was fit with 1,651 test-period quotes (price-exits verifier); the simulator's mark model replaces it, refit walk-forward"}
+  - {name: young_amm / pumpswap_hiprice as features, why: "applied as gates; gated signals never reach the network"}

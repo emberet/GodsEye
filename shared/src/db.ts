@@ -43,7 +43,7 @@ export function openDbReadonly(file = dbFilePath()): DB {
 /** Columns added after a table was first created (CREATE TABLE IF NOT EXISTS won't add them). */
 const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallets: { shadow_only: "INTEGER NOT NULL DEFAULT 0", junk_reason: "TEXT", tx_per_hour: "REAL", history_from: "TEXT", history_oldest_sig: "TEXT", history_tx_read: "INTEGER NOT NULL DEFAULT 0", history_done: "INTEGER NOT NULL DEFAULT 0" },
-  wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL" },
+  wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL", ins_ms: "INTEGER" },
   token_info: { pool_address: "TEXT", launch_checked_at: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL", median_hold_sec: "REAL", same_block_round_trips: "INTEGER NOT NULL DEFAULT 0" },
   positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL", fee_sol: "REAL", peak_pct: "REAL", partial_done: "INTEGER NOT NULL DEFAULT 0" },

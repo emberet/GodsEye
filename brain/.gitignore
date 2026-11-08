@@ -1,0 +1,16 @@
+# Data, models and reports live in BRAIN_DATA_DIR (outside the repo). Never commit them.
+*.parquet
+*.csv
+*.csv.gz
+*.onnx
+*.pt
+*.npz
+/data/
+/runs/
+/reports/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+
+# Research findings are private (owner): kept on the drive (GodsEyeBrainData/research-code), never in this public repo.
+/research/

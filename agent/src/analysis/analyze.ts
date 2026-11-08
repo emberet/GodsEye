@@ -58,15 +58,17 @@ const CRASH_CHECKS_PER_RUN = 12;
 
 export function insertSwaps(db: DB, swaps: ParsedSwap[]): number {
   const ins = db.prepare(
-    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec, quote, quote_amount, sol_usd, usd_amount)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR IGNORE INTO wallet_swaps (wallet, signature, slot, ts, mint, side, token_amount, token_balance_before, sol_amount, price_sol, venue, jito_tip, fee_lamports, token_age_sec, quote, quote_amount, sol_usd, usd_amount, ins_ms)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   let n = 0;
+  // When GodsEye stored the rows (wallet_swaps.ins_ms): a re-delivered swap keeps its first insert time (INSERT OR IGNORE).
+  const insMs = Date.now();
   db.transaction(() => {
     for (const s of swaps) {
       const launched = cachedTokenInfo(db, s.mint)?.pool_created_at;
       const age = launched ? (Date.parse(s.ts) - Date.parse(launched)) / 1000 : null;
-      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null, s.quote, s.quoteAmount, s.solUsd, s.usdAmount).changes;
+      n += ins.run(s.wallet, s.signature, s.slot, s.ts, s.mint, s.side, s.tokenAmount, s.tokenBalanceBefore, s.solAmount, s.priceSol, s.venue, s.jitoTip ? 1 : 0, s.feeLamports, age !== null && age >= 0 ? age : null, s.quote, s.quoteAmount, s.solUsd, s.usdAmount, insMs).changes;
     }
   })();
   return n;

@@ -1,6 +1,6 @@
 "use client";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, LabelList } from "recharts";
-import type { Performance } from "@/lib/types";
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis, LabelList } from "recharts";
+import type { PaperAccountName, PaperEquityPoint, Performance } from "@/lib/types";
 
 const WIN = "#D4EC00";
 const LOSS = "#FF7B7B";
@@ -62,6 +62,41 @@ export function MonthlyChart({ data }: { data: Performance }) {
           <LabelList dataKey="returnPct" position="top" fill="#FFFBE6" fontSize={11} formatter={(v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`} />
         </Bar>
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** Each paper account's colour and name: Brain lime, Baseline lilac, Explore sun (the page's tile colours). */
+export const PAPER_SERIES: { key: PaperAccountName; label: string; color: string; dash?: string }[] = [
+  { key: "brain", label: "Brain", color: WIN },
+  { key: "baseline", label: "Baseline", color: "#C77DFF" },
+  { key: "explore", label: "Explore", color: "#FFC83D", dash: "5 4" },
+];
+
+/** The paper accounts' equity (SOL) on one time axis, one line each, with the starting bankroll dashed. */
+export function PaperEquityChart({ equity, startingSol }: { equity: Record<PaperAccountName, PaperEquityPoint[]>; startingSol: number | null }) {
+  // One row per timestamp; an account without a point at that time is carried across by connectNulls.
+  const byTs = new Map<string, Record<string, number | string>>();
+  for (const s of PAPER_SERIES) for (const p of equity[s.key] ?? []) byTs.set(p.ts, { ...(byTs.get(p.ts) ?? { ts: p.ts }), [s.key]: p.equity });
+  const rows = [...byTs.values()].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
+  const shown = PAPER_SERIES.filter((s) => (equity[s.key] ?? []).length > 0);
+  return (
+    <ResponsiveContainer width="100%" height={280}>
+      <LineChart data={rows} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
+        <CartesianGrid strokeDasharray="2 4" vertical={false} />
+        <XAxis dataKey="ts" tickFormatter={day} minTickGap={40} />
+        <YAxis domain={["auto", "auto"]} width={56} tickFormatter={(v: number) => v.toFixed(2)} />
+        {startingSol !== null && <ReferenceLine y={startingSol} stroke="#5A5A66" strokeDasharray="4 4" />}
+        <Tooltip
+          contentStyle={tooltipStyle}
+          labelFormatter={(l: string) => l.replace("T", " ").slice(0, 16)}
+          formatter={(v: number, name: string) => [`${v.toFixed(3)} SOL`, name]}
+        />
+        <Legend wrapperStyle={{ fontSize: 12, fontWeight: 700 }} />
+        {shown.map((s) => (
+          <Line key={s.key} name={s.label} type="stepAfter" dataKey={s.key} stroke={s.color} strokeWidth={s.key === "explore" ? 1.5 : 2.5} strokeDasharray={s.dash} dot={false} connectNulls isAnimationActive={false} />
+        ))}
+      </LineChart>
     </ResponsiveContainer>
   );
 }

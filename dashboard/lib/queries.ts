@@ -17,3 +17,4 @@ export const getRugChecks = () => data.getRugChecks(db());
 export const getLiveWallets = (q: import("@godseye/shared/dashboard-types").LiveQuery) => data.getLiveWallets(db(), q);
 export const getSmartMoney = () => data.getSmartMoney(db());
 export const getRunners = () => data.getRunners(db());
+export const getPaper = () => data.getPaper(db());

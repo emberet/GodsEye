@@ -1,0 +1,14 @@
+# /etc/systemd/system/godseye-env-watch.path — starts the stream and the agent by themselves when the owner saves a key:
+# paste the Shyft gRPC URL/token into /etc/godseye/ingest.env (and .env), or the X token into .env, save, and
+# godseye-env-watch.service restarts ge-ingest and the agent. A restart keeps everything in data/ (DB, wallet, learning).
+# Then: systemctl daemon-reload && systemctl enable --now godseye-env-watch.path
+[Unit]
+Description=Restart the GodsEye stream and agent when their env files are saved
+
+[Path]
+PathChanged=/etc/godseye/ingest.env
+PathChanged=/opt/godseye/app/.env
+Unit=godseye-env-watch.service
+
+[Install]
+WantedBy=multi-user.target

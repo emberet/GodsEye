@@ -36,6 +36,46 @@ export const config = {
   xMonthlyTweetCap: envNum("X_MONTHLY_TWEET_CAP", 500_000),
   /** Coins searched on X an hour (half runners, half non-runners as a control). */
   xCoinsPerHour: envNum("X_COINS_PER_HOUR", 100),
+  /** Most tweets the private social layer (social/) reads in a month, counted apart from the runner research's cap. */
+  xSocialMonthlyTweetCap: envNum("X_SOCIAL_MONTHLY_TWEET_CAP", 500_000),
+  /** Wallets the social layer looks up on X an hour. */
+  xSocialWalletsPerHour: envNum("X_SOCIAL_WALLETS_PER_HOUR", 50),
+
+  // ---- Brain: the reinforcement-learning copy policy, paper money only (brain/, brain/spec/CONTRACT.md) ----
+  /** off = no paper trading; paper = the Brain, Explore and Baseline paper accounts trade on the live stream. */
+  brainMode: envStr("BRAIN_MODE", "paper") as "off" | "paper",
+  /** Where model bundles live (models/<version>, current -> symlink, staging/). Relative to the repo root. */
+  brainDir: envStr("BRAIN_DIR", "data/brain"),
+  /** Each paper account's starting bankroll; empty = today's real COPY_BUDGET_SOL. */
+  brainBankrollSol: envNum("BRAIN_BANKROLL_SOL", 0),
+  /** Network fee + priority fee per paper swap (SOL), on top of the quote (the mean of clean real round trips: brain/spec/sim.yaml). */
+  brainTxCostSol: envNum("BRAIN_TX_COST_SOL", 0.0003),
+  /** Token-account rent paid on a paper buy and refunded when the position is fully sold. */
+  brainRentSol: envNum("BRAIN_RENT_SOL", 0.00204),
+  /** Safety stops on top of the exit network. */
+  brainHardStopPct: envNum("BRAIN_HARD_STOP_PCT", 60),
+  brainMaxHoldHours: envNum("BRAIN_MAX_HOLD_HOURS", 24),
+  /** Hard cap on the Brain's research sell quotes a minute (brain/quotes.ts): the Jupiter quote API is shared with the real engine. */
+  brainShadowQuotesPerMin: envNum("BRAIN_SHADOW_QUOTES_PER_MIN", 20),
+  /** The share of that cap kept for the mirror ledger's exit quotes (y_quote); the shadow quotes get the rest. */
+  brainMirrorQuotesPerMin: envNum("BRAIN_MIRROR_QUOTES_PER_MIN", 4),
+  /**
+   * Cap on the paper accounts' own quotes a minute (brain/paper.ts): a stale coin's mark and the quote that confirms a price
+   * exit. Separate from the shadow cap so research never starves an exit; the sale's own quote is always asked.
+   */
+  brainExitQuotesPerMin: envNum("BRAIN_EXIT_QUOTES_PER_MIN", 30),
+  /** Share of the Brain's paper candidates whose sell quote is sampled at 5/15/30/60 s and on each leader sell (1 = all). */
+  brainShadowQuoteRate: envNum("BRAIN_SHADOW_QUOTE_RATE", 1),
+  /**
+   * The one Jupiter quote bucket a minute (brain/quotes.ts JupiterBucket): paper exits first, then the mirror ledger, then
+   * the shadow quotes, each lane leaving room for the ones above; a sale is never refused. The per-lane caps above still hold.
+   */
+  jupiterQuotesPerMin: envNum("JUPITER_QUOTES_PER_MIN", 60),
+  /**
+   * RugCheck lookups a minute for the creator of a coin the stream sees for the first time (brain/state.ts): about the
+   * rate of new coins (18-24 a minute on 10-27..10-30), so cr_seen_prior_7d doesn't undercount.
+   */
+  brainCreatorLookupsPerMin: envNum("BRAIN_CREATOR_LOOKUPS_PER_MIN", 30),
 
   // ---- Live gRPC stream (Shyft, Triton, Helius, QuickNode — Yellowstone protocol) ----
   /** e.g. https://grpc.ny.shyft.to — empty = no stream, GodsEye samples pools and polls instead. */
@@ -192,6 +232,11 @@ export const config = {
   maxCopyDelaySeconds: envNum("COPY_MAX_DELAY_SECONDS", 60),
   /** Don't copy buys that are smaller than this (SOL) — dust or tests. */
   minLeaderBuySol: envNum("MIN_LEADER_BUY_SOL", 0.2),
+  /**
+   * The Brain's hard gates in the real copy screen too (brain/gates.ts, brain/spec/features.yaml gates): a pumpswap coin
+   * priced ≥ 1e-4 SOL a token, or an AMM coin first seen under 10 min ago, is skipped (copy_decisions, copy_trades). Owner-approved.
+   */
+  copyBrainGates: envBool("COPY_BRAIN_GATES", true),
   slippageBps: envNum("COPY_SLIPPAGE_BPS", 300),
   /** Most slippage a stop-loss / trailing-stop sell may allow after slippage failures (it steps 3% → 10% → 25%). */
   exitMaxSlippageBps: envNum("COPY_EXIT_MAX_SLIPPAGE_BPS", 2500),

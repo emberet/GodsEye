@@ -5,7 +5,8 @@
  *   • hides the raw agent logs;
  *   • reduces each copy decision to its outcome (no internal reason text, sizing weight or latency);
  *   • hides the learned tuning thresholds (the "follow bar" and its history);
- *   • words the "insider" tier as an early-entry pattern: a heuristic, not an accusation.
+ *   • words the "insider" tier as an early-entry pattern: a heuristic, not an accusation;
+ *   • drops every field whose name mentions "social" (the brain's social layer is private, in every feed).
  * Internal enums (tier "insider" etc.) are unchanged. The owner can see everything by setting
  * GODSEYE_FULL_FEED=1 on a dashboard that is not public.
  */
@@ -14,7 +15,7 @@ export const PUBLIC_TIER_LABEL = "Early-entry pattern";
 
 export type PublicFeed =
   | "summary" | "logs" | "copies" | "smart" | "leaders" | "wallets" | "wallet" | "groups"
-  | "performance" | "proof" | "rugchecks" | "stream" | "runners";
+  | "performance" | "proof" | "rugchecks" | "stream" | "runners" | "paper";
 
 /** True when this dashboard should show the full internal feed (owner-only deployments). */
 export function fullFeedEnabled(env: Record<string, string | undefined> = process.env): boolean {
@@ -41,12 +42,15 @@ function publicTrade(t: Obj): Obj {
   };
 }
 
+/** Field names that are never published: the social layer stays private. */
+const PRIVATE_KEY = /social/i;
+
 function walk(v: unknown): unknown {
   if (typeof v === "string") return publicText(v);
   if (Array.isArray(v)) return v.map(walk);
   if (!isObj(v)) return v;
   const out: Obj = {};
-  for (const [k, x] of Object.entries(v)) out[k] = walk(x);
+  for (const [k, x] of Object.entries(v)) if (!PRIVATE_KEY.test(k)) out[k] = walk(x);
   return "leader_signature" in out && "status" in out ? publicTrade(out) : out;
 }
 

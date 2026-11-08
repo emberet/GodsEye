@@ -1,0 +1,115 @@
+# GodsEye brain reward. Used by the trainer only; the runtime records outcomes (CONTRACT.md).
+# Evidence: brain/research/reward-design (scripts 04-12, verify/v1-v6) as adjusted by its adversarial verifier.
+
+version: 1
+spec_date: "2026-11-07"
+
+pnl:
+  definition: >-
+    Net SOL P&L of one position = SOL received from all sells - SOL spent on the buy - every transaction fee and tip -
+    token-account rent if it was not reclaimed. Rent (0.00204 SOL, BRAIN_RENT_SOL) is refunded on a full close and lost
+    on a write-off (no route at max hold, or a sim-dead coin). Fees and fills follow sim.yaml.
+  valuation: >-
+    Offline, every exit is valued with the GROUNDED rule (sim.yaml exit_valuation): never at a forward-filled last tracked
+    price. Last-price valuation turned a -1.00 SOL policy into +34.9 SOL (reward-design C5 confirmed, same signal set:
+    22 trades, 90 % write-offs).
+
+kappa: 1.5
+kappa_band: [1.5, 2.0]
+kappa_selection_rule: >-
+  Train the entry head at kappa 1.5 and 2.0. Pick the one with the higher mean net SOL per decision on the SELECTION
+  window (10-27..11-01) whose account path never falls below 0.7 SOL and whose day-block bootstrap p95 max drawdown is
+  <= 0.7 SOL. Ties -> 1.5. Never use the test window (11-02 onward) to choose.
+kappa_why: >-
+  Losses weighted kappa x. Under the Bayes policy 'copy iff mu - (kappa_eff - 1) * ell > 0', kappa_eff = 1 ruins the
+  1 SOL account in 95 % (exit e1) / 82.5 % (e3) of 40 random 50 % signal thinnings even when the per-signal mean is
+  positive: heavy tails plus the 0.5 SOL daily loss cap (reward-design C9 confirmed, verify/v4_path_robustness.py).
+  kappa_eff >= 2 never ruined e3. The researcher proposed 2.0; the verifier showed the band argument used TEST-period
+  gain/loss ratios (C11 weakened). On SELECTION the profitable non-ruinous policies have gain/loss 1.58-1.88 (best hand
+  policy 1.71) and ruinous slices <= about 1.17, which points nearer 1.5; the 2-day isotonic calibration ruins e1 at
+  kappa 2 but not at 1.5 (C12). kappa mostly acts as a threshold correction for an over-confident model (even at kappa 1
+  the best raw threshold is k_eff 3-4, C10): that margin belongs in the ensemble (decision_margin), not in kappa.
+
+lambda: 0.0
+drawdown:
+  definition: >-
+    Account drawdown = running max of realized equity (cash + cost basis of open positions, marked at close only) minus
+    current realized equity, per paper account, reset never. Logged on every closed trade for monitoring.
+  why_lambda_zero: >-
+    With drawdown on realized equity, the per-trade drawdown increase equals max(0, -pnl) exactly (108/108 policies;
+    an identity, reward-design C7 confirmed), so lambda is the same as raising kappa. On the record max drawdown, lambda
+    0..10 barely moves the choice (C10 weakened: 0/20 cells move for e1, 3/20 for e3). Account protection stays in the
+    hard limits: 5 positions, one per coin, 0.5 SOL daily loss limit, 0.1 SOL max trade (COPY_MAX_TRADE_SOL).
+
+terminal_reward:
+  formula: "R = g(pnl_sol) with g(x) = x - (kappa - 1) * max(0, -x)"
+  units: SOL (stake <= 0.1 SOL)
+  note: "Ranking policies by an account-level sum of R is invalid when ruin can truncate it (a ruined account stops booking losses: C8). Rank per signal, or add ruin_penalty."
+  ruin_penalty: "In policy evaluation only (not training): an account that falls below 0.5 SOL scores -1 SOL for the rest of its window."
+
+exit_shaping:
+  type: potential_based
+  formula: >-
+    r_t = g(u_t) - g(u_{t-1}) for every exit step; last step r_T = g(U_T) - g(u_{T-1}); u_0 = 0. u_t = net P&L if the
+    whole remaining position were sold at step t at its GROUNDED sell value (sim.yaml), plus SOL already realized by a
+    sell_half, minus fees so far. U_T = the realized net P&L. The steps telescope to g(U_T) exactly.
+  why: >-
+    Applying kappa to each step's mark-to-market change is biased: it turns 25.9 % of winners negative under exit e1 and
+    97.1 % under 24 h holds (Spearman with the terminal reward 0.92 / 0.20); the potential form sums exactly (max error 0)
+    (reward-design C13 confirmed, 05_exit_shaping.py).
+  sell_all_target: >-
+    The Q target for sell_all at step t is g(u_t) with u_t from the GROUNDED value, never the forward-filled mark: the mark
+    overstates the real sell value by +0.085 / +0.114 SOL per 0.1 SOL staked (e1 / 24 h holds) and differs by > 20 % of
+    stake in 75-84 % of offline minutes (C15 confirmed).
+  hard_stops: "-60 % stop (fills at the next observed price, sim.yaml) and 24 h max hold are forced sell_all steps with features [] (CONTRACT.md); their reward enters the same telescoping sum."
+
+discount:
+  gamma: 1.0
+  why: >-
+    Episodes are capped at 1440 one-minute steps, the reward is total P&L. gamma < 1 flips 7.6-46 % (e1) and 10.6-58 %
+    (24 h holds) of hold-vs-sell decisions for gamma 0.9995..0.9, mostly toward holding losers (e1 at 0.999: 12.3 % to
+    hold vs 3.4 % to sell) (C14 confirmed; it changes the objective, it does not measure lost P&L).
+
+entry:
+  skip_reward: 0.0
+  blocked_entries: "Rows with info.blocked (budget, cash, loss limit, below minimum, no quote) are EXCLUDED from Q targets (or relabelled as action 0). They are not evidence about the signal."
+  gated_signals: "Signals removed by features.yaml gates are not entry training examples."
+  stake_actions: [0, 0.25, 0.5, 0.75, 1.0]
+  stake_note: >-
+    The reward is affine in the stake (fixed per-trade fees), so the optimal stake is bang-bang: 0 or 1 (C16 confirmed;
+    Kelly fractions 0.56-0.88 of bankroll, far above the 10 % stake, but they ignore 5 concurrent slots and path ruin).
+    Fractions 0.25/0.5/0.75 are unidentifiable under this reward. Recommendation: collapse to {0, 1} in training
+    (map the head's argmax over {0.25..1} to 1) - changing the runtime action set or sizing needs the owner's OK, so the
+    manifest keeps the 5 actions for now. Fixed costs make small stakes worse: break-even gross 6.0 % at 0.025 SOL vs
+    4.0 % at 0.1 SOL with the account closed, using MEAN fees (execution C8 weakened).
+  decision_margin: >-
+    Copy only if mean(q) - c * std(q over the 5 members) > 0 for the best non-zero stake; c chosen on the selection window
+    (start c = 1). This replaces the k_eff 3-4 threshold the raw models needed. Runtime today uses mean(q) > 0
+    (policy.ts); adding c is a runtime change for the lead.
+  reward_assignment: "Entry row reward = R of the whole position (terminal); entry Q targets regress on R."
+
+sensitivity_summary:
+  # selection = 10-24..11-01 days used for choosing; test = 11-02..11-06; P&L of a 1 SOL / 5-slot paper account,
+  # grounded valuation, exit e3 unless stated. Absolute levels are NOT achievable P&L (median holds 16-18 s, exit at the
+  # minute close of the leader's sell, own impact modelled as 1.3 % in / 1 % out) - use them to compare kappa only.
+  - {setting: "kappa_eff 1 (pure P&L), e1", selection: "flat, 95 % ruin under thinning", test: "ruins", script: "07_kappa_policy.py, verify/v4_path_robustness.py"}
+  - {setting: "kappa_eff 1, e3", selection: "min equity 0.34; 82.5 % ruin under thinning", test: "-", script: "07_kappa_policy.py"}
+  - {setting: "kappa_eff 1.5, e3", selection: "40 % ruin under thinning", test: "-", script: "verify/v4_path_robustness.py"}
+  - {setting: "kappa_eff 2, e3", selection: "+4.47 SOL [1.78, 7.71], maxDD 0.36, 0 % ruin", test: "+3.01, maxDD 0.33", script: "07 + 10_choose.py"}
+  - {setting: "kappa_eff 2, e1", selection: "fails survival rule (bootstrap maxDD p95 1.50; 17.5 % ruin)", test: "-", script: "10_choose.py, verify/v4"}
+  - {setting: "kappa_eff 4, e1", selection: "+11.70 [9.45, 14.12]", test: "+2.74, maxDD 0.18 (big drop: selection overfit)", script: "10_choose.py"}
+  - {setting: "kappa_eff 8", selection: "42 trades (14 % of kappa 1): too timid", test: "-", script: "07_kappa_policy.py"}
+  - {setting: "calibrated kappa 1.5, e1", selection: "+2.56", test: "-", script: "12_calibrated_kappa.py"}
+  - {setting: "calibrated kappa 2, e1", selection: "ruins (-0.989)", test: "-", script: "12_calibrated_kappa.py"}
+  - {setting: "calibrated kappa 2, e3", selection: "+3.85, maxDD 0.32", test: "+3.28, maxDD 0.39", script: "12_calibrated_kappa.py"}
+  - {setting: "lambda 0..10 on record maxDD", selection: "choice moves in 0/20 (e1), 3/20 (e3) cells", test: "-", script: "10_choose.py"}
+  - {setting: "per-step kappa (rejected)", selection: "25.9 % / 97.1 % of winners turned negative", test: "-", script: "05_exit_shaping.py"}
+  - {setting: "gamma 0.999 (rejected)", selection: "15.7 % of hold-vs-sell decisions flipped (e1)", test: "-", script: "05_exit_shaping.py"}
+  - {setting: "60-min time exit e2 (dropped)", selection: "every e2 policy ruins under grounded valuation", test: "ruins", script: "04_kappa_lambda.py"}
+caveats:
+  - "All reward-design P&L used the leader-follow exit filled at the CLOSE of the minute of the leader's sell, the artifact the baselines verifier found (realistic timing turns B3's picks from +0.0205 to -0.0013 SOL/copy). The kappa comparison is relative; re-run 07/10 on the rebuilt sim before the first training run."
+  - "7 selection days and 4 test days; one path of a 5-slot account per setting; day-block CIs are wide."
+  - "Grounded valuation is slightly pessimistic on average (mean -0.067 vs Jupiter quotes, leader-block CI [-0.137, -0.020]) and more pessimistic on thin-coverage days (-0.18 to -0.22 on 11-04..11-06): its bias moves with the tracked-wallet count."
+monitoring:
+  - "If the trained entry head copies < half as many signals as a kappa 1 run, or < 1 % of signals, lower kappa to 1.5 (if at 2) or lower c."
+  - "If the paper Brain account's realized gain/loss ratio over >= 100 closed trades falls below 1.2, raise kappa toward 2.0 (re-select on the latest selection window)."

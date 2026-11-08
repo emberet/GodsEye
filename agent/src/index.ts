@@ -31,6 +31,9 @@ import { LeaderWatcher } from "./copy/watcher";
 import { defineRunners, describeDefinition } from "./runners/define";
 import { scoreCatchers } from "./runners/score";
 import { xConfigured } from "./x/client";
+import { BrainRuntime } from "./brain/runtime";
+import { runSocialCollect } from "./social/collect";
+import { runSocialScore } from "./social/score";
 import { runXResearch } from "./x/calls";
 import { loadOrCreateWallet, walletTokenBalance } from "./wallet/wallet";
 import { reconcile, recoverPending } from "./copy/recovery";
@@ -273,6 +276,25 @@ async function main() {
       const line = await runXResearch(db);
       if (line) say("learn", line);
     }, false));
+    // The Brain (brain/): paper money only. Its paper accounts trade every streamed signal and pick up each model the Mac
+    // pushes; nothing reaches the real engine, and the real pause doesn't stop them.
+    if (config.brainMode !== "off") {
+      const brain = new BrainRuntime(db);
+      live.brain = brain;
+      // Brain jobs log to the server console only (never say(): its inputs include the private social score).
+      const quiet = (name: string, fn: () => Promise<void>) => () =>
+        void job(name, () => fn().catch((e) => console.warn(`[brain] ${name} failed: ${(e as Error).message}`)), false);
+      brain.start(); // the shadow-quote sampler: every second, under its own hard per-minute cap
+      every("* * * * *", quiet("brain", () => brain.tick()));
+      // The stream state's windows and creator lookups, the mirror ledger's deadlines and the ps / dd delayed jobs.
+      every("* * * * *", quiet("brain ledgers", () => brain.tickLedgers()));
+      every("25 4 * * *", quiet("brain prune", async () => brain.prune()));
+      // The private social score (social/score.ts): hourly, from the model the Mac pushes; writes social_scores only when
+      // that model passed its out-of-time test. The entry features read it (social_score / social_missing).
+      every("10 * * * *", quiet("social score", async () => void (await runSocialScore(db))));
+    }
+    // The private social layer (social/): reads X for the analyzed wallets. Never shown anywhere, so nothing goes to say().
+    if (xConfigured()) every("20 * * * *", () => void job("x2", async () => void (await runSocialCollect(db)), false));
     live.start();
   }
   // Daily SQLite housekeeping: retention pruning of raw swaps and stale stream activity, then a WAL checkpoint.

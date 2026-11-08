@@ -9,6 +9,9 @@ import type { ParsedSwap } from "../src/chain/parse";
 import type { Screen } from "../src/market/rugcheck";
 import type { PriceQuote } from "../src/market/prices";
 
+// The Brain's hard gates (COPY_BRAIN_GATES) would skip these fresh pumpswap coins at 0.001 SOL a token: they are
+// tested in brain-gates.test.ts; here the rest of the copy screen is.
+process.env.COPY_BRAIN_GATES = "false";
 process.env.RUG_CHECK_ENABLED = "false";
 process.env.SHADOW_MAX_SCREENS = "1";
 process.env.SHADOW_MAX_QUEUE = "1";

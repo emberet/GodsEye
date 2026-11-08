@@ -29,14 +29,16 @@
     "bench:parse": "tsx src/cli/parse-bench.ts",
     "test": "tsx --import ../shared/test/setup.ts --test test/*.test.ts",
     "typecheck": "tsc --noEmit -p .",
-    "backfill:closed": "tsx src/cli/backfill-closed.ts"
+    "backfill:closed": "tsx src/cli/backfill-closed.ts",
+    "social": "tsx src/cli/social.ts"
   },
   "dependencies": {
     "@godseye/shared": "*",
     "@solana/web3.js": "^1.98.0",
     "@triton-one/yellowstone-grpc": "8.0.0",
     "bs58": "^6.0.0",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "onnxruntime-node": "^1.31.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
