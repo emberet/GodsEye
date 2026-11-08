@@ -422,7 +422,8 @@ def transitions_rows(meta) -> tuple[pd.DataFrame, pd.DataFrame, list | None]:
     from brain.assure.transitions import from_brain_transitions
     from brain.data.loaders import export_dir
     d = export_dir() / "brain_transitions"
-    if not d.is_dir():
+    # The pull makes the folder even when the server has no rows yet (no paper trades before the stream is back).
+    if not d.is_dir() or not any(d.glob("[!.]*.parquet")):
         return pd.DataFrame(), pd.DataFrame(), None
     import duckdb
     con = duckdb.connect()
