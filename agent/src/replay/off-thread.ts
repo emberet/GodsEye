@@ -55,13 +55,20 @@ function failAll(e: Error, w?: Worker): void {
  * `new Worker("replay-worker.ts")` died at startup with ERR_UNKNOWN_FILE_EXTENSION (Node 22+ happened to work).
  * The worker therefore starts from a tiny JS bootstrap that registers tsx itself and then imports the .ts entry,
  * with no inherited `--import` flags (the parent's env, e.g. GODSEYE_TEST, is still passed on).
+ * Newer Node (seen on 26, under `node --test`) hands the parent process-wide flags a worker refuses
+ * (ERR_WORKER_INVALID_EXEC_ARGV): the worker then starts with no flags at all, which is all the bootstrap needs.
  */
 function spawnWorker(dbPath: string): Worker {
   const entry = new URL("./replay-worker.ts", import.meta.url).href;
   const boot = `import("tsx/esm/api").then((t) => { t.register(); return import(${JSON.stringify(entry)}); })` +
     `.catch((e) => { throw e; });`;
   const execArgv = process.execArgv.filter((a, i, all) => a !== "--import" && all[i - 1] !== "--import" && a !== "--require" && all[i - 1] !== "--require");
-  return new Worker(boot, { eval: true, execArgv, workerData: { dbPath } });
+  try {
+    return new Worker(boot, { eval: true, execArgv, workerData: { dbPath } });
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ERR_WORKER_INVALID_EXEC_ARGV") throw e;
+    return new Worker(boot, { eval: true, execArgv: [], workerData: { dbPath } });
+  }
 }
 
 function thread(dbPath: string): Worker {
