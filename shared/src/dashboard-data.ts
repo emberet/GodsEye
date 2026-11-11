@@ -62,6 +62,15 @@ const modeOf = (d: DB): "real" | "paper" | null => {
 };
 const tradingMode = (d: DB) => modeOf(d) ?? "real";
 
+/** The P&L cutoff (agent_meta pnl_since, set by `npm run reset-pnl`), or null when everything counts. Closed trades and
+ *  copies before it are left off the site; they stay in the database and the proof ledger. Open positions always count. */
+export function pnlSinceOf(d: DB): string | null {
+  const v = getMeta(d, "pnl_since");
+  return v && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : null;
+}
+/** The cutoff as a lower bound for ISO-text comparisons ("" = no cutoff). */
+const sinceOf = (d: DB) => pnlSinceOf(d) ?? "";
+
 /** A copy trade as shown publicly: error text and reasons can carry RPC URLs, keys or IPs. */
 const publicTrade = (t: CopyTrade): CopyTrade => ({ ...t, error: t.error ? redactLog(t.error) : null, reason: t.reason ? redactLog(t.reason) : null });
 
@@ -85,7 +94,8 @@ export function getSummary(d: DB): Summary {
   const status = getMeta(d, "agent_status");
   const solUsd = solUsdNow(d);
   const mode = tradingMode(d);
-  const closed = d.prepare("SELECT pnl_sol, pnl_usd, fee_sol, closed_at FROM positions WHERE status='closed' AND mode = ?").all(mode) as {
+  const pnlSince = pnlSinceOf(d);
+  const closed = d.prepare("SELECT pnl_sol, pnl_usd, fee_sol, closed_at FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ?").all(mode, pnlSince ?? "") as {
     pnl_sol: number; pnl_usd: number | null; fee_sol: number | null; closed_at: string;
   }[];
   const open = (d.prepare("SELECT * FROM positions WHERE status='open' AND mode = ?").all(mode) as Position[]).map((p) => withUnrealized(p, solUsd));
@@ -109,6 +119,7 @@ export function getSummary(d: DB): Summary {
     agentStatus: status,
     copyMode: modeOf(d),
     paused: getMeta(d, "copy_paused_effective") === "1" || getMeta(d, "copy_paused") === "1",
+    pnlSince,
     wallet: {
       pubkey: getMeta(d, "wallet_pubkey"),
       balanceSol: getMeta(d, "wallet_balance_sol") === null ? null : Number(getMeta(d, "wallet_balance_sol")),
@@ -129,7 +140,7 @@ export function getSummary(d: DB): Summary {
     solUsd,
     openPositions: open.length,
     maxPositions: num(getMeta(d, "max_positions"), 5),
-    copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND mode = ? AND created_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { n: number }).n,
+    copiesToday: (d.prepare("SELECT COUNT(*) n FROM copy_trades WHERE status='filled' AND mode = ? AND created_at >= MAX(?, ?)").get(mode, `${today}T00:00:00.000Z`, pnlSince ?? "") as { n: number }).n,
     walletsTracked: (d.prepare(`SELECT COUNT(*) n FROM wallets w WHERE ${NOT_JUNK}`).get() as { n: number }).n,
     leaders: (d.prepare("SELECT COUNT(*) n FROM wallets WHERE copy_weight > 0").get() as { n: number }).n,
     freshWallets24h: (d.prepare(`SELECT COUNT(*) n FROM wallets w WHERE is_fresh = 1 AND first_seen_at >= ? AND ${NOT_JUNK}`).get(dayAgo) as { n: number }).n,
@@ -228,10 +239,11 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
     ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
     : [];
   const mode = tradingMode(d);
-  const copies = (d.prepare("SELECT * FROM copy_trades WHERE leader = ? AND mode = ? ORDER BY created_at DESC LIMIT 50").all(address, mode) as CopyTrade[]).map(publicTrade);
+  const since = sinceOf(d);
+  const copies = (d.prepare("SELECT * FROM copy_trades WHERE leader = ? AND mode = ? AND created_at >= ? ORDER BY created_at DESC LIMIT 50").all(address, mode, since) as CopyTrade[]).map(publicTrade);
   const cp = d
-    .prepare("SELECT COALESCE(SUM(pnl_sol),0) s, CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END u, COUNT(*) n FROM positions WHERE leader = ? AND status='closed' AND mode = ?")
-    .get(address, mode) as { s: number; u: number | null; n: number };
+    .prepare("SELECT COALESCE(SUM(pnl_sol),0) s, CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END u, COUNT(*) n FROM positions WHERE leader = ? AND status='closed' AND mode = ? AND closed_at >= ?")
+    .get(address, mode, since) as { s: number; u: number | null; n: number };
   return {
     wallet,
     stats,
@@ -278,14 +290,14 @@ export function getLeaders(d: DB): LeadersData {
     .prepare(
       `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at, w.history_from,
               s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.win_rate_30d, s.closed_30d,
-              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode),0) copy_pnl_sol,
-              (SELECT CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode) copy_pnl_usd,
-              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode) copy_closed
+              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode AND p.closed_at >= @since),0) copy_pnl_sol,
+              (SELECT CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode AND p.closed_at >= @since) copy_pnl_usd,
+              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode AND p.closed_at >= @since) copy_closed
          FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address
-        WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions WHERE mode = @mode)
+        WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions WHERE mode = @mode AND (status = 'open' OR closed_at >= @since))
         ORDER BY w.copy_weight DESC, copy_pnl_sol DESC LIMIT 100`,
     )
-    .all({ mode }) as Leader[];
+    .all({ mode, since: sinceOf(d) }) as Leader[];
   const changes = d.prepare("SELECT * FROM weight_history ORDER BY ts DESC LIMIT 100").all() as WeightChange[];
   return {
     leaders, changes, budgetSol: num(getMeta(d, "copy_budget_sol"), 0),
@@ -298,10 +310,11 @@ export function getCopies(d: DB): CopiesData {
   const solUsd = solUsdNow(d);
   const mode = tradingMode(d);
   const open = (d.prepare("SELECT * FROM positions WHERE status='open' AND mode = ? ORDER BY opened_at DESC").all(mode) as Position[]).map((p) => withUnrealized(p, solUsd));
-  const closed = d.prepare("SELECT * FROM positions WHERE status='closed' AND mode = ? ORDER BY closed_at DESC LIMIT 500").all(mode) as Position[];
+  const since = sinceOf(d);
+  const closed = d.prepare("SELECT * FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ? ORDER BY closed_at DESC LIMIT 500").all(mode, since) as Position[];
   const trades = (d
-    .prepare(`SELECT c.*, p.hash AS proof_hash FROM copy_trades c LEFT JOIN proof_ledger p ON p.id = c.proof_id WHERE c.mode = ? ORDER BY c.created_at DESC LIMIT 300`)
-    .all(mode) as CopyTrade[]).map(publicTrade);
+    .prepare(`SELECT c.*, p.hash AS proof_hash FROM copy_trades c LEFT JOIN proof_ledger p ON p.id = c.proof_id WHERE c.mode = ? AND c.created_at >= ? ORDER BY c.created_at DESC LIMIT 300`)
+    .all(mode, since) as CopyTrade[]).map(publicTrade);
   return { open, closed, trades };
 }
 
@@ -309,7 +322,7 @@ export function getPerformance(d: DB): Performance {
   const solUsd = solUsdNow(d) ?? 0;
   const start = num(getMeta(d, "starting_balance_usd"), num(getMeta(d, "starting_balance_sol"), num(getMeta(d, "copy_budget_sol"), 0)) * solUsd);
   // Charts are in USD at settlement; "pnl_sol" here carries the USD figure so the shared stats helpers can be reused.
-  const trades = (d.prepare("SELECT closed_at AS exit_ts, COALESCE(pnl_usd, pnl_sol * ?) AS pnl_sol, COALESCE(pnl_pct, 0) AS pnl_pct FROM positions WHERE status='closed' AND mode = ? ORDER BY closed_at").all(solUsd, tradingMode(d)) as {
+  const trades = (d.prepare("SELECT closed_at AS exit_ts, COALESCE(pnl_usd, pnl_sol * ?) AS pnl_sol, COALESCE(pnl_pct, 0) AS pnl_pct FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ? ORDER BY closed_at").all(solUsd, tradingMode(d), sinceOf(d)) as {
     exit_ts: string; pnl_sol: number; pnl_pct: number;
   }[]);
   const equity = equityCurve(trades, start);
@@ -319,6 +332,7 @@ export function getPerformance(d: DB): Performance {
   const grossLoss = Math.abs(losses.reduce((s, t) => s + t.pnl_sol, 0));
   return {
     startingCapitalUsd: start,
+    pnlSince: pnlSinceOf(d),
     equity: [{ ts: trades[0]?.exit_ts ?? new Date().toISOString(), equity: start, cumPnl: 0, drawdownPct: 0 }, ...equity],
     rollingWinRate: rollingWinRate(trades, 30),
     monthly: monthlyReturns(trades, start),

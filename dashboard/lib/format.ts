@@ -48,6 +48,10 @@ export const hasWeek = (from: string | null | undefined, now = Date.now()) => !f
 /** Label for a wallet's 7-day profit: "7d", or the shorter span it actually covers. */
 export const weekLabel = (from: string | null | undefined, now = Date.now()) => (hasWeek(from, now) ? "7d" : spanLabel(from, now));
 /** A coin's chart on DexScreener. */
+/** "since 11 Nov 2026" for the dashboard's P&L cutoff (Summary.pnlSince), "all time" when there is none. */
+export const pnlPeriod = (since: string | null | undefined) =>
+  since ? `since ${new Date(since).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })}` : "all time";
+
 export const dexscreenerToken = (mint: string) => `https://dexscreener.com/solana/${mint}`;
 
 /** Plain words for the live stream's status (the meta value the agent writes). */

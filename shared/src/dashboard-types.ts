@@ -11,6 +11,8 @@ export interface Summary {
   /** null = the agent hasn't reported its mode yet (shown as unknown, never assumed). */
   copyMode: "real" | "paper" | null;
   paused: boolean;
+  /** Money figures count trades from this moment on (agent_meta pnl_since, set by `npm run reset-pnl`); null = all. */
+  pnlSince: string | null;
   wallet: { pubkey: string | null; balanceSol: number | null; checkedAt: string | null };
   closedPositions: number;
   wins: number;
@@ -340,6 +342,8 @@ export interface CopiesData {
 /** COWBOT's results in USD (each closed position valued when it settled). */
 export interface Performance {
   startingCapitalUsd: number;
+  /** Same cutoff as Summary.pnlSince. */
+  pnlSince: string | null;
   equity: { ts: string; equity: number; cumPnl: number; drawdownPct: number }[];
   rollingWinRate: { day: string; winRate: number; trades: number }[];
   monthly: { month: string; pnlSol: number; returnPct: number }[];

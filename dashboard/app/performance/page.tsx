@@ -6,7 +6,7 @@ import { Stat, Stats } from "@/components/stat";
 import { EquityChart, MonthlyChart, RollingWinRateChart } from "@/components/charts/perf-charts";
 import { usePoll } from "@/lib/use-poll";
 import { DataState } from "@/components/data-state";
-import { dollars, dt, pct, pnlClass } from "@/lib/format";
+import { dollars, dt, pct, pnlClass, pnlPeriod } from "@/lib/format";
 import type { Performance } from "@/lib/types";
 
 export default function PerformancePage() {
@@ -20,7 +20,7 @@ export default function PerformancePage() {
       </PageHeader>
       <DataState error={error} stale={stale} updatedAt={updatedAt} what="results" />
       <Stats>
-        <Stat label="Start + closed P&L" value={last ? dollars(last.equity) : "—"} sub={`started with ${dollars(data?.startingCapitalUsd ?? null)} · not the wallet balance`} />
+        <Stat label="Start + closed P&L" value={last ? dollars(last.equity) : "—"} sub={`started with ${dollars(data?.startingCapitalUsd ?? null)}${data?.pnlSince ? ` ${pnlPeriod(data.pnlSince)}` : ""} · not the wallet balance`} />
         <Stat label="Total return" value={pct(last && data?.startingCapitalUsd ? (last.cumPnl / data.startingCapitalUsd) * 100 : null, 1)} valueClass={pnlClass(last?.cumPnl)} />
         <Stat
           label="Worst drop from a high"

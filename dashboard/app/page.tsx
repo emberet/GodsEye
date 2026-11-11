@@ -8,7 +8,7 @@ import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
 import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dexscreenerToken, pct, pnlClass, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
+import { ago, dexscreenerToken, pct, pnlClass, pnlPeriod, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
 import { DataState } from "@/components/data-state";
 import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -75,7 +75,7 @@ export default function Home() {
           tile="bg-lime"
           label={`Realized profit${s?.copyMode === "paper" ? " (paper)" : ""}`}
           value={signedUsd(s?.realizedPnlUsd ?? null)}
-          sub={s ? `all time, ${s.feesUnrecorded ? `fees not recorded on ${s.feesUnrecorded}` : "after fees"} · ${s.wins} won · ${s.losses} lost` : undefined}
+          sub={s ? `${pnlPeriod(s.pnlSince)}, ${s.feesUnrecorded ? `fees not recorded on ${s.feesUnrecorded}` : "after fees"} · ${s.wins} won · ${s.losses} lost` : undefined}
         />
         <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
         <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades, last 24h` : undefined} />

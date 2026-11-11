@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb } from "../src/db";
 import { commitProof, verifyProofChain, type ProofEntry } from "../src/proof";
-import { filterWallets, getAllWalletRows, getLeaders, getLiveWallets, getSmartMoney, getSummary, getWalletDetail, getWalletGroups } from "../src/dashboard-data";
+import { filterWallets, getAllWalletRows, getCopies, getLeaders, getLiveWallets, getPerformance, getSmartMoney, getSummary, getWalletDetail, getWalletGroups } from "../src/dashboard-data";
+import { setMeta } from "../src/db";
 
 function seed() {
   const db = openDb(":memory:");
@@ -48,6 +49,53 @@ test("summary, wallet page, groups and leaders", () => {
   assert.equal(g[0].ai, 2);
   assert.equal(getLeaders(db).leaders[0].address, "AAA");
   assert.equal(getWalletDetail(db, "nope"), null);
+});
+
+test("pnl_since: money figures count only trades closed (and copies made) from the cutoff; open positions always count", () => {
+  const db = seed();
+  setMeta(db, "copy_mode", "real");
+  const pos = db.prepare(
+    `INSERT INTO positions (mint, leader, mode, status, token_amount, tokens_bought, cost_sol, entry_price_sol, last_price_sol, opened_at, closed_at, pnl_sol, pnl_usd, pnl_pct)
+     VALUES (?, ?, 'real', ?, ?, 100, 1, 0.01, 0.01, ?, ?, ?, ?, ?)`,
+  );
+  pos.run("OLD", "CCC", "closed", 0, "2026-10-30T10:00:00.000Z", "2026-10-31T10:00:00.000Z", -0.5, -50, -50);
+  pos.run("NEW", "BBB", "closed", 0, "2026-11-11T01:00:00.000Z", "2026-11-11T02:00:00.000Z", 0.2, 20, 20);
+  pos.run("HELD", "AAA", "open", 100, "2026-10-30T10:00:00.000Z", null, null, null, null);
+  const copy = db.prepare("INSERT INTO copy_trades (leader, leader_signature, leader_ts, mint, side, mode, status, created_at) VALUES (?, ?, ?, ?, 'buy', 'real', 'filled', ?)");
+  copy.run("CCC", "s1", "2026-10-30T10:00:00.000Z", "OLD", "2026-10-30T10:00:00.000Z");
+  copy.run("BBB", "s2", "2026-11-11T01:00:00.000Z", "NEW", "2026-11-11T01:00:00.000Z");
+
+  // No cutoff: everything counts, as before.
+  assert.equal(getSummary(db).pnlSince, null);
+  assert.equal(getSummary(db).closedPositions, 2);
+  assert.equal(getPerformance(db).equity.length, 3);
+  assert.equal(getCopies(db).trades.length, 2);
+
+  setMeta(db, "pnl_since", "2026-11-11T00:00:00.000Z");
+  const s = getSummary(db);
+  assert.equal(s.pnlSince, "2026-11-11T00:00:00.000Z");
+  assert.equal(s.closedPositions, 1);
+  assert.equal(s.realizedPnlSol, 0.2);
+  assert.equal(s.losses, 0);
+  assert.equal(s.openPositions, 1);
+  const p = getPerformance(db);
+  assert.equal(p.pnlSince, "2026-11-11T00:00:00.000Z");
+  assert.equal(p.equity.length, 2);
+  assert.equal(p.equity.at(-1)!.cumPnl, 20);
+  const c = getCopies(db);
+  assert.deepEqual(c.closed.map((x) => x.mint), ["NEW"]);
+  assert.deepEqual(c.open.map((x) => x.mint), ["HELD"]);
+  assert.deepEqual(c.trades.map((x) => x.mint), ["NEW"]);
+  const leaders = getLeaders(db).leaders;
+  assert.ok(!leaders.some((l) => l.address === "CCC"), "a leader with only old copies and no weight drops off");
+  assert.equal(leaders.find((l) => l.address === "BBB")!.copy_pnl_sol, 0.2);
+  const old = getWalletDetail(db, "CCC")!;
+  assert.equal(old.copyClosed, 0);
+  assert.equal(old.copies.length, 0);
+
+  // An unreadable value counts as no cutoff.
+  setMeta(db, "pnl_since", "soon");
+  assert.equal(getSummary(db).closedPositions, 2);
 });
 
 test("proof ledger detects tampering", () => {

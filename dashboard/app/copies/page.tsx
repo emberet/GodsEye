@@ -9,7 +9,7 @@ import { Stat, Stats } from "@/components/stat";
 import { RugChecks } from "@/components/rug-checks";
 import { TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, COPY_STATUS_LABEL as STATUS_LABEL, COPY_STATUS_STYLE as STATUS, dollars, pct, pnlClass, signedSol, signedUsd, solscanTx, weekLabel, winRateLabel } from "@/lib/format";
+import { ago, COPY_STATUS_LABEL as STATUS_LABEL, COPY_STATUS_STYLE as STATUS, dollars, pct, pnlClass, pnlPeriod, signedSol, signedUsd, solscanTx, weekLabel, winRateLabel } from "@/lib/format";
 import { DataState } from "@/components/data-state";
 import type { CopiesData, LeadersData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,7 +28,7 @@ export default function CopiesPage() {
 
   return (
     <>
-      <PageHeader title="Copying" kicker={copying.length ? `GodsEye is ready to copy ${copying.length} wallet${copying.length === 1 ? "" : "s"}. ${open.length ? `${open.length} trade${open.length === 1 ? "" : "s"} open.` : "Nothing open yet."}` : "Waiting for a wallet with a real track record."}>
+      <PageHeader title="Copying" kicker={`${copying.length ? `GodsEye is ready to copy ${copying.length} wallet${copying.length === 1 ? "" : "s"}. ${open.length ? `${open.length} trade${open.length === 1 ? "" : "s"} open.` : "Nothing open yet."}` : "Waiting for a wallet with a real track record."}${s?.pnlSince ? ` Trades from before ${pnlPeriod(s.pnlSince).slice(6)} are left off this page; the proof page still lists every one.` : ""}`}>
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
 
@@ -39,7 +39,7 @@ export default function CopiesPage() {
           tile="bg-lime"
           label={`Realized profit${s?.copyMode === "paper" ? " (paper)" : ""}`}
           value={signedUsd(s?.realizedPnlUsd ?? null)}
-          sub={s ? `all time${s.feesUnrecorded ? `, fees not recorded on ${s.feesUnrecorded}` : ", after fees"} · ${s.wins} won · ${s.losses} lost · today (UTC) ${signedUsd(s.todayPnlUsd)}` : undefined}
+          sub={s ? `${pnlPeriod(s.pnlSince)}${s.feesUnrecorded ? `, fees not recorded on ${s.feesUnrecorded}` : ", after fees"} · ${s.wins} won · ${s.losses} lost · today (UTC) ${signedUsd(s.todayPnlUsd)}` : undefined}
         />
         <Stat tile="bg-coral" label="Open trades" value={s?.openPositions ?? "—"} unit={s ? (s.maxPositions > 0 ? `of ${s.maxPositions}` : "budget-limited") : undefined} sub={s?.openPositions ? (s.unrealizedPnlUsd != null ? `${signedUsd(s.unrealizedPnlUsd)} unrealized` : "value unknown") : undefined} />
         {s?.copyMode === "paper" ? (
