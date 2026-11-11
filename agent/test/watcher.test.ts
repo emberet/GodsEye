@@ -64,3 +64,17 @@ test("wallets flagged as bots aren't tracked swap by swap, unless GodsEye copies
   const rows = db.prepare(`SELECT address FROM wallets WHERE ${NOT_A_BOT} ORDER BY address`).all() as { address: string }[];
   assert.deepEqual(rows.map((r) => r.address), ["COPIED_BOT", "LOSER", "OK"]);
 });
+
+test("watcher poll never waits on a hung RPC: the leader poll job finishes", async () => {
+  const stub = stubFetch(() => new Promise<never>(() => undefined));
+  try {
+    const watcher = new LeaderWatcher(openDb(":memory:"), {} as CopyEngine, { logs: false, callMs: 50 });
+    await watcher.sync([LEADER]);
+    const t0 = Date.now();
+    await watcher.poll();
+    assert.ok(Date.now() - t0 < 2_000, `poll took ${Date.now() - t0} ms`);
+    assert.deepEqual(watcher.watching, [LEADER]);
+  } finally {
+    stub.restore();
+  }
+});
