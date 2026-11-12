@@ -8,7 +8,8 @@ import bs58 from "bs58";
 import { LAMPORTS_PER_SOL, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { copyConnection } from "../rpc";
-import { jupiterQuote, jupiterSwapTx, type JupQuote, refuseHighImpact } from "../market/jupiter";
+import { jupiterQuote, jupiterSwapTx, type JupQuote, refuseHighImpact, RouteRefused } from "../market/jupiter";
+import { strangePumpPools } from "../pools/canonical";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
 import { noteCopyRpc } from "../chain/rpc-budget";
@@ -162,6 +163,21 @@ async function sellQuoteSol(mint: string, tokens: number): Promise<number | null
   return sol > 0 ? sol : null;
 }
 
+/**
+ * What a buy's quote must pass before anything is built or signed (paper and real alike): a price impact under the cap,
+ * and (COPY_PUMPSWAP_MIGRATED_ONLY) no PumpSwap pool on the route that pump.fun's own migration didn't open. Sells are
+ * never held back by these: getting out comes first.
+ */
+async function checkBuyRoute(q: JupQuote): Promise<void> {
+  // A thin pool or a size too big for it: what a sandwich feeds on.
+  refuseHighImpact(q, config.maxPriceImpactPct);
+  if (!config.pumpswapMigratedOnly) return;
+  const strange = await strangePumpPools(q.routePlan).catch(() => {
+    throw new RouteRefused("pool", "couldn't check the pools on the route");
+  });
+  if (strange > 0) throw new RouteRefused("pool", "the route goes through a PumpSwap pool that pump.fun's migration didn't open (its creator can take the liquidity back)");
+}
+
 async function decimalsOf(mint: string): Promise<number> {
   const d = await tokenDecimals(mint);
   if (d === undefined) throw new Error("couldn't read token decimals");
@@ -180,7 +196,7 @@ export class PaperExecutor implements Executor {
   mode = "paper" as const;
   async buy(mint: string, sol: number): Promise<Fill> {
     const q = await jupiterQuote(SOL_MINT, mint, BigInt(Math.floor(sol * LAMPORTS_PER_SOL)), config.slippageBps);
-    refuseHighImpact(q, config.maxPriceImpactPct); // as the real executor does, so paper shows the same skips
+    await checkBuyRoute(q); // as the real executor does, so paper shows the same skips
     return fillFromQuote("buy", q, await decimalsOf(mint), null);
   }
   async sell(mint: string, tokens: number, _all = false, slippageBps = config.slippageBps): Promise<Fill> {
@@ -281,8 +297,7 @@ export class RealExecutor implements Executor {
 
   async buy(mint: string, sol: number, onSigned?: OnSigned): Promise<Fill> {
     const q = await jupiterQuote(SOL_MINT, mint, BigInt(Math.floor(sol * LAMPORTS_PER_SOL)), config.slippageBps);
-    // A thin pool or a size too big for it: what a sandwich feeds on. Sells are never held back by this.
-    refuseHighImpact(q, config.maxPriceImpactPct);
+    await checkBuyRoute(q);
     return this.execute("buy", mint, q, onSigned);
   }
 

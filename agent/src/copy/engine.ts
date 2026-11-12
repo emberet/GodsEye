@@ -43,7 +43,7 @@ import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
 import { NothingHeldError, UnsettledError, type Executor, type OnSigned } from "./executor";
-import { PriceImpactError } from "../market/jupiter";
+import { RouteRefused } from "../market/jupiter";
 import { applySellFill, openPositionFromFill, type PositionRow, usdOf } from "./fills";
 import type { PublicKey } from "@solana/web3.js";
 
@@ -336,12 +336,12 @@ export class CopyEngine {
       this.openMints = null; // the stream now prices this coin too
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
-      if (e instanceof PriceImpactError) {
+      if (e instanceof RouteRefused) {
         // Refused before anything was signed: a skip, not a failed buy.
-        this.db.prepare("UPDATE copy_trades SET status='skipped', reason=? WHERE id=? AND status='pending'").run(`price impact: ${e.message}`, copyId);
-        this.shadow?.setOutcome(swap, "impact");
-        this.audit?.check(swap, "price_impact", "fail", e.message);
-        this.audit?.finish(swap, "skipped:impact", { sizeSol: size });
+        this.db.prepare("UPDATE copy_trades SET status='skipped', reason=? WHERE id=? AND status='pending'").run(e.message, copyId);
+        this.shadow?.setOutcome(swap, e.kind);
+        this.audit?.check(swap, e.kind === "impact" ? "price_impact" : "route_pools", "fail", e.message);
+        this.audit?.finish(swap, `skipped:${e.kind}`, { sizeSol: size });
         say("info", `Skipped copying ${short(swap.wallet)}'s buy of ${symbol}: ${e.message}.`);
         return;
       }

@@ -13,7 +13,9 @@
  * Not decoded (their depth needs tick arrays or bins, or isn't on chain at all): Orca Whirlpools, Raydium CLMM, Meteora DLMM,
  * proprietary AMMs. They come back as "unreadable" so the caller knows it is not looking at a number.
  * Byte offsets are from the programs' IDLs; each decoder was checked against live accounts on 2026-10-27 (what was compared and
- * the results: research_notes/Pool and contract intelligence/offset_verification.md).
+ * the results: research_notes/Pool and contract intelligence/offset_verification.md). The pump.fun curve and PumpSwap were
+ * checked again on 2026-11-12: decoded prices within a few tenths of a percent of Jupiter's. The curve account is now 166
+ * bytes (the fields read here haven't moved), and some curves price against a quote other than SOL (offset 83).
  * Layout reference: research_notes/Pool and contract intelligence/pool_types_and_state.md.
  */
 import { PublicKey } from "@solana/web3.js";

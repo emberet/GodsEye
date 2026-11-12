@@ -48,13 +48,17 @@ export function impactPct(q: Pick<JupQuote, "priceImpactPct">): number | null {
   return q.priceImpactPct != null && q.priceImpactPct !== "" && Number.isFinite(f) ? Math.abs(f) * 100 : null;
 }
 
-/** A buy refused before anything was signed: its quote would move the price too much. */
-export class PriceImpactError extends Error {}
+/** A buy refused before anything was signed because of its quote: `kind` says why, the message in plain words. */
+export class RouteRefused extends Error {
+  constructor(public kind: "impact" | "pool", message: string) {
+    super(message);
+  }
+}
 
-/** Throws PriceImpactError when a buy's quote moves the price more than `maxPct`. A quote with no figure is not refused (the slippage cap still holds). */
+/** Throws RouteRefused when a buy's quote moves the price more than `maxPct`. A quote with no figure is not refused (the slippage cap still holds). */
 export function refuseHighImpact(q: Pick<JupQuote, "priceImpactPct">, maxPct: number): void {
   const pct = impactPct(q);
-  if (pct !== null && pct > maxPct) throw new PriceImpactError(`the quote moves the price ${pct.toFixed(1)}% (more than ${maxPct}%)`);
+  if (pct !== null && pct > maxPct) throw new RouteRefused("impact", `price impact: the quote moves the price ${pct.toFixed(1)}% (more than ${maxPct}%)`);
 }
 
 export async function jupiterQuote(inputMint: string, outputMint: string, amountAtomic: bigint, slippageBps = 50, retries = 1): Promise<JupQuote> {
