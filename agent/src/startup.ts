@@ -11,6 +11,11 @@ import type { Config } from "./config";
 /** The start line about money on the public feed. */
 export function modeLine(c: Config): { level: "info" | "warn"; message: string } {
   if (c.copyMode !== "real") return { level: "info", message: "COPY_MODE=paper — copy trades are simulated with live Jupiter quotes. No real funds move." };
+  if (c.riskGovernor)
+    return {
+      level: "warn",
+      message: `COPY_MODE=real — copy trades spend REAL SOL, sized from what it holds: ${c.riskStartTradePct}% a trade to start (never over ${c.riskMaxTradePct}%), stop for the day ${c.riskDailyStopPct}% down, pause itself ${c.riskDrawdownPausePct}% below its high. Pause any time with "npm run pause".`,
+    };
   return {
     level: "warn",
     message: `COPY_MODE=real — copy trades spend REAL SOL: up to ${c.copyMaxTradeSol} SOL per trade, ${c.copyBudgetSol} SOL in total, stop for the day after ${c.dailyLossLimitSol} SOL of losses. Pause any time with "npm run pause".`,
@@ -33,6 +38,17 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       COPY_BUDGET_SOL: c.copyBudgetSol,
       COPY_MAX_POSITIONS: c.maxPositions,
       WALLET_RESERVE_SOL: c.walletReserveSol,
+    }),
+    row("risk", {
+      RISK_GOVERNOR: c.riskGovernor,
+      RISK_START_TRADE_PCT: c.riskStartTradePct,
+      RISK_MIN_TRADE_PCT: c.riskMinTradePct,
+      RISK_MAX_TRADE_PCT: c.riskMaxTradePct,
+      RISK_DAILY_STOP_PCT: c.riskDailyStopPct,
+      RISK_DRAWDOWN_PAUSE_PCT: c.riskDrawdownPausePct,
+      RISK_MIN_TRADE_SOL: c.riskMinTradeSol,
+      RISK_MIN_EQUITY_SOL: c.riskMinEquitySol,
+      FUNDING_OUTFLOW_PAUSE_SOL: c.fundingOutflowPauseSol,
     }),
     row("stops", {
       COPY_DAILY_LOSS_LIMIT_SOL: c.dailyLossLimitSol,
@@ -92,6 +108,17 @@ export function safetyOff(c: Config): string[] {
   if (!c.holderCheckEnabled) off.push("HOLDER_CHECK_ENABLED is off: bundled and clustered supply is not checked before a buy.");
   if (!c.copyBrainGates) off.push("COPY_BRAIN_GATES is off: the Brain's hard gates are not part of the copy screen.");
   return off;
+}
+
+/** Under the governor: the fixed limits written in .env, which cap what it decides (one line, or none). */
+export function ceilingsNote(c: Config): string | null {
+  if (c.copyMode !== "real" || !c.riskGovernor) return null;
+  const set = [
+    c.fixedInEnv.maxTrade && `COPY_MAX_TRADE_SOL=${c.copyMaxTradeSol}`,
+    c.fixedInEnv.budget && `COPY_BUDGET_SOL=${c.copyBudgetSol}`,
+    c.fixedInEnv.dailyLoss && `COPY_DAILY_LOSS_LIMIT_SOL=${c.dailyLossLimitSol}`,
+  ].filter(Boolean);
+  return set.length ? `ℹ️  Ceilings on top of the risk governor (from .env): ${set.join("  ")}. Take a line out of .env to let the wallet decide.` : null;
 }
 
 /** Open positions that were bought with real SOL. */

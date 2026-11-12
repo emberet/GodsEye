@@ -11,7 +11,7 @@ import path from "node:path";
 import { Keypair } from "@solana/web3.js";
 import { HARD_MAX_COPY_TRADE_SOL, openDb, repoRoot } from "@godseye/shared";
 import { type Config, readConfig } from "../src/config";
-import { lockEnvFile, modeLine, openRealPositions, safetyOff, secretsFileNote, settingsReport, startupWarnings } from "../src/startup";
+import { ceilingsNote, lockEnvFile, modeLine, openRealPositions, safetyOff, secretsFileNote, settingsReport, startupWarnings } from "../src/startup";
 
 /** Paper mode with every safety check on (the test setup itself runs with the rug screen off). */
 const safe: Config = {
@@ -33,12 +33,15 @@ test("the public start line: the mode and three limits, nothing else", () => {
   assert.equal(paper.level, "info");
   assert.match(paper.message, /COPY_MODE=paper .* No real funds move\./);
 
-  const live = modeLine({ ...real, copyMaxTradeSol: 0.2, copyBudgetSol: 3, dailyLossLimitSol: 0.7 });
+  const live = modeLine({ ...real, riskGovernor: false, copyMaxTradeSol: 0.2, copyBudgetSol: 3, dailyLossLimitSol: 0.7 });
   assert.equal(live.level, "warn");
   assert.match(live.message, /COPY_MODE=real .*REAL SOL: up to 0\.2 SOL per trade, 3 SOL in total, stop for the day after 0\.7 SOL of losses/);
+  const governed = modeLine({ ...real, riskGovernor: true });
+  assert.equal(governed.level, "warn");
+  assert.match(governed.message, /COPY_MODE=real .*REAL SOL, sized from what it holds: 5% a trade to start \(never over 10%\), stop for the day 20% down, pause itself 50% below its high/);
 
   // Research switches, thresholds, file names and addresses belong to the console, not the feed.
-  for (const { message } of [paper, live, modeLine({ ...real, quantSizing: "on", socialWarning: "shadow", rugAllowlist: [Keypair.generate().publicKey.toBase58()] })]) {
+  for (const { message } of [paper, live, governed, modeLine({ ...real, quantSizing: "on", socialWarning: "shadow", rugAllowlist: [Keypair.generate().publicKey.toBase58()] })]) {
     assert.doesNotMatch(message, /social|quant|brain|rug|shadow|allowlist|\.env|wallet/i);
     assert.doesNotMatch(message, ADDRESS);
   }
@@ -55,6 +58,7 @@ test("the console report names every safety switch and limit by its .env name", 
     "RUG_CHECK_ENABLED", "RUG_BLOCK_MINT_AUTHORITY", "RUG_MAX_RISK_SCORE", "RUG_REQUIRE_RUGCHECK", "RUG_MAX_TRANSFER_FEE_BPS", "LP_MIN_LOCKED_PCT", "LP_CONCENTRATED_POOLS", "RUG_ALLOWLIST",
     "HOLDER_CHECK_ENABLED", "BUNDLE_MAX_PCT", "CLUSTER_MAX_PCT", "TOP10_MAX_PCT", "INSIDER_MAX_PCT",
     "SHADOW_ENABLED", "QUANT_SIZING", "QUANT_SKILL_GATE", "SOCIAL_WARNING",
+    "RISK_GOVERNOR", "RISK_START_TRADE_PCT", "RISK_MIN_TRADE_PCT", "RISK_MAX_TRADE_PCT", "RISK_DAILY_STOP_PCT", "RISK_DRAWDOWN_PAUSE_PCT", "RISK_MIN_TRADE_SOL", "RISK_MIN_EQUITY_SOL", "FUNDING_OUTFLOW_PAUSE_SOL",
   ];
   for (const name of names) assert.match(report, new RegExp(`(^|\\s)${name}=\\S`, "m"), name);
   assert.match(report, /COPY_MODE=paper/);
@@ -149,4 +153,14 @@ test(".env ends up readable by its owner only", { skip: process.platform === "wi
   assert.equal(lockEnvFile(), "tightened");
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   assert.equal(lockEnvFile(), "ok");
+});
+
+test("under the governor, the fixed limits written in .env are named as ceilings; otherwise nothing is said", () => {
+  const none = { maxTrade: false, budget: false, dailyLoss: false };
+  assert.equal(ceilingsNote({ ...real, riskGovernor: true, fixedInEnv: none }), null);
+  assert.equal(ceilingsNote({ ...safe, riskGovernor: true, fixedInEnv: { ...none, maxTrade: true } }), null, "paper mode");
+  assert.equal(ceilingsNote({ ...real, riskGovernor: false, fixedInEnv: { ...none, maxTrade: true } }), null, "governor off");
+  const note = ceilingsNote({ ...real, riskGovernor: true, copyMaxTradeSol: 0.1, dailyLossLimitSol: 0.25, fixedInEnv: { maxTrade: true, budget: false, dailyLoss: true } });
+  assert.match(note ?? "", /COPY_MAX_TRADE_SOL=0\.1\s+COPY_DAILY_LOSS_LIMIT_SOL=0\.25\. Take a line out of \.env/);
+  assert.doesNotMatch(note ?? "", /COPY_BUDGET_SOL/);
 });

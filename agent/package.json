@@ -21,6 +21,7 @@
     "stream:ips": "tsx src/cli/stream-ips.ts",
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
+    "funding": "tsx src/cli/funding.ts",
     "alert-test": "tsx src/cli/alerts.ts test",
     "alert-check": "tsx src/cli/alerts.ts check",
     "close-all": "tsx src/cli/close-all.ts",

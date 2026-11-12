@@ -39,8 +39,10 @@ import { labelWallets } from "./social/labels";
 import { socialTablesExist } from "./social/schema";
 import { runSocialScore } from "./social/score";
 import { runXResearch } from "./x/calls";
-import { loadOrCreateWallet, walletHoldings, walletTokenBalance } from "./wallet/wallet";
+import { loadOrCreateWallet, walletBalanceAt, walletHoldings, walletTokenBalance } from "./wallet/wallet";
 import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } from "./copy/recovery";
+import { riskLook } from "./copy/risk";
+import { scanFlows, walletFlowSource } from "./funding/ledger";
 import { walletChain } from "./copy/settle-chain";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
@@ -48,7 +50,7 @@ import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
 import { notBots, refreshCopyReplays } from "./smart/copy-check";
 import { every } from "./schedule";
-import { lockEnvFile, modeLine, openRealPositions, secretsFileNote, settingsReport, startupWarnings } from "./startup";
+import { ceilingsNote, lockEnvFile, modeLine, openRealPositions, secretsFileNote, settingsReport, startupWarnings } from "./startup";
 import { createJobRunner, type JobOpts } from "./jobs";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
@@ -144,6 +146,7 @@ const learn = () =>
 const STARTED_AT = nowIso();
 const heldTokens = (mint: string) => walletTokenBalance(keypair.publicKey, mint);
 const chain = walletChain(keypair.publicKey);
+const flowSource = walletFlowSource(keypair.publicKey);
 let lastReconcile = 0;
 let lastSweep = 0;
 const positions = () =>
@@ -159,6 +162,13 @@ const positions = () =>
     const recovered = await recoverPending(db, { before, held: heldTokens });
     if (settled.bought + settled.sold + recovered.opened > 0) engine.positionsChanged();
     await engine.managePositions();
+    // Real money: the funding ledger, then the risk look that sets the next buys' limits (copy/risk.ts). A wallet or a
+    // history that can't be read skips the look; after three minutes without one, no buy goes ahead.
+    if (config.copyMode === "real" && config.riskGovernor) {
+      const bal = await walletBalanceAt(keypair.publicKey).catch(() => null);
+      const scanned = bal && (await scanFlows(db, flowSource, keypair.publicKey.toBase58(), bal.slot, { outflowPauseSol: config.fundingOutflowPauseSol }).catch(() => null));
+      if (bal && scanned) riskLook(db, config, bal.sol, bal.slot);
+    }
     // Every 5 minutes, after the exit checks so it never delays them: positions the wallet holds none of, and tokens
     // in the wallet that belong to no position. Both go by one reading of the wallet; with none, nothing is concluded.
     if (config.copyMode === "real" && Date.now() - lastSweep > 5 * 60_000) {
@@ -211,7 +221,8 @@ async function main() {
   say(mode.level, mode.message);
   // Console only (the owner's terminal, the server's journal), never the public feed: every limit and safety switch
   // in effect, what is switched off, and whether .env was open to other users.
-  for (const line of [...settingsReport(config, isPaused(db)), ...startupWarnings(config, openRealPositions(db))]) console.log(line);
+  const ceilings = ceilingsNote(config);
+  for (const line of [...settingsReport(config, isPaused(db)), ...(ceilings ? [ceilings] : []), ...startupWarnings(config, openRealPositions(db))]) console.log(line);
   console.log(`Owner alerts: ${channelNote(config)}`);
   const envNote = secretsFileNote(".env", lockEnvFile());
   if (envNote) console.warn(envNote);

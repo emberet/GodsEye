@@ -226,6 +226,31 @@ export const readConfig = () => ({
   dailyLossLimitSol: envNum("COPY_DAILY_LOSS_LIMIT_SOL", 0.5),
   /** Always keep this much SOL for fees. */
   walletReserveSol: envNum("WALLET_RESERVE_SOL", 0.05),
+
+  // ---- Risk governor (copy/risk.ts): in real mode the agent sets its own size, budget and stops from what it holds ----
+  /** on (default): size, budget and the day's stop follow the wallet. COPY_MAX_TRADE_SOL, COPY_BUDGET_SOL and
+   *  COPY_DAILY_LOSS_LIMIT_SOL stay on top as ceilings, but only when they are in .env. off: the fixed settings alone. */
+  riskGovernor: envBool("RISK_GOVERNOR", true),
+  /** The owner's outer rails ("Aggressive", 2026-11-11), in % of what the agent has to trade with. Changed only on the owner's word. */
+  riskMaxTradePct: envNum("RISK_MAX_TRADE_PCT", 10),
+  riskStartTradePct: envNum("RISK_START_TRADE_PCT", 5),
+  riskMinTradePct: envNum("RISK_MIN_TRADE_PCT", 3),
+  /** No new buys for the rest of the UTC day once the day's value per unit is this % down (open losses count). */
+  riskDailyStopPct: envNum("RISK_DAILY_STOP_PCT", 20),
+  /** The agent pauses itself this % below its highest value per unit; only `npm run resume` starts it again. */
+  riskDrawdownPausePct: envNum("RISK_DRAWDOWN_PAUSE_PCT", 50),
+  /** A smaller trade is mostly fees: a small wallet goes up to the per-trade rail to reach it… */
+  riskMinTradeSol: envNum("RISK_MIN_TRADE_SOL", 0.05),
+  /** …and with less than this to trade with it doesn't buy at all. */
+  riskMinEquitySol: envNum("RISK_MIN_EQUITY_SOL", 0.5),
+  /** SOL leaving the wallet that no trade explains and the owner didn't announce: above this the agent pauses itself. */
+  fundingOutflowPauseSol: envNum("FUNDING_OUTFLOW_PAUSE_SOL", 0.02),
+  /** Which fixed limits are written in .env (under the governor only those are ceilings). */
+  fixedInEnv: {
+    maxTrade: envStr("COPY_MAX_TRADE_SOL") !== "",
+    budget: envStr("COPY_BUDGET_SOL") !== "",
+    dailyLoss: envStr("COPY_DAILY_LOSS_LIMIT_SOL") !== "",
+  },
   /** Our own safety exits, even if the leader never sells. */
   stopLossPct: envNum("COPY_STOP_LOSS_PCT", 35),
   takeProfitPct: envNum("COPY_TAKE_PROFIT_PCT", 300),

@@ -87,3 +87,9 @@ export async function walletHoldings(owner: PublicKey): Promise<Map<string, numb
 export async function walletBalanceSol(pubkey: PublicKey): Promise<number> {
   return (await withTimeout(copyConnection().getBalance(pubkey), READ_MS, "wallet balance")) / LAMPORTS_PER_SOL;
 }
+
+/** The wallet's SOL and the slot it was read at (the funding ledger reads the wallet's history up to that slot). */
+export async function walletBalanceAt(pubkey: PublicKey): Promise<{ sol: number; slot: number }> {
+  const r = await withTimeout(copyConnection().getBalanceAndContext(pubkey, "confirmed"), READ_MS, "wallet balance");
+  return { sol: r.value / LAMPORTS_PER_SOL, slot: r.context.slot };
+}

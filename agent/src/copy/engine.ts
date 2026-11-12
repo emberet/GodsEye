@@ -20,6 +20,7 @@
  * every leader buy, so they're logged and recorded at most once per 10 minutes.
  * Every decision is written to the proof ledger before it's executed.
  *
+ * With real money the risk governor (risk.ts) sets the size, the budget and the day's stop from what the wallet holds.
  * Limits (budget, open positions, daily loss) count only positions in the current mode, and buys still
  * in flight count against the budget: the final check and the reservation of a buy happen under one
  * lock, so two leader buys of different tokens can't both spend the same room.
@@ -34,6 +35,7 @@ import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
 import { currentExits, type Exits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
+import { effectiveLimits, type Limits } from "./risk";
 import { rugLook, UNFINISHED_TEXT } from "../market/rugcheck";
 import { gate, gateReason } from "../brain/gates";
 import type { ShadowLogger } from "../shadow/log";
@@ -100,6 +102,8 @@ export class CopyEngine {
   /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
   private quiet = new Map<string, { until: number; held: number }>();
   private balance: { sol: number; at: number } | null = null;
+  /** Reads the wallet's SOL (tests put a fake in its place). */
+  balanceOf: (wallet: PublicKey) => Promise<number> = walletBalanceSol;
   /** Tokens already reported as not-memecoins today. */
   private notMemeLogged = new Map<string, string>();
 
@@ -187,11 +191,12 @@ export class CopyEngine {
     return null;
   }
 
-  /** Wallet balance, cached briefly (a busy leader can trigger many checks a second). */
-  private async walletSol(): Promise<number> {
+  /** Wallet balance, cached briefly (a busy leader can trigger many checks a second). Null when it can't be read: unknown, not empty. */
+  private async walletSol(): Promise<number | null> {
     if (this.balance && Date.now() - this.balance.at < BALANCE_CACHE_MS) return this.balance.sol;
-    const sol = this.wallet ? await walletBalanceSol(this.wallet).catch(() => 0) : 0;
-    this.balance = { sol, at: Date.now() };
+    if (!this.wallet) return 0;
+    const sol = await this.balanceOf(this.wallet).catch(() => null);
+    if (sol !== null) this.balance = { sol, at: Date.now() };
     return sol;
   }
 
@@ -200,9 +205,18 @@ export class CopyEngine {
   private async roomFor(swap: ParsedSwap, weight: number, symbol: string): Promise<number | null> {
     const mode = this.executor.mode;
     if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true), null;
+    // Real money under the risk governor (./risk.ts): size, budget and the day's stop follow what the wallet holds.
+    const governed = mode === "real" && !!this.wallet && config.riskGovernor;
+    let lim: Limits = { copyMaxTradeSol: config.copyMaxTradeSol, copyBudgetSol: config.copyBudgetSol, copyMinTradeSol: config.copyMinTradeSol };
+    if (governed) {
+      const l = effectiveLimits(this.db, config, await this.walletSol());
+      if (!l.ok) return this.skip(swap, weight, symbol, l.key, l.reason, true), null;
+      lim = l;
+    }
     const today = new Date().toISOString().slice(0, 10);
     const lossToday = (this.db.prepare("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { s: number }).s;
-    if (lossToday <= -config.dailyLossLimitSol) {
+    // Under the governor the fixed SOL limit stays a ceiling only when it is written in .env.
+    if ((!governed || config.fixedInEnv.dailyLoss) && lossToday <= -config.dailyLossLimitSol) {
       void alert(this.db, "daily_stop", `Daily loss limit reached in ${mode} mode (${fmtSol(lossToday)} today). No new buys until tomorrow (UTC); sells and exits keep running.`, today);
       return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true), null;
     }
@@ -213,10 +227,10 @@ export class CopyEngine {
     // COPY_MAX_POSITIONS=0: no count limit; the copy budget and the wallet balance below decide how many can be open.
     if (config.maxPositions > 0 && held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
 
-    let size = copySize(weight, config);
+    let size = copySize(weight, lim);
     if (size > 0) {
       // optional offline quant sizing: off by default, can only reduce the size (see ./quant.ts)
-      const q = applyQuantSizing(this.db, swap.wallet, size, weight, config);
+      const q = applyQuantSizing(this.db, swap.wallet, size, weight, lim);
       if (q.log) {
         say("info", `${short(swap.wallet)}: ${q.log}`);
         this.audit?.check(swap, "quant-size", "pass", q.log);
@@ -224,14 +238,16 @@ export class CopyEngine {
       size = Math.min(size, q.size);
     }
     if (size <= 0) {
-      this.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${config.copyMinTradeSol} SOL`);
+      this.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${lim.copyMinTradeSol} SOL`);
       this.audit?.finish(swap, "skipped:size");
       return null;
     }
-    size = Math.min(size, config.copyBudgetSol - held.c - flying.c);
-    if (size < config.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true), null;
+    size = Math.min(size, lim.copyBudgetSol - held.c - flying.c);
+    if (size < lim.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true), null;
     if (mode === "real" && this.wallet) {
-      const balance = (await this.walletSol()) - flying.c;
+      const sol = await this.walletSol();
+      if (sol === null) return this.skip(swap, weight, symbol, "risk-unread", "the wallet's balance can't be read right now", true), null;
+      const balance = sol - flying.c;
       if (balance - config.walletReserveSol < size) {
         return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to the agent's wallet to start copying`, true), null;
       }
@@ -515,7 +531,7 @@ export class CopyEngine {
   async managePositions(): Promise<void> {
     const open = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mode = ?").all(this.executor.mode) as PositionRow[];
     if (this.executor.mode === "real" && this.wallet) {
-      const bal = await walletBalanceSol(this.wallet).catch(() => null);
+      const bal = await this.balanceOf(this.wallet).catch(() => null);
       if (bal !== null) {
         setMeta(this.db, "wallet_balance_sol", bal);
         setMeta(this.db, "wallet_balance_checked_at", nowIso());
