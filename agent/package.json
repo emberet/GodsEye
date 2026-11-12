@@ -23,6 +23,7 @@
     "resume": "tsx src/cli/pause.ts resume",
     "funding": "tsx src/cli/funding.ts",
     "creator": "tsx src/cli/creator.ts",
+    "brain:warm": "tsx src/cli/brain-warm.ts",
     "alert-test": "tsx src/cli/alerts.ts test",
     "alert-check": "tsx src/cli/alerts.ts check",
     "close-all": "tsx src/cli/close-all.ts",
