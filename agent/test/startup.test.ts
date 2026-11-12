@@ -5,6 +5,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Keypair } from "@solana/web3.js";
@@ -73,6 +74,17 @@ test("the report shows the values in effect: the capped trade size, a count for 
   const listed = settingsReport({ ...safe, rugAllowlist: [Keypair.generate().publicKey.toBase58(), Keypair.generate().publicKey.toBase58()] }, false).join("\n");
   assert.match(listed, /RUG_ALLOWLIST=2 coin\(s\)/);
   assert.doesNotMatch(listed, ADDRESS);
+});
+
+test("the report says whether the alert channel is filled in, never what it holds", () => {
+  const empty = settingsReport({ ...safe, telegramBotToken: "", telegramChatId: "" }, false).join("\n");
+  assert.match(empty, /TELEGRAM_BOT_TOKEN=empty\s+TELEGRAM_CHAT_ID=empty/);
+
+  const secret = randomBytes(26).toString("base64url");
+  const chat = String(100_000_000 + Math.floor(Math.random() * 800_000_000));
+  const filled = settingsReport({ ...safe, telegramBotToken: `7654321:${secret}`, telegramChatId: chat }, false).join("\n");
+  assert.match(filled, /TELEGRAM_BOT_TOKEN=set\s+TELEGRAM_CHAT_ID=set/);
+  assert.ok(!filled.includes(secret) && !filled.includes(chat));
 });
 
 test("every check on: nothing to warn about, in either mode", () => {

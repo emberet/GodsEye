@@ -71,6 +71,8 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       INSIDER_MAX_PCT: c.insiderMaxPct,
     }),
     row("research", { SHADOW_ENABLED: c.shadowEnabled, QUANT_SIZING: c.quantSizing, QUANT_SKILL_GATE: c.quantSkillGate, SOCIAL_WARNING: c.socialWarning }),
+    // Whether each is filled in, never what it holds.
+    row("alerts", { TELEGRAM_BOT_TOKEN: c.telegramBotToken ? "set" : "empty", TELEGRAM_CHAT_ID: c.telegramChatId ? "set" : "empty" }),
   ];
 }
 

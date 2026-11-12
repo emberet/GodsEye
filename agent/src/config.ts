@@ -287,6 +287,12 @@ export const readConfig = () => ({
   shadowMaxScreens: envNum("SHADOW_MAX_SCREENS", 2),
   shadowMaxQueue: envNum("SHADOW_MAX_QUEUE", 40),
 
+  // ---- Owner alerts (see src/alerts.ts): a Telegram message when something needs you ----
+  /** The bot's token, from @BotFather on Telegram. Without it and the chat ID, alerts are lines in the log. */
+  telegramBotToken: envStr("TELEGRAM_BOT_TOKEN"),
+  /** The chat the bot writes to: your own chat with it (a number), or a private group's. */
+  telegramChatId: envStr("TELEGRAM_CHAT_ID"),
+
   // ---- Misc ----
   /** Never track these wallets (exchanges, your own wallets…). */
   ignoreWallets: list("IGNORE_WALLETS"),

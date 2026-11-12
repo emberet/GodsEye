@@ -30,6 +30,8 @@ const env: Record<string, string> = {
   JUPITER_API_KEY: "",
   GRPC_URL: "",
   GRPC_TOKEN: "",
+  TELEGRAM_BOT_TOKEN: "",
+  TELEGRAM_CHAT_ID: "",
   RUG_CHECK_ENABLED: "false",
   GATE_LOG_ENABLED: "false",
 };
