@@ -2,7 +2,8 @@
 import fs from "node:fs";
 if (!fs.existsSync(".env")) {
   fs.copyFileSync(".env.example", ".env");
-  console.log("Created .env from .env.example — open it and add HELIUS_API_KEY (and review the COPY_* money limits).");
+  fs.chmodSync(".env", 0o600); // it will hold API keys: readable by its owner only
+  console.log("Created .env from .env.example (paper mode) — open it and add HELIUS_API_KEY (and review the COPY_* money limits).");
 } else {
   console.log(".env already exists — leaving it alone.");
 }

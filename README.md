@@ -2,7 +2,7 @@
 
 **GodsEye** copy-trades Solana wallets and keeps a public wallet database: a tier and an AI / bot or Human verdict for every wallet it studies, with the evidence on show. The public label for the insider tier is **Early-entry pattern** (`shared/src/constants.ts`).
 
-> ⚠️ **Real money by default.** `COPY_MODE=real` (the default in `agent/src/config.ts`) spends real SOL. Defaults: 0.1 SOL per trade, 1 SOL in open copies, stop for the UTC day after 0.5 SOL of realized losses. Set `COPY_MODE=paper` to simulate. `npm run pause` stops new buys; sells and safety exits keep running.
+> ⚠️ **Paper by default. Real money takes one word.** `COPY_MODE=paper` (the default) simulates copy trades and moves no funds. `COPY_MODE=real` spends real SOL from the agent's wallet: by default 0.1 SOL per trade, 1 SOL in open copies, stop for the UTC day after 0.5 SOL of realized losses. Only the word `real` turns it on; any other word there, or a safety switch or limit the agent can't read, stops it at start instead of guessing. Real mode never makes a new wallet. `npm run pause` stops new buys; sells and safety exits keep running.
 
 Nothing here is a promise of profit. Nothing here is financial advice.
 
