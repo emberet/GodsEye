@@ -19,6 +19,7 @@ import { snapshotStoreConfigured } from "@godseye/shared/snapshot-store";
 import { config } from "./config";
 import { rpcUsage } from "./chain/rpc-budget";
 import { attachLogDb, say } from "./log";
+import { alert, channelNote } from "./alerts";
 import { runDiscovery } from "./discovery/discover";
 import { recomputeAllStats, runAnalysis } from "./analysis/analyze";
 import { backfillClosedTradesStep } from "./analysis/closed-trades";
@@ -111,7 +112,11 @@ function logSlowSql(d: typeof db): void {
 }
 
 /** Runs a job unless the previous run of the same job is still going (agent/src/jobs.ts). */
-const runner = createJobRunner({ warn: (m) => say("warn", m), error: (m) => say("error", m) });
+const runner = createJobRunner({
+  warn: (m) => say("warn", m),
+  error: (m) => say("error", m),
+  stalled: (m) => void alert(db, "job_stalled", `A background job is stuck: ${m}`),
+});
 /** Jobs that cannot trade: a hung run is abandoned after this long so the schedule resumes. */
 const NON_TRADING: JobOpts = { maxRuntimeMs: 30 * 60_000, releaseAfterMaxRuntime: true };
 /** Jobs that can trade: warn when a run is this long, never start a second copy. */
@@ -198,6 +203,7 @@ const BANNER = `
 async function main() {
   console.log(BANNER);
   heartbeat();
+  setMeta(db, "agent_started_at", STARTED_AT); // `npm run alert-check` gives the jobs their time after a start
   // The address stays out of the log; `npm run wallet` shows it to the owner.
   say("info", `Waking up.${created ? " A new wallet was just created — back up data/wallet/!" : ""}`);
   const mode = modeLine(config);
@@ -205,6 +211,7 @@ async function main() {
   // Console only (the owner's terminal, the server's journal), never the public feed: every limit and safety switch
   // in effect, what is switched off, and whether .env was open to other users.
   for (const line of [...settingsReport(config, isPaused(db)), ...startupWarnings(config, openRealPositions(db))]) console.log(line);
+  console.log(`Owner alerts: ${channelNote(config)}`);
   const envNote = secretsFileNote(".env", lockEnvFile());
   if (envNote) console.warn(envNote);
   if (!config.heliusApiKey && !config.solanaRpcUrl) say("warn", "TODO: add HELIUS_API_KEY (or SOLANA_RPC_URL) to .env. The public Solana RPC is slow, rate-limited and often refuses the history reads analysis needs.");

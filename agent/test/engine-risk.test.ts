@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { dataPath, openDb, type DB } from "@godseye/shared";
+import { dataPath, getMeta, openDb, type DB } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import type { Executor, Fill } from "../src/copy/executor";
 
@@ -17,6 +17,7 @@ const { CopyEngine, isPaused } = await import("../src/copy/engine");
 const { recoverPending, reconcile } = await import("../src/copy/recovery");
 const { RealExecutor } = await import("../src/copy/executor");
 const { getCopies, getSummary } = await import("@godseye/shared/dashboard-data");
+const { attachLogDb } = await import("../src/log");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const now = () => new Date().toISOString();
@@ -108,6 +109,24 @@ test("limits: the daily loss limit stops new buys but never sells", async () => 
   await engine.onLeaderSwap(swap({ mint: held, side: "sell", tokenAmount: 1000, tokenBalanceBefore: 1000 }));
   assert.match(ex.calls[1], /^sell/, "the leader's sell is still mirrored");
   assert.equal(count(db, "SELECT COUNT(*) n FROM positions WHERE mint=? AND status='closed'", held), 1);
+});
+
+test("limits: the owner hears once that the daily loss limit stopped new buys", async () => {
+  const { db, ex, engine } = setup();
+  db.prepare("INSERT INTO positions (mint, leader, mode, status, token_amount, tokens_bought, cost_sol, entry_price_sol, opened_at, closed_at, pnl_sol) VALUES (?, 'LEADER', 'paper', 'closed', 0, 1, 1, 1, ?, ?, -0.6)").run(mint(), now(), now());
+  attachLogDb(db);
+  try {
+    await engine.onLeaderSwap(swap({ mint: token(db) }));
+    await engine.onLeaderSwap(swap({ mint: token(db) }));
+  } finally {
+    attachLogDb(null as unknown as DB);
+  }
+  assert.equal(ex.calls.length, 0);
+  const repeats = (engine as unknown as { quiet: Map<string, { held: number }> }).quiet.get("loss-limit")?.held;
+  assert.equal(repeats, 1, "the second buy ran into the limit too (the copy log holds a repeat back)");
+  const told = (db.prepare("SELECT message FROM agent_log WHERE message LIKE 'Owner alert%' ORDER BY id").all() as { message: string }[]).map((r) => r.message);
+  assert.deepEqual(told, ["Owner alert (daily_stop): Daily loss limit reached in paper mode (-0.6000 SOL today). No new buys until tomorrow (UTC); sells and exits keep running."]);
+  assert.match((JSON.parse(getMeta(db, "alert_daily_stop") ?? "{}") as { about?: string }).about ?? "", /^\d{4}-\d{2}-\d{2}$/, "it is about the day, so the next day counts as new");
 });
 
 test("pause: the data/PAUSE file stops buys (in the test's own temp folder)", async () => {

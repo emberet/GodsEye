@@ -17,12 +17,13 @@ function setup() {
   let t = 0;
   const warns: string[] = [];
   const errors: string[] = [];
-  const r = createJobRunner({ warn: (m) => warns.push(m), error: (m) => errors.push(m), now: () => t, warnEveryMs: 60_000 });
-  return { r, warns, errors, advance: (ms: number) => void (t += ms) };
+  const stalls: string[] = [];
+  const r = createJobRunner({ warn: (m) => warns.push(m), error: (m) => errors.push(m), stalled: (m) => stalls.push(m), now: () => t, warnEveryMs: 60_000 });
+  return { r, warns, errors, stalls, advance: (ms: number) => void (t += ms) };
 }
 
 test("job runner: a skipped tick warns, rate-limited, and never runs a second copy", async () => {
-  const { r, warns, advance } = setup();
+  const { r, warns, stalls, advance } = setup();
   let calls = 0;
   void r.run("learning", () => { calls++; return never(); });
   assert.equal(await r.run("learning", async () => void calls++), false);
@@ -33,16 +34,18 @@ test("job runner: a skipped tick warns, rate-limited, and never runs a second co
   await r.run("learning", async () => void calls++);
   assert.equal(warns.filter((w) => w.includes("tick skipped")).length, 2);
   assert.equal(calls, 1);
+  assert.deepEqual(stalls, [], "a skipped tick alone is not a stalled job");
 });
 
 test("job runner: a non-trading job past max runtime is abandoned and the schedule resumes", async () => {
-  const { r, warns, advance } = setup();
+  const { r, warns, stalls, advance } = setup();
   let release!: () => void;
   void r.run("learning", () => new Promise<void>((res) => (release = res)), { maxRuntimeMs: 1000, releaseAfterMaxRuntime: true });
   advance(2000);
   let second!: () => void;
   const ran = r.run("learning", () => new Promise<void>((res) => (second = res)), { maxRuntimeMs: 1000, releaseAfterMaxRuntime: true });
   assert.ok(warns.some((w) => w.includes("exceeded max runtime") && w.includes("abandoning")));
+  assert.deepEqual(stalls, ["learning run exceeded max runtime (2 s > 1 s); abandoning it and starting a new run."]);
   // The old run finishing late must not clear the new run's slot.
   release();
   await new Promise((res) => setImmediate(res));
@@ -53,7 +56,7 @@ test("job runner: a non-trading job past max runtime is abandoned and the schedu
 });
 
 test("job runner: a trading job past max runtime only warns (rate-limited), never runs twice", async () => {
-  const { r, warns, advance } = setup();
+  const { r, warns, stalls, advance } = setup();
   let calls = 0;
   const opts = { maxRuntimeMs: 1000, releaseAfterMaxRuntime: false };
   void r.run("positions", () => { calls++; return never(); }, opts);
@@ -62,6 +65,18 @@ test("job runner: a trading job past max runtime only warns (rate-limited), neve
   assert.equal(await r.run("positions", async () => void calls++, opts), false);
   assert.equal(calls, 1);
   assert.equal(warns.filter((w) => w.includes("exceeded max runtime")).length, 1);
+  assert.equal(stalls.length, 1, "reported as stalled once, with the warning");
+  assert.match(stalls[0]!, /^positions run exceeded max runtime .*still waiting for it/);
+});
+
+test("job runner: works without anyone listening for stalled jobs", async () => {
+  const warns: string[] = [];
+  let t = 0;
+  const r = createJobRunner({ warn: (m) => warns.push(m), error: () => undefined, now: () => t });
+  void r.run("learning", never, { maxRuntimeMs: 1000, releaseAfterMaxRuntime: true });
+  t = 2000;
+  assert.equal(await r.run("learning", async () => undefined, { maxRuntimeMs: 1000, releaseAfterMaxRuntime: true }), true);
+  assert.equal(warns.length, 1);
 });
 
 test("job runner: an error is logged and the job can run again", async () => {

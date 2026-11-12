@@ -28,6 +28,7 @@ import fs from "node:fs";
 import { commitProof, dataPath, type DB, getMeta, isNonMemecoinSymbol, NON_MEMECOIN_MINTS, nowIso, setMeta, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { fmtPct, fmtSol, say, short } from "../log";
+import { alert } from "../alerts";
 import type { ParsedSwap } from "../chain/parse";
 import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
@@ -182,7 +183,10 @@ export class CopyEngine {
     if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true), null;
     const today = new Date().toISOString().slice(0, 10);
     const lossToday = (this.db.prepare("SELECT COALESCE(SUM(pnl_sol),0) s FROM positions WHERE status='closed' AND mode = ? AND closed_at >= ?").get(mode, `${today}T00:00:00.000Z`) as { s: number }).s;
-    if (lossToday <= -config.dailyLossLimitSol) return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true), null;
+    if (lossToday <= -config.dailyLossLimitSol) {
+      void alert(this.db, "daily_stop", `Daily loss limit reached in ${mode} mode (${fmtSol(lossToday)} today). No new buys until tomorrow (UTC); sells and exits keep running.`, today);
+      return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true), null;
+    }
     const held = this.db
       .prepare("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN tokens_bought > 0 THEN cost_sol * token_amount / tokens_bought ELSE cost_sol END),0) c FROM positions WHERE status='open' AND mode = ?")
       .get(mode) as { n: number; c: number };

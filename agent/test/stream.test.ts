@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
+import { type DB, getMeta, openDb, setMeta } from "@godseye/shared";
 import { parseSwap, type ParsedSwap } from "../src/chain/parse";
+import type { LeaderWatcher } from "../src/copy/watcher";
 import { convertGrpcTx, type GrpcTxInfo } from "../src/stream/convert";
 import { LiveBook } from "../src/stream/live-book";
 
@@ -99,4 +101,80 @@ test("IpHunt: logs the first rejection, then one summary per 10 minutes", async 
   assert.equal(h.reset(t0 + 660_000), "after 61 tries over 11 min");
   assert.equal(h.reset(t0 + 700_000), null);
   assert.match(h.note("4.4.4.4", t0 + 800_000) ?? "", /turned away/);
+});
+
+const MIN = 60_000;
+
+test("Silence: down after ten quiet minutes, told once a minute, back with how long it lasted", async () => {
+  const { Silence } = await import("../src/stream/stream");
+  const t0 = Date.parse("2026-11-12T10:00:00.000Z");
+  const s = new Silence(t0);
+  assert.equal(s.note(0, "", t0 + 9 * MIN), null, "nine quiet minutes are not an outage");
+  assert.equal(s.note(4, "", t0 + 9.5 * MIN), null, "data, and no outage before it: nothing to tell");
+  assert.equal(s.note(0, "", t0 + 19 * MIN), null, "the ten minutes count from the last data");
+  const began = new Date(t0 + 9.5 * MIN).toISOString();
+  assert.deepEqual(s.note(0, "", t0 + 19.5 * MIN), { state: "down", since: began, forMs: 10 * MIN });
+  assert.equal(s.note(0, began, t0 + 19.75 * MIN), null, "not again inside the minute");
+  assert.deepEqual(s.note(0, began, t0 + 20.5 * MIN), { state: "down", since: began, forMs: 11 * MIN });
+  assert.deepEqual(s.note(7, began, t0 + 25 * MIN), { state: "back", since: "", forMs: 15.5 * MIN });
+  assert.equal(s.note(0, "", t0 + 30 * MIN), null, "a new silence gets its own ten minutes");
+});
+
+test("Silence: after a restart the stored start still counts", async () => {
+  const { Silence } = await import("../src/stream/stream");
+  const t0 = Date.parse("2026-11-12T10:00:00.000Z");
+  const began = new Date(t0 - 3 * 24 * 60 * MIN).toISOString(); // quiet for three days when the agent came up
+  const s = new Silence(t0);
+  assert.equal(s.note(0, began, t0 + 5 * MIN), null, "a fresh start waits its ten minutes before it says anything");
+  assert.deepEqual(s.note(0, began, t0 + 10 * MIN), { state: "down", since: began, forMs: 3 * 24 * 60 * MIN + 10 * MIN });
+  assert.deepEqual(s.note(2, began, t0 + 11 * MIN), { state: "back", since: "", forMs: 3 * 24 * 60 * MIN + 11 * MIN });
+  assert.equal(new Silence(t0).note(2, "not a time", t0 + MIN), null, "a stored value that is no time counts as none");
+});
+
+test("live stream: the owner hears when it goes quiet and when it is back; a stream that was stopped tells nothing", async () => {
+  const { LiveStream } = await import("../src/stream/stream");
+  const { ensureRunnerTables } = await import("../src/runners/schema");
+  const { attachLogDb } = await import("../src/log");
+  const watcher = { marketSwap: () => {}, isWatching: () => false, handleStreamed: async () => {} } as unknown as LeaderWatcher;
+  const build = (): { db: DB; live: InstanceType<typeof LiveStream>; inner: { stats: { txs: number }; silence: { lastDataAt: number } } } => {
+    const db = openDb(":memory:");
+    ensureRunnerTables(db);
+    const live = new LiveStream(db, watcher);
+    return { db, live, inner: live as unknown as { stats: { txs: number }; silence: { lastDataAt: number } } };
+  };
+  const about = (db: DB, kind: string): string | undefined => (JSON.parse(getMeta(db, `alert_${kind}`) ?? "{}") as { about?: string }).about;
+  const logged = (db: DB): string[] => (db.prepare("SELECT message FROM agent_log ORDER BY id").all() as { message: string }[]).map((r) => r.message);
+
+  const { db, live, inner } = build();
+  attachLogDb(db);
+  try {
+    live.flush();
+    assert.equal(getMeta(db, "stream_silent_since"), null, "just started: no outage yet");
+    assert.equal(getMeta(db, "alert_stream_down"), null);
+
+    const quietFrom = Date.now() - 11 * MIN;
+    inner.silence.lastDataAt = quietFrom;
+    setMeta(db, "stream_status", "waiting_for_ip");
+    live.flush();
+    const since = getMeta(db, "stream_silent_since") ?? "";
+    assert.equal(Date.parse(since), quietFrom, "the silence is stored from the last data on");
+    assert.equal(about(db, "stream_down"), since);
+    assert.deepEqual(logged(db), ["Owner alert (stream_down): The live stream has delivered nothing for 11 minutes (status: waiting_for_ip). No new swaps are seen while it lasts."]);
+
+    inner.stats.txs = 3;
+    live.flush();
+    assert.equal(getMeta(db, "stream_silent_since"), "", "data clears the stored silence");
+    assert.equal(about(db, "stream_back"), since);
+    assert.equal(logged(db)[1], "Owner alert (stream_back): The live stream is delivering again after 11 minutes of silence.");
+    assert.equal(logged(db).length, 2);
+
+    const off = build();
+    off.inner.silence.lastDataAt = Date.now() - 60 * MIN;
+    off.live.stop();
+    assert.equal(getMeta(off.db, "stream_silent_since"), null, "switched off is not down");
+    assert.equal(getMeta(off.db, "alert_stream_down"), null);
+    assert.equal(getMeta(off.db, "stream_status"), "stopped");
+  } finally {
+    attachLogDb(null as unknown as DB);
+  }
 });

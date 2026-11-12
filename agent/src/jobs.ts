@@ -5,7 +5,7 @@
  * Skips used to be silent: when a learning run hung on a websocket/RPC call that never settled, every later
  * learning tick was dropped without a trace and last_learning_at froze. Now:
  *   • a skipped tick logs a warning (rate-limited per job);
- *   • a run past its max runtime logs a warning (rate-limited);
+ *   • a run past its max runtime logs a warning (rate-limited) and is reported as stalled (the owner's alert);
  *   • jobs marked `releaseAfterMaxRuntime` (no trading side effects) have their slot freed once past max
  *     runtime, so a hung run cannot block its own schedule forever. The abandoned run keeps no lock: when it
  *     finally settles it cannot clear the slot of a newer run. Trading jobs are never released.
@@ -30,6 +30,8 @@ export interface JobOpts {
 export interface JobRunnerDeps {
   warn: (msg: string) => void;
   error: (msg: string) => void;
+  /** Also told, after the warning, when a run has gone past its max runtime. */
+  stalled?: (msg: string) => void;
   now?: () => number;
   /** Minimum gap between repeated warnings of the same kind for the same job. */
   warnEveryMs?: number;
@@ -42,12 +44,16 @@ export function createJobRunner(deps: JobRunnerDeps) {
   const lastWarn = new Map<string, number>();
   const skipped = new Map<string, number>();
 
-  const rateLimited = (key: string, msg: string) => {
+  const rateLimited = (key: string, msg: string, out: (msg: string) => void = deps.warn) => {
     const t = now();
     const last = lastWarn.get(key);
     if (last !== undefined && t - last < warnEvery) return;
     lastWarn.set(key, t);
+    out(msg);
+  };
+  const stalled = (msg: string) => {
     deps.warn(msg);
+    deps.stalled?.(msg);
   };
 
   /** Runs `fn` unless the same job is still going. Resolves true if it ran. */
@@ -57,10 +63,10 @@ export function createJobRunner(deps: JobRunnerDeps) {
       const age = now() - cur.startedAt;
       if (opts.maxRuntimeMs !== undefined && age > opts.maxRuntimeMs) {
         if (opts.releaseAfterMaxRuntime) {
-          deps.warn(`${name} run exceeded max runtime (${Math.round(age / 1000)} s > ${Math.round(opts.maxRuntimeMs / 1000)} s); abandoning it and starting a new run.`);
+          stalled(`${name} run exceeded max runtime (${Math.round(age / 1000)} s > ${Math.round(opts.maxRuntimeMs / 1000)} s); abandoning it and starting a new run.`);
           running.delete(name);
         } else {
-          rateLimited(`max:${name}`, `${name} run exceeded max runtime (${Math.round(age / 1000)} s > ${Math.round(opts.maxRuntimeMs / 1000)} s); still waiting for it (not restarted: this job can trade).`);
+          rateLimited(`max:${name}`, `${name} run exceeded max runtime (${Math.round(age / 1000)} s > ${Math.round(opts.maxRuntimeMs / 1000)} s); still waiting for it (not restarted: this job can trade).`, stalled);
         }
       }
       if (running.has(name)) {

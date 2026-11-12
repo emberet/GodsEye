@@ -20,6 +20,7 @@ import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } 
 import { type DB, getMeta, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
+import { alert, howLong } from "../alerts";
 import { parseSwaps, type ParsedSwap } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
 import { VENUES } from "../chain/programs";
@@ -52,6 +53,8 @@ function describe(e: unknown): string {
 
 const IP_REJECTED = /client IP (\S+) is not whitelisted/;
 const HUNT_SUMMARY_MS = 10 * 60_000;
+/** With nothing delivered for this long, the stream counts as down. */
+const SILENT_AFTER_MS = 10 * 60_000;
 
 /** Pure: how long to wait after a failed connect. An allowlist rejection is retried at a steady pace (the
  *  IP changes every minute or so and one of the allowlisted ones comes up again); anything else backs off. */
@@ -93,6 +96,32 @@ export class IpHunt {
   }
 }
 
+/** Pure: notices that the stream has stopped delivering, and that it delivers again. */
+export class Silence {
+  private lastDataAt: number;
+  private lastToldAt = 0;
+
+  constructor(now: number) {
+    this.lastDataAt = now;
+  }
+
+  /**
+   * Takes the transactions that arrived since the last look and when the silence began, as last stored ("" = none).
+   * Returns what is worth telling, with the start of the silence to store: "down" once a minute while it lasts.
+   */
+  note(txs: number, since: string, now: number): { state: "down" | "back"; since: string; forMs: number } | null {
+    const began = Date.parse(since); // NaN when none is stored
+    if (txs > 0) {
+      this.lastDataAt = now;
+      return Number.isFinite(began) ? { state: "back", since: "", forMs: now - began } : null;
+    }
+    if (now - this.lastDataAt < SILENT_AFTER_MS || now - this.lastToldAt < 60_000) return null;
+    this.lastToldAt = now;
+    const start = Number.isFinite(began) ? began : this.lastDataAt;
+    return { state: "down", since: new Date(start).toISOString(), forMs: now - start };
+  }
+}
+
 export function streamConfigured(): boolean {
   return !!config.grpcUrl || config.streamParser === "rust";
 }
@@ -106,6 +135,7 @@ export class LiveStream {
   private stats = { txs: 0, swaps: 0, since: Date.now() };
   private retryMs = 1_000;
   private hunt = new IpHunt();
+  private silence = new Silence(Date.now());
   private stopped = false;
   private timers: NodeJS.Timeout[] = [];
   private rust: RustIngestClient | null = null;
@@ -339,9 +369,28 @@ export class LiveStream {
       setMeta(this.db, "stream_wallets_in_memory", this.book.size);
       setMeta(this.db, "runner_tape_coins", this.tape.size);
       setMeta(this.db, "agent_heap_mb", Math.round(process.memoryUsage().heapUsed / 1e6));
+      this.watchSilence();
       this.stats = { txs: 0, swaps: 0, since: Date.now() };
     } catch (e) {
       say("error", `Live stream flush failed: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Tells the owner when the stream stops delivering, and when it is back. The start of the silence is stored, so a
+   * restart neither forgets it nor reports it anew.
+   */
+  private watchSilence(): void {
+    if (this.stopped) return; // switched off is not down
+    const stored = getMeta(this.db, "stream_silent_since") ?? "";
+    const seen = this.silence.note(this.stats.txs, stored, Date.now());
+    if (!seen) return;
+    if (seen.since !== stored) setMeta(this.db, "stream_silent_since", seen.since);
+    if (seen.state === "back") {
+      void alert(this.db, "stream_back", `The live stream is delivering again after ${howLong(seen.forMs)} of silence.`, stored);
+    } else {
+      const status = getMeta(this.db, "stream_status") ?? "unknown";
+      void alert(this.db, "stream_down", `The live stream has delivered nothing for ${howLong(seen.forMs)} (status: ${status}). No new swaps are seen while it lasts.`, seen.since);
     }
   }
 
