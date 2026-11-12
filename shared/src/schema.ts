@@ -250,6 +250,10 @@ CREATE TABLE IF NOT EXISTS copy_trades (
   UNIQUE (leader_signature, mint)
 );
 CREATE INDEX IF NOT EXISTS idx_copy_trades_created ON copy_trades(created_at);
+-- The settle steps look trades up by state and by their own transaction; few rows are pending, failed or signed.
+CREATE INDEX IF NOT EXISTS idx_copy_trades_pending ON copy_trades(mint) WHERE status='pending';
+CREATE INDEX IF NOT EXISTS idx_copy_trades_failed ON copy_trades(mint) WHERE status='failed';
+CREATE INDEX IF NOT EXISTS idx_copy_trades_signature ON copy_trades(signature) WHERE signature IS NOT NULL;
 
 -- GodsEye's own positions, opened by copying a leader
 CREATE TABLE IF NOT EXISTS positions (

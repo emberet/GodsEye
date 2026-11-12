@@ -47,7 +47,7 @@ const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   token_info: { pool_address: "TEXT", launch_checked_at: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL", median_hold_sec: "REAL", same_block_round_trips: "INTEGER NOT NULL DEFAULT 0" },
   positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL", fee_sol: "REAL", peak_pct: "REAL", partial_done: "INTEGER NOT NULL DEFAULT 0" },
-  copy_trades: { fee_sol: "REAL" },
+  copy_trades: { fee_sol: "REAL", last_valid_height: "INTEGER" },
   wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
   smart_flows: { wallet_win_rate: "REAL", returns_cleaned: "INTEGER NOT NULL DEFAULT 1" },
 };
