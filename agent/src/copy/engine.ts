@@ -40,38 +40,9 @@ import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
 import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
-import { solUsdAt } from "../market/solprice";
-import type { Executor } from "./executor";
+import { NothingHeldError, UnsettledError, type Executor, type OnSigned } from "./executor";
+import { applySellFill, openPositionFromFill, type PositionRow, usdOf } from "./fills";
 import type { PublicKey } from "@solana/web3.js";
-
-interface PositionRow {
-  id: number;
-  mint: string;
-  symbol: string | null;
-  leader: string;
-  token_amount: number;
-  tokens_bought: number;
-  cost_sol: number;
-  proceeds_sol: number;
-  cost_usd: number | null;
-  proceeds_usd: number;
-  /** Network fees, tips and token-account rent paid so far (SOL); null = not recorded (paper, or opened before fees were tracked). */
-  fee_sol: number | null;
-  entry_price_sol: number;
-  last_price_sol: number | null;
-  last_price_ts: string | null;
-  opened_at: string;
-  /** Best return seen on the minute checks, % (trailing stop). */
-  peak_pct: number | null;
-  /** 1 once the ladder's first part was sold. */
-  partial_done: number;
-}
-
-/** SOL → USD at this moment (null if the price is unknown). */
-const usdOf = (sol: number): number | null => {
-  const p = solUsdAt(Date.now());
-  return p ? sol * p : null;
-};
 
 /** How long a repeated skip message stays quiet. */
 const SKIP_QUIET_MS = 10 * 60_000;
@@ -89,6 +60,8 @@ const STREAM_CHECK_MS = 2_000;
 /** After a sell quote didn't confirm the stream's price, the stream waits this long before asking again. */
 const UNCONFIRMED_HOLD_MS = 5_000;
 const OPEN_MINTS_TTL_MS = 30_000;
+/** While a sell's outcome isn't known, the exit checks leave its position alone this long before looking again. */
+const UNSETTLED_WAIT_MS = 60_000;
 /** Jupiter's "slippage tolerance exceeded" (0x1771): the price moved past the quote while the sell was landing. */
 const SLIPPAGE_ERROR = /6001|0x1771|slippage/i;
 
@@ -252,6 +225,11 @@ export class CopyEngine {
       this.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
       return this.audit?.finish(swap, "ignored:holding");
     }
+    // A buy of this coin whose outcome isn't known yet may already hold it: a second one would double the position.
+    if (this.db.prepare("SELECT 1 FROM copy_trades WHERE side='buy' AND status='pending' AND mint = ?").get(swap.mint)) {
+      this.audit?.check(swap, "not_holding", "fail", "an earlier buy of this token is still being settled");
+      return this.audit?.finish(swap, "ignored:holding");
+    }
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([tokenInfo(this.db, swap.mint).catch(() => null), new Promise((r) => (timer = setTimeout(r, NAME_WAIT_MS)))]);
     clearTimeout(timer);
@@ -313,16 +291,8 @@ export class CopyEngine {
     const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
     this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
-      const fill = await this.executor.buy(swap.mint, size);
-      const pos = this.db
-        .prepare(
-          `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate)
-           VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?))`,
-        )
-        .run(swap.mint, symbol, swap.wallet, this.executor.mode, fill.tokenAmount, fill.tokenAmount, fill.solAmount, usdOf(fill.solAmount), fill.feeSol ?? null, fill.priceSol, fill.priceSol, nowIso(), nowIso(), swap.wallet);
-      this.db
-        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, position_id=?, latency_ms=?, filled_at=? WHERE id=?")
-        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, Number(pos.lastInsertRowid), Date.now() - Date.parse(swap.ts), nowIso(), copyId);
+      const fill = await this.executor.buy(swap.mint, size, this.onSigned(copyId));
+      openPositionFromFill(this.db, { copyId, fill, latencyMs: Date.now() - Date.parse(swap.ts), mint: swap.mint, symbol, leader: swap.wallet, mode: this.executor.mode });
       this.shadow?.setOutcome(swap, "bought");
       this.audit?.check(swap, "execution", "pass", `${this.executor.mode} fill at ${fill.priceSol}`);
       this.audit?.finish(swap, "bought", { sizeSol: fill.solAmount });
@@ -330,7 +300,18 @@ export class CopyEngine {
       this.openMints = null; // the stream now prices this coin too
       say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
-      this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
+      if (e instanceof UnsettledError) {
+        // Sent, but not seen to land or to expire. The row stays pending (its size stays reserved) and the settle step
+        // reads the outcome from the chain: calling it failed here is how a buy that landed was once lost.
+        this.keepPending(copyId, e);
+        this.shadow?.setOutcome(swap, "unsettled");
+        this.audit?.check(swap, "execution", "error", "sent, outcome not known yet");
+        this.audit?.finish(swap, "unsettled", { sizeSol: size });
+        this.balance = null; // it may have spent SOL
+        say("warn", `Copy buy of ${symbol}: sent, but its outcome isn't known yet. Settling it from the chain.`);
+        return;
+      }
+      this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=? AND status='pending'").run((e as Error).message.slice(0, 500), copyId);
       this.shadow?.setOutcome(swap, "buy_failed");
       this.audit?.check(swap, "execution", "error", (e as Error).message.slice(0, 200));
       this.audit?.finish(swap, "buy_failed", { sizeSol: size });
@@ -349,57 +330,83 @@ export class CopyEngine {
   /** `urgent` (stop-loss, trailing stop): after a slippage failure, the next try allows more slippage (exitSlippageBps). */
   private async sellPosition(pos: PositionRow, tokens: number, all: boolean, reason: string, leaderSwap?: ParsedSwap, urgent = false): Promise<boolean> {
     const symbol = pos.symbol ?? symbolOf(this.db, pos.mint);
-    const row = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, created_at)
-         VALUES (?, ?, ?, ?, ?, 'sell', ?, 'pending', ?, ?, ?, ?)`,
-      )
-      .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}:${++this.exitSeq}:${reason}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, reason, tokens, pos.id, nowIso());
+    const record = (status: "pending" | "failed", error: string | null) =>
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, token_amount, position_id, error, created_at)
+           VALUES (?, ?, ?, ?, ?, 'sell', ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(pos.leader, leaderSwap?.signature ?? `exit:${pos.id}:${Date.now()}:${++this.exitSeq}:${reason}`, leaderSwap?.ts ?? nowIso(), pos.mint, symbol, this.executor.mode, status, reason, tokens, pos.id, error, nowIso());
+    // An earlier sell of this position was sent and its outcome isn't known yet. A second one could sell twice, so
+    // nothing goes out until the settle step (recovery.ts) has read the first one from the chain.
+    if (this.db.prepare("SELECT 1 FROM copy_trades WHERE position_id=? AND side='sell' AND status='pending' AND signature IS NOT NULL").get(pos.id)) {
+      if (leaderSwap) record("failed", "not sent: an earlier sell of this position is still being settled"); // a leader's sell comes once: keep it on record
+      this.holdOff(pos.id, UNSETTLED_WAIT_MS);
+      return false;
+    }
+    const row = record("pending", null);
     if (row.changes === 0) return false; // already handled this leader trade
     const copyId = Number(row.lastInsertRowid);
     const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
     this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
       const slip = this.sellFailures.get(pos.id)?.slip ?? 0;
-      const fill = await this.executor.sell(pos.mint, tokens, all, urgent ? exitSlippageBps(slip) : config.slippageBps);
-      const remaining = all ? 0 : Math.max(0, pos.token_amount - fill.tokenAmount);
-      const proceeds = pos.proceeds_sol + fill.solAmount;
-      const fillUsd = usdOf(fill.solAmount);
-      const proceedsUsd = pos.proceeds_usd + (fillUsd ?? 0);
-      const usdKnown = pos.cost_usd !== null && fillUsd !== null;
-      const closed = remaining <= pos.tokens_bought * 0.01;
-      // Fees stay "not recorded" for a position whose buy fee wasn't recorded (never half-counted).
-      const fees = pos.fee_sol === null ? null : pos.fee_sol + (fill.feeSol ?? 0);
-      this.db.prepare("UPDATE positions SET token_amount=?, proceeds_sol=?, proceeds_usd=?, cost_usd=?, fee_sol=?, last_price_sol=?, last_price_ts=? WHERE id=?")
-        .run(remaining, proceeds, proceedsUsd, usdKnown ? pos.cost_usd : null, fees, fill.priceSol, nowIso(), pos.id);
-      if (closed) {
-        const feeUsd = fees === null ? 0 : (usdOf(fees) ?? null);
-        const pnl = proceeds - pos.cost_sol - (fees ?? 0);
-        const pnlUsd = usdKnown && feeUsd !== null ? proceedsUsd - (pos.cost_usd as number) - feeUsd : null;
-        // % return in USD when known (SOL's own price move between entry and exit isn't trading profit).
-        const pct = pnlUsd !== null && pos.cost_usd ? (pnlUsd / pos.cost_usd) * 100 : pos.cost_sol > 0 ? (pnl / pos.cost_sol) * 100 : 0;
-        this.db.prepare("UPDATE positions SET status='closed', token_amount=0, closed_at=?, exit_reason=?, pnl_sol=?, pnl_usd=?, pnl_pct=? WHERE id=?").run(nowIso(), reason, pnl, pnlUsd, pct, pos.id);
-        this.openMints = null;
-        const shown = pnlUsd !== null ? `${pnlUsd >= 0 ? "+" : "−"}$${Math.abs(pnlUsd).toFixed(2)} (${fmtSol(pnl)})` : fmtSol(pnl);
-        say(pnl >= 0 ? "win" : "loss", `Closed ${symbol} (copied from ${short(pos.leader)}): ${shown} (${fmtPct(pct)}) — ${reason}.`);
-      } else {
-        say("trade", `Sold ${fill.tokenAmount.toPrecision(4)} ${symbol} for ${fill.solAmount.toFixed(4)} SOL — ${reason}.`);
-      }
-      this.db
-        .prepare("UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=?, latency_ms=?, filled_at=? WHERE id=?")
-        .run(fill.solAmount, fill.tokenAmount, fill.priceSol, fill.feeSol ?? null, fill.signature, leaderSwap ? Date.now() - Date.parse(leaderSwap.ts) : null, nowIso(), copyId);
+      const fill = await this.executor.sell(pos.mint, tokens, all, urgent ? exitSlippageBps(slip) : config.slippageBps, this.onSigned(copyId));
+      // Writes the position, the close and the trade's row in one step, and says the "Sold" / "Closed" line (fills.ts).
+      const result = applySellFill(this.db, pos.id, { copyId, fill, latencyMs: leaderSwap ? Date.now() - Date.parse(leaderSwap.ts) : null, all, reason });
+      if (result === "closed") this.openMints = null;
       this.sellFailures.delete(pos.id);
-      return true;
+      return result !== "stale";
     } catch (e) {
-      this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=?").run((e as Error).message.slice(0, 500), copyId);
+      const message = (e as Error).message;
+      if (e instanceof UnsettledError) {
+        // Sent, but not seen to land or to expire. The row stays pending and the settle step reads the outcome from the
+        // chain; until then no other sell of this position goes out (the check above). Not counted as a failed sell.
+        this.keepPending(copyId, e);
+        this.holdOff(pos.id, UNSETTLED_WAIT_MS);
+        say("warn", `Selling ${symbol} (${reason}): sent, but its outcome isn't known yet. Settling it from the chain.`);
+        return false;
+      }
+      this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=? AND status='pending'").run(message.slice(0, 500), copyId);
       const f = this.sellFailures.get(pos.id) ?? { count: 0, slip: 0, until: 0 };
       f.count++;
-      if (SLIPPAGE_ERROR.test((e as Error).message)) f.slip++; // a rate limit or an expired blockhash isn't a price problem
+      if (SLIPPAGE_ERROR.test(message)) f.slip++; // a rate limit or an expired blockhash isn't a price problem
       f.until = Date.now() + sellRetryMs(f.count);
       this.sellFailures.set(pos.id, f);
-      say("error", `Selling ${symbol} failed (${reason}): ${(e as Error).message.slice(0, 200)}. Retrying later.`);
+      if (e instanceof NothingHeldError) {
+        // An earlier sell landed without being recorded, or the tokens left the wallet some other way. Selling again
+        // can't work: the missing-position check (recovery.ts) finds that sell on chain and closes the position.
+        say("warn", `Selling ${symbol} (${reason}): the wallet holds none of it. Looking for its sell on chain.`);
+        return false;
+      }
+      say("error", `Selling ${symbol} failed (${reason}): ${message.slice(0, 200)}. Retrying later.`);
       return false;
     }
+  }
+
+  /**
+   * Given to the executor with each trade: it is called once the swap is signed, before it is sent, and puts the
+   * signature (and the last block height it can land at) on the trade's row. Whatever happens next, the trade can be
+   * settled from the chain. If this write fails, the swap is not sent.
+   */
+  private onSigned(copyId: number): OnSigned {
+    return (signature, lastValidBlockHeight) => {
+      this.db.prepare("UPDATE copy_trades SET signature=?, last_valid_height=? WHERE id=?").run(signature, lastValidBlockHeight, copyId);
+    };
+  }
+
+  /** The engine lets go of a trade whose outcome it doesn't know: the row stays pending, with why, for the settle step. */
+  private keepPending(copyId: number, e: UnsettledError): void {
+    this.db
+      .prepare("UPDATE copy_trades SET error=?, signature=COALESCE(signature, ?), last_valid_height=COALESCE(last_valid_height, ?) WHERE id=? AND status='pending'")
+      .run(e.message.slice(0, 500), e.signature, e.lastValidBlockHeight, copyId);
+  }
+
+  /** No exit check sells this position for `ms` from now. Unlike a failed sell, it doesn't count toward the retry wait. */
+  private holdOff(posId: number, ms: number): void {
+    const f = this.sellFailures.get(posId) ?? { count: 0, slip: 0, until: 0 };
+    f.until = Math.max(f.until, Date.now() + ms);
+    this.sellFailures.set(posId, f);
   }
 
   /** Sell every open position now (`npm run close-all`), each with up to `tries` attempts at the stop-loss's widening slippage. */
@@ -427,6 +434,12 @@ export class CopyEngine {
       this.openMints = { set: new Set(rows.map((r) => r.mint)), at: Date.now() };
     }
     return this.openMints.set;
+  }
+
+  /** A settle step (recovery.ts) opened or closed a position outside the engine: forget what was cached about them. */
+  positionsChanged(): void {
+    this.openMints = null;
+    this.balance = null;
   }
 
   /**

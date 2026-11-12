@@ -35,8 +35,9 @@ import { BrainRuntime } from "./brain/runtime";
 import { runSocialCollect } from "./social/collect";
 import { runSocialScore } from "./social/score";
 import { runXResearch } from "./x/calls";
-import { loadOrCreateWallet, walletTokenBalance } from "./wallet/wallet";
-import { reconcile, recoverPending } from "./copy/recovery";
+import { loadOrCreateWallet, walletHoldings, walletTokenBalance } from "./wallet/wallet";
+import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } from "./copy/recovery";
+import { walletChain } from "./copy/settle-chain";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
 import { ShadowLogger } from "./shadow/log";
@@ -133,16 +134,33 @@ const learn = () =>
   });
 const STARTED_AT = nowIso();
 const heldTokens = (mint: string) => walletTokenBalance(keypair.publicKey, mint);
+const chain = walletChain(keypair.publicKey);
 let lastReconcile = 0;
+let lastSweep = 0;
 const positions = () =>
   job("positions", async () => {
     heartbeat();
     await refreshLiveSolPrice();
     setMeta(db, "sol_usd_now", solUsdAt(Date.now()) ?? "");
-    // Trades left pending by an earlier run, or stuck for 10+ minutes in this one.
+    // Trades left pending by an earlier run, or stuck for 10+ minutes in this one. Signed ones are settled from the
+    // chain as soon as the engine lets them go.
     const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
-    await recoverPending(db, { before: cutoff < STARTED_AT ? STARTED_AT : cutoff, held: heldTokens });
+    const before = cutoff < STARTED_AT ? STARTED_AT : cutoff;
+    const settled = await settleSigned(db, chain, { before, held: heldTokens });
+    const recovered = await recoverPending(db, { before, held: heldTokens });
+    if (settled.bought + settled.sold + recovered.opened > 0) engine.positionsChanged();
     await engine.managePositions();
+    // Every 5 minutes, after the exit checks so it never delays them: positions the wallet holds none of, and tokens
+    // in the wallet that belong to no position. Both go by one reading of the wallet; with none, nothing is concluded.
+    if (config.copyMode === "real" && Date.now() - lastSweep > 5 * 60_000) {
+      lastSweep = Date.now();
+      const holdings = await walletHoldings(keypair.publicKey).catch(() => null);
+      if (holdings) {
+        const missing = await settleMissing(db, chain, { held: async (mint) => holdings.get(mint) ?? 0 });
+        const swept = await sweepWallet(db, chain, { holdings: async () => holdings });
+        if (missing.sold + missing.closed + swept.opened + swept.reopened > 0) engine.positionsChanged();
+      }
+    }
     if (config.copyMode === "real" && Date.now() - lastReconcile > 30 * 60_000) {
       lastReconcile = Date.now();
       await reconcile(db, heldTokens);
