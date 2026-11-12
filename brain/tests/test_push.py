@@ -686,3 +686,82 @@ def test_nan_in_a_manifest_is_refused_and_explore_copy_writes_null(tmp_path):
     (src / "manifest.json").write_text('{"version": "2026-11-07T00-00-00Z", "metrics": {"x": NaN}}')
     with pytest.raises(push.BundleError, match="NaN"):
         push.validate_bundle(src)
+
+
+# ---- real-test (gate exit 5): the Brain sleeve's licence for real money ----
+
+
+def test_real_test_ships_brain_enabled_and_real_test_true(tmp_path):
+    d = write_bundle(tmp_path / "b", brain_enabled=False)
+    run = FakeRun(live=json.dumps({"version": "v0", "brain_enabled": False}))
+    push.push(d, run=run, server="GodsEye", server_dir="/srv/brain", real_test=True)
+    assert run.shipped_manifest["brain_enabled"] is True and run.shipped_manifest["real_test"] is True
+    install = run.calls[-1][1]["input"]
+    assert '"real_test"[[:space:]]*:[[:space:]]*true' in install and "promoted: a real-test bundle" in install
+
+
+@pytest.mark.parametrize("live,ok", [
+    (json.dumps({"version": "v0", "brain_enabled": True}), False),  # a promoted model stays
+    (json.dumps({"version": "v0"}), False),                         # a model from before the flags counts as promoted
+    (json.dumps({"version": "v0", "brain_enabled": True, "real_test": True}), True),
+    (json.dumps({"version": "v0", "brain_enabled": False}), True),
+    ("", True),
+])
+def test_real_test_never_replaces_a_promoted_model(tmp_path, live, ok):
+    run = FakeRun(live=live)
+    if ok:
+        push.push(write_bundle(tmp_path / "b"), run=run, server="GodsEye", server_dir="/srv/brain", real_test=True)
+        assert run.shipped_manifest["real_test"] is True
+    else:
+        with pytest.raises(push.PromotedModelLive):
+            push.push(write_bundle(tmp_path / "b"), run=run, server="GodsEye", server_dir="/srv/brain", real_test=True)
+        assert len(run.calls) == 1
+
+
+def test_explore_only_never_replaces_a_real_test_model(tmp_path):
+    run = FakeRun(live=json.dumps({"version": "v0", "brain_enabled": True, "real_test": True}))
+    with pytest.raises(push.PromotedModelLive):
+        push.push(write_bundle(tmp_path / "b"), run=run, server="GodsEye", server_dir="/srv/brain", explore_only=True)
+
+
+def test_a_promoted_push_carries_real_test_only_when_its_gate_report_says_so(tmp_path):
+    v = "2026-11-07T12-00-00Z"
+    d = write_bundle(tmp_path / "models" / v, version=v)
+    run = FakeRun()
+    push.push(d, run=run, server="GodsEye", server_dir="/srv/brain")
+    assert "real_test" not in run.shipped_manifest
+    (tmp_path / "models" / f"{v}.gate-report.json").write_text(json.dumps({"decision": {"exit": 0, "real_test": True}, "real_test": {"passed": True}}))
+    run = FakeRun()
+    push.push(d, run=run, server="GodsEye", server_dir="/srv/brain")
+    assert run.shipped_manifest["real_test"] is True
+    with pytest.raises(push.BundleError):
+        push.push(d, run=FakeRun(), server="GodsEye", server_dir="/srv/brain", real_test=True, explore_only=True)
+
+
+def test_real_test_install_guard_runs_on_the_server(tmp_path, server):
+    """The install script's own check: a promoted live model stops a real-test install even if the first read missed it."""
+    seed = server.base / "models" / "v0"
+    seed.mkdir(parents=True)
+    (seed / "manifest.json").write_text(json.dumps({"version": "v0", "brain_enabled": True}))
+    os.symlink("models/v0", server.base / "current")
+    script = push.remote_install_script(push.validate_bundle(write_bundle(tmp_path / "b")), str(server.base), real_test=True)
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert r.returncode == push.PROMOTED_LIVE, r.stderr
+
+
+def test_cycle_gate_5_pushes_real_test(tmp_path, cycle):
+    seed_live(cycle.base, "v0", brain_enabled=False)
+    v = "2026-11-07T12-00-00Z"
+    assert cycle(5, write_bundle(tmp_path / "bundles" / v, version=v)) == 0, cycle.log
+    assert os.readlink(cycle.base / "current") == f"models/{v}"
+    m = json.loads((cycle.base / "current" / "manifest.json").read_text())
+    assert m["brain_enabled"] is True and m["real_test"] is True
+    assert "gate exit 5: real-test" in cycle.log and "model push --real-test: exit 0" in cycle.log
+
+
+def test_cycle_gate_5_keeps_a_promoted_model(tmp_path, cycle):
+    seed_live(cycle.base, "v0", brain_enabled=True)
+    v = "2026-11-07T12-00-00Z"
+    assert cycle(5, write_bundle(tmp_path / "bundles" / v, version=v)) == 0, cycle.log
+    assert os.readlink(cycle.base / "current") == "models/v0"
+    assert "the server runs a promoted model: it keeps it" in cycle.log

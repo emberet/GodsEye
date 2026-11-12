@@ -40,6 +40,24 @@ jobs:
       - run: ruff format --check .
       - run: pytest -q
 
+  brain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: brain
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: brain/requirements-ci.txt
+      - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements-ci.txt
+      - run: pip install --no-deps -e .
+      # the learning checks take minutes each and run in the Mac's cycle; the cycle.sh tests need the Mac (BSD stat)
+      - run: pytest -q -m "not learning"
+
   rust:
     runs-on: ubuntu-latest
     timeout-minutes: 30

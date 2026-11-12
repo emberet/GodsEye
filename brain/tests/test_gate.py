@@ -205,3 +205,35 @@ def test_the_ledger_labels_test_numbers_already_seen(tmp_path):
     s = gate.ledger_summary(tmp_path, "v1")
     assert s["views_all_bundles"] == 3 and s["bundles"] == ["v0", "v1"] and [r["at"] for r in s["views_this_bundle"]] == ["b", "c"]
     assert "not a clean holdout" in s["label"] and gate.ledger_path(tmp_path) == tmp_path / "_work" / "test-ledger.jsonl"
+
+
+def test_decide_real_test_ranks_between_promote_and_explore_only():
+    sanity, safe, bar_ok = [c("bundle_files", True)], [c("combined_worst", True)], [c("b4_per_copy", True)]
+    assert gate.decide(sanity, safe, bar_ok, real=True) == gate.PROMOTE
+    assert gate.decide(sanity, safe, [c("b4_per_copy", False)], real=True) == gate.REAL_TEST
+    assert gate.decide(sanity, [c("combined_worst", False)], bar_ok, real=True) == gate.REAL_TEST
+    assert gate.decide(sanity, [c("combined_worst", False)], bar_ok, real=False) == gate.REJECT
+    assert gate.decide([c("bundle_files", False)], safe, bar_ok, real=True) == gate.REJECT
+
+
+def test_real_test_relaxes_only_the_edge_and_stress_bars():
+    sanity = [c("bundle_files", True)]
+    rails = [c("combined_worst", True), c("stress_gated_copies", True)]
+    bar = [c("b4_per_copy", False), c("selection_gated_copies", True), c("robust", False)]
+    ok = gate.real_test(sanity, rails, bar, {"failed": ["L3 edge [brain]", "L9 stress [brain]"]})
+    assert ok["passed"] is True, ok
+    assert not gate.real_test(sanity, rails, bar, {"failed": ["L2 veto [brain]"]})["passed"]
+    assert not gate.real_test(sanity, rails, bar, None)["passed"]
+    assert not gate.real_test(sanity, [c("combined_worst", False)], bar, {"failed": []})["passed"]
+    assert not gate.real_test(sanity, [], bar, {"failed": []})["passed"], "no stress suite: no licence"
+    assert not gate.real_test(sanity, rails, [c("selection_gated_copies", False)], {"failed": []})["passed"]
+    assert not gate.real_test([c("columns", False)], rails, bar, {"failed": []})["passed"]
+
+
+def test_rails_view_reads_each_scenarios_rails_figures():
+    st = {"combined_worst": {"per_decision": 1e-4, "worst_day": -0.6, "rails": {"per_decision": 1e-4, "worst_day": -0.3}},
+          "worst_day_alt": {"skipped": "no signals"}}
+    v = gate.rails_view(st)
+    assert v["combined_worst"]["worst_day"] == -0.3 and v["worst_day_alt"] == {"skipped": "no signals"}
+    names = {x["name"]: x["passed"] for x in gate.safety_checks(v)}
+    assert names["combined_worst"] is True and gate.safety_checks(st)[0]["passed"] is False

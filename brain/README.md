@@ -70,11 +70,16 @@ python -m brain.social.train                       # the private social model
 python -m brain.gate --bundle <dir> --social && python -m brain.push <dir> --social
 ```
 
-The cycle always gates with `--no-test`: the TEST window (11-02 onward, `spec/splits.yaml`) is scored once, by hand,
-at the end, never hour by hour. Leave the flag off only for that one final run.
+The cycle always gates with `--no-test`: the TEST window (`spec/splits.yaml`: the last 2 days of the current build) is
+scored once per window, by hand, never hour by hour. Leave the flag off only for that one final run.
 
 What the gate's exit means (CONTRACT.md "Promotion"):
 
+- **5, real-test:** not promoted, but it passes the sanity checks and the stress suite's safety checks on the server's
+  real-money rails (`spec/rails.yaml`: 5% of the account a trade, a 20% day's stop, a pause 50% below the high), with
+  only the proven-edge and stress bars relaxed. `--real-test` ships it with `brain_enabled` and `real_test` true: the
+  Brain account trades it on paper and the server's Brain sleeve may follow it with real money. It never replaces a
+  promoted model (push exits 4).
 - **0, promote:** the bundle beats the B4 hand-rule baseline on the selection window (and the rest of the bar). It is
   pushed as is and the Brain account trades it on paper.
 - **3, explore-only:** it passes the sanity and stress checks but not the bar. `--explore-only` ships it with
@@ -103,7 +108,11 @@ launchctl print gui/$(id -u)/work.godseye.brain | grep -E 'state|last exit'
 Run the installer again after moving the repo or the data dir. Remove:
 `launchctl bootout gui/$(id -u)/work.godseye.brain && rm ~/Library/LaunchAgents/work.godseye.brain.plist`.
 
-`scripts/cycle.sh` runs pull, train (a full retrain in the 03:00 cycle), gate and push as above; then the same for the
+`scripts/cycle.sh` runs pull, train (a full retrain in the 03:00 cycle), gate and push as above. Before the 03:00 full
+retrain it runs `scripts/rebuild.sh` (derive, features, the simulator's inputs, baselines: about 6 hours) when
+`derived/` is older than `REBUILD_HOURS` (20); a failed rebuild skips that night's retrain. `spec/splits.yaml` is in
+rolling mode: each rebuild moves the periods to its own label end (test = its last 2 days, selection the 2 before),
+so every night trains on everything older and keeps a fresh test slice. `CYCLE_REBUILD=0` turns the rebuild off; then the same for the
 social model. It exits quietly, writing nothing, when the data dir itself isn't there (`-d` on `BRAIN_DATA_DIR`: an
 unplugged drive, or the Mac just woke), never overlaps another cycle (a lock in the data dir; a crashed cycle's lock is
 taken over) and skips, with a log line, any step whose module isn't built yet. If the pull fails, the cycle stops and

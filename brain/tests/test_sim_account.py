@@ -117,3 +117,52 @@ def test_cluster_ci_and_paired_diff():
 
 def test_max_drawdown():
     assert max_drawdown(np.array([1.0, 1.2, 0.9, 1.1, 0.8])) == pytest.approx(0.4)
+
+
+# ---- the real-money rails (spec/rails.yaml, agent/src/copy/risk.ts) ----
+
+from brain.sim.account import Rails  # noqa: E402
+
+RAILS = Rails()
+
+
+def test_rails_size_trades_from_the_account_and_take_more_than_five_slots():
+    rows = [(i, f"m{i}", i, 300, 0.1, 0.0) for i in range(8)] + [(20, "h", 10, 300, 0.05, 0.0)]
+    o, t = outs(rows)
+    acc = account(o, t, rails=RAILS)
+    # 1 SOL less the 0.05 reserve: 5% = 0.0475, below the 0.05 smallest trade, so 0.05; a half stake is 0.025: too small
+    assert np.allclose(acc["size"].to_numpy(), 0.05) and len(acc) == 8, acc[["episode_id", "size"]]
+    assert acc.attrs["blocked"]["positions"] == 0 and acc.attrs["blocked"]["min_trade"] == 1
+    # a 4 SOL account: 5% of 3.95
+    acc4 = account(o, t, SimParams(bankroll_sol=4.0), rails=RAILS)
+    assert np.allclose(acc4["size"].to_numpy()[:8], 3.95 * 0.05)
+
+
+def test_rails_day_stop_at_20_percent_and_pause_at_half_the_high():
+    # one-minute losers of about 40% of the stake... sized 0.05: 0.02 SOL each; 10 of them = 0.2 = 20% of the day's start
+    rows = [(i, f"m{i}", i * 2, i * 2 + 1, 0.1, -0.04) for i in range(12)] + [(50, "next", 1500, 1501, 0.1, 0.01)]
+    o, t = outs(rows)
+    acc = account(o, t, rails=RAILS)
+    assert acc.attrs["blocked"]["day_stop"] >= 1 and 50 in acc["episode_id"].tolist(), acc.attrs["blocked"]
+    assert acc[acc["open_day"] == "2026-10-31"]["pnl_acct"].sum() >= -0.25  # stopped near the 20% line
+    # a long slide over days: once 50% below the high, nothing more, not even on a new day
+    rows = [(i, f"m{i}", i * 1440 + 1, i * 1440 + 2, 0.1, -0.09) for i in range(200)]
+    o, t = outs(rows)
+    acc = account(o, t, rails=RAILS)
+    assert acc.attrs["blocked"]["paused"] + acc.attrs["blocked"]["small"] > 0
+    assert acc["eq_after"].min() > 0.45, "it stops once half the high is gone (and under 0.5 SOL to trade with)"
+
+
+def test_rails_spec_matches_the_servers_defaults():
+    """spec/rails.yaml must say what the server's risk governor does (agent/src/config.ts RISK_* defaults)."""
+    import re
+    from pathlib import Path
+    cfg = (Path(__file__).resolve().parents[2] / "agent" / "src" / "config.ts").read_text()
+    want = {"start_trade_pct": "RISK_START_TRADE_PCT", "max_trade_pct": "RISK_MAX_TRADE_PCT", "daily_stop_pct": "RISK_DAILY_STOP_PCT",
+            "drawdown_pause_pct": "RISK_DRAWDOWN_PAUSE_PCT", "min_trade_sol": "RISK_MIN_TRADE_SOL", "min_equity_sol": "RISK_MIN_EQUITY_SOL",
+            "reserve_sol": "WALLET_RESERVE_SOL"}
+    r = Rails.load()
+    for field, key in want.items():
+        m = re.search(rf'envNum\("{key}",\s*([0-9.]+)\)', cfg)
+        assert m, key
+        assert getattr(r, field) == float(m.group(1)), (field, key)

@@ -1,0 +1,12 @@
+# The real-money rails the server's risk governor applies (agent/src/copy/risk.ts, the RISK_* defaults in
+# agent/src/config.ts; the owner's "Aggressive" rails of 2026-11-11). The simulator scores the gate's real-test check
+# with them (brain.sim.account, rails=...): the same rules as fractions of the account, fixed here BEFORE any model is
+# scored against them. Change them only with the owner's word, and with the server's defaults (a test compares them).
+version: 1
+start_trade_pct: 5        # RISK_START_TRADE_PCT: the share of the account a full-stake trade gets
+max_trade_pct: 10         # RISK_MAX_TRADE_PCT
+daily_stop_pct: 20        # RISK_DAILY_STOP_PCT: no new buys for the rest of the UTC day once this far below its start
+drawdown_pause_pct: 50    # RISK_DRAWDOWN_PAUSE_PCT: no new buys at all once this far below the high
+min_trade_sol: 0.05       # RISK_MIN_TRADE_SOL
+min_equity_sol: 0.5       # RISK_MIN_EQUITY_SOL: below this to trade with, no buys
+reserve_sol: 0.05         # WALLET_RESERVE_SOL

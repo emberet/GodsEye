@@ -21,15 +21,42 @@ from __future__ import annotations
 
 import heapq
 import time
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 from brain.sim.params import SimParams
 from brain.sim.tape import T0_MS
 
 COPY_REASONS_EXCLUDED = ("skip", "too-late", "bad-print", "no-fill")
 RUIN_SOL = 0.5  # reward.yaml ruin_penalty: an account below 0.5 SOL
+RAILS_SPEC = Path(__file__).resolve().parents[2] / "spec" / "rails.yaml"
+
+
+@dataclass(frozen=True)
+class Rails:
+    """
+    The server's real-money rails (spec/rails.yaml, agent/src/copy/risk.ts) as fractions of the account. With them the
+    account sizes each trade as stake / max_trade_sol × (equity × start_trade_pct, at least min_trade_sol and at most
+    equity × max_trade_pct), holds any number of positions the cash allows (COPY_MAX_POSITIONS=0 on the server), stops
+    buying for the UTC day once realized equity is daily_stop_pct below the day's start, and for good once it is
+    drawdown_pause_pct below its high. Equity is realized (open positions at cost), like the governor's high.
+    """
+    start_trade_pct: float = 5
+    max_trade_pct: float = 10
+    daily_stop_pct: float = 20
+    drawdown_pause_pct: float = 50
+    min_trade_sol: float = 0.05
+    min_equity_sol: float = 0.5
+    reserve_sol: float = 0.05
+
+    @classmethod
+    def load(cls, path: Path = RAILS_SPEC) -> "Rails":
+        d = yaml.safe_load(Path(path).read_text())
+        return cls(**{k: float(d[k]) for k in cls.__dataclass_fields__})
 
 
 def is_copy(out: pd.DataFrame) -> np.ndarray:
@@ -70,11 +97,12 @@ def day_of(ms) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime((int(ms) + T0_MS) / 1000))
 
 
-def account(out: pd.DataFrame, t_dec: np.ndarray, p: SimParams = SimParams()) -> pd.DataFrame:
+def account(out: pd.DataFrame, t_dec: np.ndarray, p: SimParams = SimParams(), rails: Rails | None = None) -> pd.DataFrame:
     """
     out: book.outcomes() rows; t_dec: decision time (ms) per row. Returns the attempts the account took, in order, with
     size, pnl (scaled to the size), close_t, close_day, eq_after (realized equity after each close) and attrs: blocked
-    counts, slot_seconds (open-position seconds), first/last decision.
+    counts, slot_seconds (open-position seconds), first/last decision. `rails`: the real-money rails instead of the
+    paper account's fixed sizes and limits (Rails).
     """
     c = is_copy(out)
     o = out[c].assign(t_dec=np.asarray(t_dec)[c]).sort_values(["t_dec", "episode_id"], kind="stable").reset_index(drop=True)
@@ -96,12 +124,16 @@ def account(out: pd.DataFrame, t_dec: np.ndarray, p: SimParams = SimParams()) ->
     last_t = ts[0] if len(ts) else 0
     rec = []
     blocked = {"min_trade": 0, "daily_loss": 0, "coin": 0, "positions": 0, "budget": 0, "cash": 0}
+    if rails:
+        blocked.update(small=0, day_stop=0, paused=0)
+    high = day_start = p.bankroll_sol
+    paused = False
 
     def roll(t):
-        nonlocal cur_day, day_loss
+        nonlocal cur_day, day_loss, day_start
         d = day_of(t)
         if cur_day is None or d > cur_day:
-            cur_day, day_loss = d, 0.0
+            cur_day, day_loss, day_start = d, 0.0, eq
 
     def advance(t):
         nonlocal slot_ms, last_t
@@ -125,25 +157,45 @@ def account(out: pd.DataFrame, t_dec: np.ndarray, p: SimParams = SimParams()) ->
         close_until(ts[i])
         advance(ts[i])
         roll(ts[i])
-        want = min(stake[i], p.max_trade_sol)
-        if want < p.min_trade_sol:
+        min_trade = p.min_trade_sol
+        if rails:
+            high = max(high, eq)
+            paused = paused or eq <= high * (1 - rails.drawdown_pause_pct / 100)
+            if paused:
+                blocked["paused"] += 1
+                continue
+            if eq <= day_start * (1 - rails.daily_stop_pct / 100):
+                blocked["day_stop"] += 1
+                continue
+            have = eq - rails.reserve_sol  # what it has to trade with: realized equity less the fee reserve
+            if have < rails.min_equity_sol:
+                blocked["small"] += 1
+                continue
+            min_trade = rails.min_trade_sol
+            per_trade = min(have * rails.max_trade_pct / 100, max(min_trade, have * rails.start_trade_pct / 100))
+            want = stake[i] / p.max_trade_sol * per_trade
+            budget = have
+        else:
+            want = min(stake[i], p.max_trade_sol)
+            budget = p.bankroll_sol
+        if want < min_trade:
             blocked["min_trade"] += 1
             continue
-        if day_loss >= p.daily_loss_sol:
+        if not rails and day_loss >= p.daily_loss_sol:
             blocked["daily_loss"] += 1
             continue
         if mint[i] in held:
             blocked["coin"] += 1
             continue
-        if len(heap) >= p.max_positions:
+        if not rails and len(heap) >= p.max_positions:
             blocked["positions"] += 1
             continue
-        size = min(want, p.bankroll_sol - deployed)
-        if size < p.min_trade_sol:
+        size = min(want, budget - deployed)
+        if size < min_trade:
             blocked["budget"] += 1
             continue
         size = min(size, cash - fee_open[i] - p.rent_sol)
-        if size < p.min_trade_sol:
+        if size < min_trade:
             blocked["cash"] += 1
             continue
         pnl = (pnl0[i] + fixed[i]) * (size / stake[i]) - fixed[i] if stake[i] > 0 else pnl0[i]

@@ -10,6 +10,10 @@ CONTRACT.md gives the runtime (`social/manifest.json`, `social/social.onnx`) thr
 `--explore-only` (the gate's exit 3, CONTRACT.md "Promotion") ships the bundle with `brain_enabled: false` in its
 manifest, and only while the server's live model isn't a promoted one: it reads `current/manifest.json` first and
 refuses if `brain_enabled` is true (or absent), and the install script checks again before it switches `current`.
+`--real-test` (the gate's exit 5) ships it with `brain_enabled: true` and `real_test: true`: the Brain account trades it
+on paper and the server's Brain sleeve may follow it with real money (agent/src/brain/sleeve.ts). It never replaces a
+promoted model (brain_enabled true without real_test). A promoted push carries `real_test` too when its gate report
+says the real-test check passed (a promotion that fails it on the real-money rails doesn't license real money).
 A version already on the server is reused when its networks match; a manifest.json that differs (brain_enabled, after
 an explore-only push of the same version) is replaced, so that version can still be promoted.
 Nothing here reads or prints a secret.
@@ -161,8 +165,13 @@ def finite_json(o):
 def explore_only_copy(bundle: Bundle, out_dir: Path) -> Bundle:
     """A copy of the bundle in `out_dir` with `brain_enabled: false` in its manifest; the original is left alone.
     Nothing else changes: manifest.json isn't in `sha256`, so the networks' hashes still hold."""
+    return flagged_copy(bundle, out_dir, {"brain_enabled": False})
+
+
+def flagged_copy(bundle: Bundle, out_dir: Path, flags: dict) -> Bundle:
+    """A copy of the bundle in `out_dir` with `flags` set in its manifest (manifest.json isn't in `sha256`)."""
     manifest = finite_json(json.loads((bundle.dir / "manifest.json").read_text()))
-    manifest["brain_enabled"] = False
+    manifest.update(flags)
     out_dir.mkdir(parents=True, exist_ok=True)
     for name in bundle.files:
         if name != "manifest.json":
@@ -175,6 +184,20 @@ def brain_enabled(manifest: object) -> bool:
     """Does this manifest let the Brain account trade? A manifest without the flag predates explore-only pushes, so
     only a gate-passing bundle could have put it there: it counts as promoted."""
     return not (isinstance(manifest, dict) and manifest.get("brain_enabled") is False)
+
+
+def promoted(manifest: object) -> bool:
+    """A fully promoted model: the Brain account trades it and it isn't a real-test one."""
+    return brain_enabled(manifest) and not (isinstance(manifest, dict) and manifest.get("real_test") is True)
+
+
+def gate_says_real_test(bundle_dir: Path) -> bool:
+    """Did the gate report next to the bundle (<models>/<version>.gate-report.json) pass the real-test check?"""
+    try:
+        rep = json.loads((bundle_dir.parent / f"{bundle_dir.name}.gate-report.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return bool(rep.get("decision", {}).get("real_test")) and bool(rep.get("real_test", {}).get("passed"))
 
 
 def live_manifest(host: str, base: str, run: Run) -> dict | None:
@@ -231,8 +254,19 @@ fi
 """
 
 
+def real_test_guard() -> str:
+    """Script lines that stop a real-test install (exit PROMOTED_LIVE) when the live model is a promoted one: its
+    manifest neither says `"brain_enabled": false` nor `"real_test": true`."""
+    return f"""if [ -e current/manifest.json ] && ! grep -Eq '"brain_enabled"[[:space:]]*:[[:space:]]*false' current/manifest.json \\
+   && ! grep -Eq '"real_test"[[:space:]]*:[[:space:]]*true' current/manifest.json; then
+  echo "the live model is promoted: a real-test bundle doesn't replace it" >&2
+  exit {PROMOTED_LIVE}
+fi
+"""
+
+
 def remote_install_script(bundle: Bundle, base: str, keep: int = KEEP, owner: str = OWNER, social: bool = False,
-                          explore_only: bool = False) -> str:
+                          explore_only: bool = False, real_test: bool = False) -> str:
     """The bash script the server runs (fed on stdin to `bash -s`). Every path and name in it is shlex-quoted."""
     q = shlex.quote
     v = bundle.version
@@ -240,7 +274,7 @@ def remote_install_script(bundle: Bundle, base: str, keep: int = KEEP, owner: st
     sums = "\n".join(f"{bundle.files[n]}  {n}" for n in sorted(bundle.files))
     nets = "\n".join(f"{bundle.files[n]}  {n}" for n in sorted(bundle.files) if n != "manifest.json")
     links = stable_links(bundle, owner) if social else ""
-    guard = explore_only_guard() if explore_only else ""
+    guard = explore_only_guard() if explore_only else real_test_guard() if real_test else ""
     return f"""set -euo pipefail
 umask 022
 cd {q(base)}
@@ -289,12 +323,15 @@ echo "current -> $cur"
 
 
 def push(bundle_dir: Path, social: bool = False, run: Run = subprocess.run, server: str | None = None,
-         server_dir: str | None = None, keep: int = KEEP, explore_only: bool = False) -> Bundle:
+         server_dir: str | None = None, keep: int = KEEP, explore_only: bool = False, real_test: bool = False) -> Bundle:
     """Validate, copy and install a bundle on the server. `run` is subprocess.run (swapped out in tests).
     `explore_only` ships it with `brain_enabled: false`, and raises PromotedModelLive (pushing nothing) when the
-    server's live model is a promoted one."""
-    if explore_only and social:
-        raise BundleError("--explore-only is for the model bundle, not the social one")
+    server's live model is a promoted one. `real_test` ships it with `brain_enabled: true, real_test: true` and raises
+    PromotedModelLive the same way."""
+    if (explore_only or real_test) and social:
+        raise BundleError("--explore-only and --real-test are for the model bundle, not the social one")
+    if explore_only and real_test:
+        raise BundleError("a bundle is pushed explore-only or real-test, not both")
     bundle = validate_bundle(bundle_dir, social)
     host = server or config.SERVER
     base = remote_base(social, server_dir)
@@ -302,17 +339,23 @@ def push(bundle_dir: Path, social: bool = False, run: Run = subprocess.run, serv
         live = live_manifest(host, base, run)
         if live is not None and brain_enabled(live):
             raise PromotedModelLive("the server runs a promoted model (brain_enabled true): it keeps it")
+    if real_test:
+        live = live_manifest(host, base, run)
+        if live is not None and promoted(live):
+            raise PromotedModelLive("the server runs a promoted model: it keeps it")
+    flags = {"brain_enabled": False} if explore_only else {"brain_enabled": True, "real_test": True} if real_test else \
+        ({"real_test": True} if not social and gate_says_real_test(bundle_dir) else None)
     with tempfile.TemporaryDirectory() as tmp:
-        shipped = explore_only_copy(bundle, Path(tmp) / "bundle") if explore_only else bundle
+        shipped = flagged_copy(bundle, Path(tmp) / "bundle", flags) if flags else bundle
         tarball = make_tarball(shipped, Path(tmp) / tar_name(bundle.version))
         run(["ssh", *SSH_OPTS, host, f"mkdir -p {shlex.quote(base + '/staging')}"], check=True)
         # scp's remote path isn't shell-quoted (newer scp doesn't go through a shell): it's checked safe above.
         run(["scp", "-q", *SSH_OPTS, str(tarball), f"{host}:{base}/staging/{tar_name(bundle.version)}"], check=True)
-        script = remote_install_script(shipped, base, keep, social=social, explore_only=explore_only)
+        script = remote_install_script(shipped, base, keep, social=social, explore_only=explore_only, real_test=real_test)
         try:
             run(["ssh", *SSH_OPTS, host, "bash -s"], input=script, text=True, check=True)
         except subprocess.CalledProcessError as e:
-            if explore_only and e.returncode == PROMOTED_LIVE:
+            if (explore_only or real_test) and e.returncode == PROMOTED_LIVE:
                 raise PromotedModelLive("a promoted model went live on the server meanwhile: it keeps it") from e
             raise
     return bundle
@@ -326,16 +369,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--explore-only", action="store_true",
                     help=f"gate exit 3: push with brain_enabled false, only while the server has no promoted model "
                          f"(exit {PROMOTED_LIVE} when it has one)")
+    ap.add_argument("--real-test", action="store_true",
+                    help=f"gate exit 5: push with brain_enabled and real_test true, unless the server runs a promoted model "
+                         f"(exit {PROMOTED_LIVE} then)")
     args = ap.parse_args(argv)
-    kind = "social" if args.social else "explore-only model" if args.explore_only else "model"
+    kind = "social" if args.social else "explore-only model" if args.explore_only else "real-test model" if args.real_test else "model"
     try:
-        if args.explore_only and args.social:
-            raise BundleError("--explore-only is for the model bundle, not the social one")
+        if (args.explore_only or args.real_test) and args.social:
+            raise BundleError("--explore-only and --real-test are for the model bundle, not the social one")
         if args.check:
             b = validate_bundle(args.bundle_dir, args.social)
             print(f"{kind} bundle {b.version}: {len(b.files)} files, {b.size / 1e6:.1f} MB, ok")
             return 0
-        b = push(args.bundle_dir, args.social, explore_only=args.explore_only)
+        b = push(args.bundle_dir, args.social, explore_only=args.explore_only, real_test=args.real_test)
     except BundleError as e:
         print(f"push refused: {e}", file=sys.stderr)
         return 2

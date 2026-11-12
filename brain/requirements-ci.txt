@@ -1,0 +1,14 @@
+# The brain's test stack for CI, pinned to the owner's Mac env (brain/environment.yml, conda env godseye-brain).
+# torch comes from the CPU-only index (see .github/workflows/ci.yml). Keep in step with environment.yml.
+duckdb==2.0.0
+lightgbm==4.7.0
+numpy==2.5.4
+onnx==1.23.2
+onnxruntime==1.31.1
+pandas==3.1.1
+pyarrow==26.0.1
+pytest==9.2.0
+PyYAML==6.0.3
+scikit-learn==1.9.1
+scipy==1.18.1
+torch==2.15.0

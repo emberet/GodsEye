@@ -68,8 +68,12 @@ The previous version is kept for rollback.
 `python -m brain.gate --bundle <dir>` exits 0 to promote (strict: beats the B4 hand-rule baseline per copy with a
 mint-clustered CI above 0 on the selection window, a minimum copies per day, passes the stress suite, no worse drawdown).
 Exit 3 = explore-only: the bundle passes the sanity and stress checks but not the bar; it is pushed with
-`brain_enabled: false` only while the server has no promoted model, so Explore keeps gathering data. Anything else: keep
-the server's current model.
+`brain_enabled: false` only while the server has no promoted model, so Explore keeps gathering data. Exit 5 = real-test:
+not promoted, but the bundle passes the sanity checks and the stress suite's safety checks scored on the server's
+real-money rails (`brain/spec/rails.yaml`), with only the proven-edge and stress bars relaxed; it is pushed with
+`brain_enabled: true, real_test: true` unless the server runs a promoted model. `real_test: true` is the runtime's
+licence to let the Brain sleeve follow the model with real money (agent/src/brain/sleeve.ts); a promoted bundle carries
+it too when its gate report passed the real-test check. Anything else: keep the server's current model.
 
 ## Features
 
