@@ -118,9 +118,9 @@ From the repo root, `npm run quant:dry` and `npm run quant` call `python3 -m qua
 
 The local site is `npm run dashboard` (Next.js on port 3000). The nav is Home, Wallets (All wallets, New wallets by funder at `/groups`), Copying (Trades, Who it copies, Results, Proof, Paper AI at `/paper`), and Live (Live trades, Runners). It reads `data/godseye.db` while the agent writes (WAL).
 
-Every public API answer goes through `shared/src/public-view.ts`. That hides the hot-wallet address, raw logs, copy-decision internals (reason text, weight, latency), learned tuning, and anything named social. The insider tier is shown as Early-entry pattern. The wallet balance is shown; the address is not. `GODSEYE_FULL_FEED=1` turns that redaction off and is for a dashboard that is not public.
+Every public API answer goes through `shared/src/public-view.ts`. It lists the fields each feed may show, so a new column stays private until it is added there. Left out: the hot-wallet address and the agent's own transaction signatures, raw logs, copy-decision internals (reason text, weight, latency), learned tuning, X handles and the list of X accounts, and anything named social. The insider tier is shown as Early-entry pattern. The wallet balance is shown; the address is not. `GODSEYE_FULL_FEED=1` shows the full feed on a local development run (`npm run dashboard`) only; a production build and Vercel ignore it.
 
-Vercel cannot see the sqlite file. `npm run publish-dashboard` copies the public snapshot to Turso. The hosted site uses the read-only token. Root directory on Vercel is `dashboard`.
+Vercel cannot see the sqlite file. `npm run publish-dashboard` copies the snapshot to Turso, through the same filter before it leaves the machine. The hosted site uses the read-only token. Root directory on Vercel is `dashboard`.
 
 ## Run, develop, test
 
@@ -159,5 +159,5 @@ Workspaces are `shared`, `agent`, and `dashboard`. One `.env`. One sqlite file, 
 - Analysis does not read a wallet's whole life. The funder of a very old wallet is often unknown.
 - Live-stream P&L counts only swaps seen since this process started. It is a filter, not a verdict.
 - Labels are automated guesses with evidence attached, not accusations.
-- The hot wallet is a key file on the machine that runs the agent. Fund it only with what you can lose.
+- The hot wallet is a key file on the machine that runs the agent. Fund it only with what you can lose. Keep its address private as well: anyone who knows it can watch its trades and trade against them.
 - The brain's paper results are not the copy engine's results, and a promoted bundle is not clearance to use real SOL.

@@ -8,7 +8,7 @@ Database: `data/copycow.db` (read-only). Swap tape 2026-10-16 to 2026-10-26 (2.8
 |---|---|
 | `positions` | 0 rows |
 | `copy_trades` | 741 rows, all `real` / `buy` / `skipped`; 0 filled, 0 failed, 0 sells |
-| skip reasons | 464 "wallet has 0.000 SOL, needs … — send SOL to 52Nh…pzMQ", 277 "seen Ns after the leader traded" (late) |
+| skip reasons | 464 "wallet has 0.000 SOL, needs … — send SOL to [agent wallet]", 277 "seen Ns after the leader traded" (late) |
 | `rug_checks` | 0 rows |
 | `agent_log` | 0 lines mentioning a rug check |
 | `proof_ledger` | 0 rows |
