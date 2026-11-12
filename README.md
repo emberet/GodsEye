@@ -142,6 +142,7 @@ Open `.env` and set `HELIUS_API_KEY` or `SOLANA_RPC_URL`. The example file is `.
 | `npm run wallet` | This install's wallet address and balance. |
 | `npm run status` | Alive or not, results, tiers, who is being copied. |
 | `npm run pause` / `npm run resume` | Stop or restart new copy buys. |
+| `npm run alert-test` / `npm run alert-check` | Set up and try the owner's Telegram alerts / a look from outside that tells the owner when the agent has stopped reporting in (for a timer of its own). |
 | `npm run close-all` | Sell every open copy. Stop the agent first, and pause so a restart does not buy again (`agent/src/cli/close-all.ts`). |
 | `npm run discover` / `npm run analyze` / `npm run learn` | One pass each. `npm run analyze -- <address>` adds that wallet and analyzes it. |
 | `npm run replay` | Read-only copy-fill replay. |
