@@ -499,4 +499,27 @@ CREATE TABLE IF NOT EXISTS shadow_samples (
   lp_locked_pct REAL,
   UNIQUE (candidate_id, horizon_sec)
 );
+
+-- Every SOL movement of the agent's wallet that is not a trade (funding/ledger.ts): deposits, withdrawals, and later
+-- creator rewards and their payout. Deposits buy "units" and withdrawals redeem them at the NAV per unit of the moment
+-- (copy/risk.ts), so adding or taking out SOL never looks like a win or a loss. Private: the signature and the
+-- counterparty never leave the server; the site shows totals only.
+CREATE TABLE IF NOT EXISTS wallet_flows (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  signature TEXT NOT NULL UNIQUE,
+  slot INTEGER NOT NULL,
+  ts TEXT NOT NULL,
+  -- deposit / withdrawal = SOL in or out that no trade explains · swap = a trade the agent didn't make (adopted by the
+  -- wallet sweep, no units) · creator_claim / payout = creator rewards (Phase 3)
+  kind TEXT NOT NULL CHECK (kind IN ('deposit','withdrawal','swap','creator_claim','payout')),
+  -- SOL into the wallet (+) or out of it (-), the network fee left out when the wallet didn't pay it
+  sol REAL NOT NULL,
+  -- units issued (+) or redeemed (-), and the NAV per unit used; NULL until the risk step has priced the flow
+  units REAL,
+  nav REAL,
+  -- 1 = the owner announced it (npm run funding -- expect …) or it is the agent's own; 0 = nobody explained it
+  expected INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_wallet_flows_unpriced ON wallet_flows(slot) WHERE units IS NULL;
 `;
