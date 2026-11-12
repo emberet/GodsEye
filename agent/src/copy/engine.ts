@@ -37,6 +37,7 @@ import { rugCheck } from "../market/rugcheck";
 import { gate, gateReason } from "../brain/gates";
 import type { ShadowLogger } from "../shadow/log";
 import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
+import { noteSocialWarning } from "../social/labels";
 import { getPrices } from "../market/prices";
 import { symbolOf, tokenInfo } from "../market/tokens";
 import { walletBalanceSol } from "../wallet/wallet";
@@ -247,6 +248,7 @@ export class CopyEngine {
     }
     this.audit?.candidate(swap, symbol);
     this.shadow?.observe(swap, seenAt, weight, symbol); // from here on it is a copyable buy: log it and rug-screen it, whatever happens next
+    noteSocialWarning(this.db, swap, seenAt); // SOCIAL_WARNING=shadow (default off): a private "would have skipped" row, and the copy goes on unchanged
     // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
     if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);

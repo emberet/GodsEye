@@ -33,6 +33,8 @@ import { scoreCatchers } from "./runners/score";
 import { xConfigured } from "./x/client";
 import { BrainRuntime } from "./brain/runtime";
 import { runSocialCollect } from "./social/collect";
+import { labelWallets } from "./social/labels";
+import { socialTablesExist } from "./social/schema";
 import { runSocialScore } from "./social/score";
 import { runXResearch } from "./x/calls";
 import { loadOrCreateWallet, walletHoldings, walletTokenBalance } from "./wallet/wallet";
@@ -312,6 +314,18 @@ async function main() {
     }
     // The private social layer (social/): reads X for the analyzed wallets. Never shown anywhere, so nothing goes to say().
     if (xConfigured()) every("20 * * * *", () => void job("x2", async () => void (await runSocialCollect(db)), false));
+    // Labels from the social layer (social/labels.ts): one private hint per wallet, never proof. Pure database work, so
+    // it runs with X off too, and only once the collector has left something to label. Console only, never say().
+    const labels = () =>
+      void job("social labels", async () => {
+        try {
+          if (socialTablesExist(db)) labelWallets(db);
+        } catch (e) {
+          console.warn(`[social] labels failed: ${(e as Error).message}`);
+        }
+      }, false);
+    every("30 * * * *", labels);
+    labels();
     live.start();
   }
   // Daily SQLite housekeeping: retention pruning of raw swaps and stale stream activity, then a WAL checkpoint.

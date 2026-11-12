@@ -7,6 +7,7 @@
  */
 import { openDbReadonly } from "@godseye/shared";
 import { config } from "../config";
+import { socialWarningMode } from "../social/labels";
 import { socialTablesExist } from "../social/schema";
 import { budgetCap, tweetsReadThisMonth, usersReadThisMonth } from "../x/client";
 
@@ -38,6 +39,15 @@ console.log(
 );
 const byHow = db.prepare("SELECT how, COUNT(*) n FROM social_wallet_accounts GROUP BY how ORDER BY n DESC").all() as { how: string; n: number }[];
 if (byHow.length) console.log(`Links by kind: ${byHow.map((r) => `${r.how} ${fmt(r.n)}`).join(", ")}.`);
+// Labels (social/labels.ts): what X says about a wallet, as a hint. Never proof of who owns it or how good it is.
+if (hasTable("social_wallet_labels")) {
+  const byLabel = db.prepare("SELECT label, COUNT(*) n FROM social_wallet_labels GROUP BY label ORDER BY label").all() as { label: string; n: number }[];
+  const warned = hasTable("social_warnings") ? count("SELECT COUNT(*) n FROM social_warnings") : 0;
+  console.log(
+    `Labels (a hint, never proof): ${byLabel.map((r) => `${r.label} ${fmt(r.n)}`).join(", ") || "none yet"}. ` +
+      `Warning is ${socialWarningMode()}: ${fmt(warned)} copyable buys logged as "would have skipped"; none was blocked.`,
+  );
+}
 
 const scores = db
   .prepare(
