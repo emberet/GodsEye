@@ -2,7 +2,7 @@
 
 **GodsEye** copy-trades Solana wallets and keeps a public wallet database: a tier and an AI / bot or Human verdict for every wallet it studies, with the evidence on show. The public label for the insider tier is **Early-entry pattern** (`shared/src/constants.ts`).
 
-> ⚠️ **Paper by default. Real money takes one word.** `COPY_MODE=paper` (the default) simulates copy trades and moves no funds. `COPY_MODE=real` spends real SOL from the agent's wallet: by default 0.1 SOL per trade, 1 SOL in open copies, stop for the UTC day after 0.5 SOL of realized losses. Only the word `real` turns it on; any other word there, or a safety switch or limit the agent can't read, stops it at start instead of guessing. Real mode never makes a new wallet. `npm run pause` stops new buys; sells and safety exits keep running.
+> ⚠️ **Paper by default. Real money takes one word.** `COPY_MODE=paper` (the default) simulates copy trades and moves no funds. `COPY_MODE=real` spends real SOL from the agent's wallet, sized by the risk governor from what the wallet holds: 5% a trade to start (3–10%), no new buys for the UTC day after a 20% fall, and a self-pause 50% below its high (`agent/src/copy/risk.ts`). Only the word `real` turns it on; any other word there, or a safety switch or limit the agent can't read, stops it at start instead of guessing. Real mode never makes a new wallet. `npm run pause` stops new buys; sells and safety exits keep running.
 
 Nothing here is a promise of profit. Nothing here is financial advice.
 
@@ -114,6 +114,18 @@ From the repo root, `npm run quant:dry` and `npm run quant` call `python3 -m qua
 
 **Rust** (`rust/ingest/`, toolchain file `rust/ingest/rust-toolchain.toml`, channel stable): `ge-ingest` and `ge-parse` are an optional ingest/parser path. `ge-flow`'s `ge-analyze` is an offline backtest and wallet-flow pass over the database. `npm run flow:dry` writes nothing; `npm run flow` writes `backtest_results` and `wallet_clusters`. CI runs `cargo fmt`, `cargo clippy`, `cargo test --workspace --locked`, and a bench compile, from `rust/ingest`.
 
+## Money in and out
+
+The agent keeps score per unit, like a fund (`agent/src/funding/ledger.ts`, table `wallet_flows`). A deposit buys units and a withdrawal redeems them, so neither counts as a win or a loss. SOL that leaves the wallet unexplained, above `FUNDING_OUTFLOW_PAUSE_SOL`, pauses new buys and tells the owner; sells keep running.
+
+**Its own pump.fun coin** (`agent/src/creator/rewards.ts`, `CREATOR_REWARDS=off|dry|on`). 30% of the creator rewards go to the agent's wallet to trade with, 70% to `CREATOR_PAYOUT_WALLET`. After launching the coin from the agent's wallet:
+
+1. Set `CREATOR_PAYOUT_WALLET` and `CREATOR_REWARDS=dry` in `.env`, then restart.
+2. `npm run creator -- split <mint>` builds and simulates pump.fun's split. Check it, then run it again with `--confirm`. pump.fun locks the split for good once it is set.
+3. Watch a dry payout or two in the log, then set `CREATOR_REWARDS=on`.
+
+With the split set, pump.fun pays each share straight to its wallet. Without one, the agent claims as the creator and sends 70% on in the same transaction. Launching from the agent's wallet makes that wallet public: a coin's creator is visible on-chain. The agent never copies its own coin.
+
 ## Public feed
 
 The local site is `npm run dashboard` (Next.js on port 3000). The nav is Home, Wallets (All wallets, New wallets by funder at `/groups`), Copying (Trades, Who it copies, Results, Proof, Paper AI at `/paper`), and Live (Live trades, Runners). It reads `data/godseye.db` while the agent writes (WAL).
@@ -142,6 +154,8 @@ Open `.env` and set `HELIUS_API_KEY` or `SOLANA_RPC_URL`. The example file is `.
 | `npm run wallet` | This install's wallet address and balance. |
 | `npm run status` | Alive or not, results, tiers, who is being copied. |
 | `npm run pause` / `npm run resume` | Stop or restart new copy buys. |
+| `npm run funding` | Deposits, withdrawals and the risk governor's state. `npm run funding -- expect <SOL>` announces a withdrawal, so it doesn't pause the agent. |
+| `npm run creator` | The creator-rewards switch for the agent's own pump.fun coin. `npm run creator -- split <mint>` shows the one-time split; `--confirm` sets it. |
 | `npm run alert-test` / `npm run alert-check` | Set up and try the owner's Telegram alerts / a look from outside that tells the owner when the agent has stopped reporting in (for a timer of its own). |
 | `npm run close-all` | Sell every open copy. Stop the agent first, and pause so a restart does not buy again (`agent/src/cli/close-all.ts`). |
 | `npm run discover` / `npm run analyze` / `npm run learn` | One pass each. `npm run analyze -- <address>` adds that wallet and analyzes it. |
