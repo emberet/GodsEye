@@ -41,6 +41,21 @@ export interface JupQuote {
   routePlan: { swapInfo: { label?: string; ammKey?: string; inputMint?: string; outputMint?: string; inAmount?: string; outAmount?: string } }[];
 }
 
+/** The quote's price impact in percent (Jupiter gives a fraction: 0.01 = 1%), or null when it gave none it can be read as. */
+export function impactPct(q: Pick<JupQuote, "priceImpactPct">): number | null {
+  const f = Number(q.priceImpactPct);
+  return q.priceImpactPct != null && q.priceImpactPct !== "" && Number.isFinite(f) ? Math.abs(f) * 100 : null;
+}
+
+/** A buy refused before anything was signed: its quote would move the price too much. */
+export class PriceImpactError extends Error {}
+
+/** Throws PriceImpactError when a buy's quote moves the price more than `maxPct`. A quote with no figure is not refused (the slippage cap still holds). */
+export function refuseHighImpact(q: Pick<JupQuote, "priceImpactPct">, maxPct: number): void {
+  const pct = impactPct(q);
+  if (pct !== null && pct > maxPct) throw new PriceImpactError(`the quote moves the price ${pct.toFixed(1)}% (more than ${maxPct}%)`);
+}
+
 export async function jupiterQuote(inputMint: string, outputMint: string, amountAtomic: bigint, slippageBps = 50, retries = 1): Promise<JupQuote> {
   const url = `${host()}/swap/v1/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountAtomic}&slippageBps=${slippageBps}&restrictIntermediateTokens=true`;
   return fetchJson<JupQuote>(url, { headers: headers(), retries });

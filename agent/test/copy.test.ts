@@ -213,3 +213,26 @@ test("engine: stop() gives up at its deadline and says so", async () => {
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(await engine.stop(50), false);
 });
+
+test("price impact: Jupiter's fraction read as percent; a buy above the cap is refused before signing, a quote with no figure is not", async () => {
+  const { impactPct, refuseHighImpact, PriceImpactError } = await import("../src/market/jupiter");
+  assert.equal(impactPct({ priceImpactPct: "0.0044" }), 0.44);
+  assert.equal(impactPct({ priceImpactPct: "" }), null);
+  assert.equal(impactPct({ priceImpactPct: "n/a" }), null);
+  assert.throws(() => refuseHighImpact({ priceImpactPct: "0.08" }, 5), PriceImpactError);
+  assert.doesNotThrow(() => refuseHighImpact({ priceImpactPct: "0.03" }, 5));
+  assert.doesNotThrow(() => refuseHighImpact({ priceImpactPct: "" }, 5));
+});
+
+test("engine: a buy refused for its price impact is a skip, not a failed buy, and holds no budget", async () => {
+  const { PriceImpactError } = await import("../src/market/jupiter");
+  const { db, ex, engine } = setup(0.5);
+  ex.buy = async () => {
+    throw new PriceImpactError("the quote moves the price 8.0% (more than 5%)");
+  };
+  await engine.onLeaderSwap(leaderSwap({}));
+  const row = db.prepare("SELECT status, reason FROM copy_trades WHERE side = 'buy'").get() as { status: string; reason: string };
+  assert.equal(row.status, "skipped");
+  assert.match(row.reason, /^price impact: the quote moves the price 8\.0%/);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM positions").get() as { n: number }).n, 0);
+});

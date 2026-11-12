@@ -45,6 +45,7 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       COPY_MAX_DELAY_SECONDS: c.maxCopyDelaySeconds,
       COPY_BRAIN_GATES: c.copyBrainGates,
       COPY_SLIPPAGE_BPS: c.slippageBps,
+      COPY_MAX_PRICE_IMPACT_PCT: c.maxPriceImpactPct,
       COPY_EXIT_MAX_SLIPPAGE_BPS: c.exitMaxSlippageBps,
       PRIORITY_FEE_MAX_LAMPORTS: c.priorityFeeMaxLamports,
     }),

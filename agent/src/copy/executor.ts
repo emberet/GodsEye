@@ -8,7 +8,7 @@ import bs58 from "bs58";
 import { LAMPORTS_PER_SOL, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { copyConnection } from "../rpc";
-import { jupiterQuote, jupiterSwapTx, type JupQuote } from "../market/jupiter";
+import { jupiterQuote, jupiterSwapTx, type JupQuote, refuseHighImpact } from "../market/jupiter";
 import { tokenDecimals } from "../market/decimals";
 import { fetchParsedOne } from "../chain/history";
 import { noteCopyRpc } from "../chain/rpc-budget";
@@ -179,6 +179,7 @@ export class PaperExecutor implements Executor {
   mode = "paper" as const;
   async buy(mint: string, sol: number): Promise<Fill> {
     const q = await jupiterQuote(SOL_MINT, mint, BigInt(Math.floor(sol * LAMPORTS_PER_SOL)), config.slippageBps);
+    refuseHighImpact(q, config.maxPriceImpactPct); // as the real executor does, so paper shows the same skips
     return fillFromQuote("buy", q, await decimalsOf(mint), null);
   }
   async sell(mint: string, tokens: number, _all = false, slippageBps = config.slippageBps): Promise<Fill> {
@@ -268,6 +269,8 @@ export class RealExecutor implements Executor {
 
   async buy(mint: string, sol: number, onSigned?: OnSigned): Promise<Fill> {
     const q = await jupiterQuote(SOL_MINT, mint, BigInt(Math.floor(sol * LAMPORTS_PER_SOL)), config.slippageBps);
+    // A thin pool or a size too big for it: what a sandwich feeds on. Sells are never held back by this.
+    refuseHighImpact(q, config.maxPriceImpactPct);
     return this.execute("buy", mint, q, onSigned);
   }
 

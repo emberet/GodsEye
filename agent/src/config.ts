@@ -247,6 +247,8 @@ export const readConfig = () => ({
   quantSkillGate: envOneOf("QUANT_SKILL_GATE", ["off", "on"], "off"),
   socialWarning: envOneOf("SOCIAL_WARNING", ["off", "shadow"], "off"),
   slippageBps: envNum("COPY_SLIPPAGE_BPS", 300),
+  /** A buy whose quote moves the price more than this (%) is skipped. Sells are never held back by it. */
+  maxPriceImpactPct: envNum("COPY_MAX_PRICE_IMPACT_PCT", 5),
   /** Most slippage a stop-loss / trailing-stop sell may allow after slippage failures (it steps 3% → 10% → 25%). */
   exitMaxSlippageBps: envNum("COPY_EXIT_MAX_SLIPPAGE_BPS", 2500),
   priorityFeeMaxLamports: envNum("PRIORITY_FEE_MAX_LAMPORTS", 1_000_000),
