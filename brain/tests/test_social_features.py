@@ -23,9 +23,20 @@ def test_spec_matches_the_code():
     assert "own_record_shrunk" in names and "accounts_per_wallet_missing" not in names
 
 
+def _same(a, b, tol=1e-9) -> bool:
+    """Equal, floats to `tol` (relative): libm differs in the last digits between macOS and Linux (CI)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_same(a[k], b[k], tol) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_same(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, float) or isinstance(b, float):
+        return isinstance(a, (int, float)) and isinstance(b, (int, float)) and abs(a - b) <= tol * max(1.0, abs(a), abs(b))
+    return a == b
+
+
 def test_golden_file_is_up_to_date():
     on_disk = json.loads(golden.GOLDEN.read_text())
-    assert on_disk == json.loads(json.dumps(golden.build())), "run python -m brain.social.golden"
+    assert _same(on_disk, json.loads(json.dumps(golden.build()))), "run python -m brain.social.golden"
 
 
 def test_golden_hand_checked_values():
