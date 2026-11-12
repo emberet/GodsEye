@@ -4,6 +4,21 @@ import type { Tier, WalletKind } from "./constants";
 /** waiting_for_ip = the gRPC provider rejects this connection's IP (allowlist). */
 export type StreamStatus = "connected" | "reconnecting" | "waiting_for_ip" | "stopped";
 
+/** What the agent lets itself do right now with real money, and the owner's outer rails, in % of what it has. */
+export interface RiskLimits {
+  at: string;
+  /** The next trade's size, and the share of what it has to trade with that a trade gets. */
+  tradeSol: number;
+  tradePct: number;
+  equitySol: number;
+  /** Value per unit since the day began (UTC) and since its high: deposits and withdrawals don't move these. */
+  dayChangePct: number;
+  fromHighPct: number;
+  stoppedToday: boolean;
+  selfPaused: boolean;
+  rails: { maxTradePct: number; dailyStopPct: number; drawdownPausePct: number };
+}
+
 export interface Summary {
   live: boolean;
   heartbeat: string | null;
@@ -42,6 +57,8 @@ export interface Summary {
   kindCounts: Record<WalletKind, number>;
   lastLearningAt: string | null;
   lastDiscoveryAt: string | null;
+  /** The risk governor's limits right now (agent/src/copy/risk.ts); null in paper mode or before its first look. */
+  limits: RiskLimits | null;
   stream: {
     enabled: boolean;
     status: StreamStatus | null;

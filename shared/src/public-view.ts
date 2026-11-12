@@ -149,6 +149,10 @@ const SUMMARY: ShapeOf<Summary> = {
   realizedPnlUsd: 1, todayPnlUsd: 1, unrealizedPnlUsd: 1, feesSol: 1, feesUnrecorded: 1, solUsd: 1, openPositions: 1,
   maxPositions: 1, copiesToday: 1, walletsTracked: 1, leaders: 1, freshWallets24h: 1, tierCounts: NUMBERS,
   kindCounts: NUMBERS, lastLearningAt: 1, lastDiscoveryAt: 1,
+  limits: {
+    at: 1, tradeSol: 1, tradePct: 1, equitySol: 1, dayChangePct: 1, fromHighPct: 1, stoppedToday: 1, selfPaused: 1,
+    rails: { maxTradePct: 1, dailyStopPct: 1, drawdownPausePct: 1 },
+  },
   stream: {
     enabled: 1, status: 1, healthy: 1, ipTries: 1, ipDistinct: 1, lastAt: 1, txPerSec: 1, swapsPerSec: 1,
     walletsInMemory: 1, walletsSeen24h: 1, walletsSeenTotal: 1,

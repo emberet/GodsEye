@@ -15,7 +15,7 @@ import type {
   RunnerCatcherRow, RunnerDefinitionInfo, RunnersData, RunnerTokenRow, XCallerRow,
   PaperAccount, PaperAccountName, PaperData, PaperEquityPoint, PaperModelInfo, PaperTradeRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
-  Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
+  RiskLimits, Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
 } from "./dashboard-types";
 
 const num = (v: string | null, d: number) => (v === null || v === "" || !Number.isFinite(Number(v)) ? d : Number(v));
@@ -93,6 +93,16 @@ const solUsdNow = (d: DB) => {
   return Number.isFinite(v) && v > 0 ? v : null;
 };
 
+/** The risk governor's public summary (agent_meta risk_limits), or null when there is none that can be read. */
+function riskLimits(d: DB): RiskLimits | null {
+  try {
+    const v = JSON.parse(getMeta(d, "risk_limits") || "null") as RiskLimits | null;
+    return v && typeof v === "object" && typeof v.tradeSol === "number" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getSummary(d: DB): Summary {
   const hb = getMeta(d, "heartbeat");
   const status = getMeta(d, "agent_status");
@@ -152,6 +162,7 @@ export function getSummary(d: DB): Summary {
     kindCounts,
     lastLearningAt: getMeta(d, "last_learning_at"),
     lastDiscoveryAt: getMeta(d, "last_discovery_at"),
+    limits: modeOf(d) === "real" ? riskLimits(d) : null,
     stream: {
       enabled: getMeta(d, "stream_enabled") === "1",
       status: streamStatus,

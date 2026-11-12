@@ -10,7 +10,7 @@ import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/
 import { usePoll } from "@/lib/use-poll";
 import { ago, dexscreenerToken, pct, pnlClass, pnlPeriod, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
 import { DataState } from "@/components/data-state";
-import type { CopiesData, LeadersData, SmartMoneyData, Summary } from "@/lib/types";
+import type { CopiesData, LeadersData, RiskLimits, SmartMoneyData, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Card with a title and a "see all" link: every Home panel uses it. */
@@ -26,6 +26,32 @@ function Panel({ title, href, children, className }: { title: string; href?: str
         )}
       </div>
       <div className="mt-2 flex-1">{children}</div>
+    </section>
+  );
+}
+
+/** What the agent lets itself do with real money right now. It sets these itself from what it holds, inside the owner's rails. */
+function LimitsNow({ l }: { l: RiskLimits }) {
+  const sol = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 3 });
+  return (
+    <section className="card">
+      <p className="k">Limits right now · set by the agent from what it holds</p>
+      <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Stat label="Next trade" value={sol(l.tradeSol)} unit="SOL" sub={`${l.tradePct.toFixed(1)}% of what it has (never over ${l.rails.maxTradePct}%)`} />
+        <Stat label="To trade with" value={sol(l.equitySol)} unit="SOL" sub="deposits and withdrawals never count as profit" />
+        <Stat
+          label="Today"
+          value={pct(l.dayChangePct, 1)}
+          valueClass={pnlClass(l.dayChangePct)}
+          sub={l.stoppedToday ? "day's stop: no new buys until tomorrow (UTC)" : `stops buying for the day at −${l.rails.dailyStopPct}%`}
+        />
+        <Stat
+          label="From its high"
+          value={pct(l.fromHighPct, 1)}
+          valueClass={pnlClass(l.fromHighPct)}
+          sub={l.selfPaused ? "paused itself: the owner restarts it" : `pauses itself at −${l.rails.drawdownPausePct}%`}
+        />
+      </div>
     </section>
   );
 }
@@ -83,6 +109,8 @@ export default function Home() {
       </section>
 
       <TopAlert s={s} />
+
+      {s?.limits && <LimitsNow l={s.limits} />}
 
       <section className="grid gap-5 lg:grid-cols-12">
         <Panel title="Who it copies" href="/leaders" className="lg:col-span-5">
