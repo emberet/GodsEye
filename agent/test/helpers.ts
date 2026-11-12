@@ -1,5 +1,6 @@
 import type { TxLike, TokenBalanceLike } from "../src/chain/parse";
 import type { SwapLite } from "../src/analysis/pnl";
+import type { ChainTrade, SettleChain } from "../src/copy/recovery";
 
 export const WALLET = "Wa11et1111111111111111111111111111111111111";
 export const MINT = "Mint111111111111111111111111111111111111111";
@@ -89,6 +90,57 @@ export function stubFetch(handler: (url: string, body: unknown) => Response | ob
     return out instanceof Response ? out : new Response(JSON.stringify(out), { status: 200, headers: { "content-type": "application/json" } });
   }) as typeof fetch;
   return { calls, restore: () => void (globalThis.fetch = previous) };
+}
+
+let signatures = 0;
+/** A made-up transaction signature: base58 and signature length, a new one on every call. */
+export const fakeSignature = (): string => "5".repeat(80) + [...String(++signatures)].map((d) => "ABCDEFGHJK"[Number(d)]).join("");
+
+/** A trade of GodsEye's own, as the chain shows it. */
+export const chainTrade = (side: "buy" | "sell", signature: string, sol: number, tokens: number, feeSol?: number, atMs = Date.now()): ChainTrade => ({
+  side,
+  atMs,
+  fill: { signature, solAmount: sol, tokenAmount: tokens, priceSol: sol / tokens, feeSol },
+});
+
+/** The chain as the settle steps (copy/recovery.ts) read it, scripted by a test. */
+export class FakeChain implements SettleChain {
+  statuses = new Map<string, { err: unknown; confirmed: boolean }>();
+  trades = new Map<string, ChainTrade | null>();
+  history = new Map<string, { signature: string; atMs: number | null }[]>();
+  height = 1000;
+  /** What can't be read right now. */
+  down = { status: false, trade: false, history: false };
+  calls: string[] = [];
+
+  /** A transaction that landed and made this trade. */
+  landed(signature: string, trade: ChainTrade | null): void {
+    this.statuses.set(signature, { err: null, confirmed: true });
+    this.trades.set(signature, trade);
+  }
+
+  async status(signature: string) {
+    this.calls.push(`status ${signature}`);
+    if (this.down.status) throw new Error("rpc down");
+    return this.statuses.get(signature);
+  }
+
+  async blockHeight() {
+    this.calls.push("blockHeight");
+    return this.height;
+  }
+
+  async trade(signature: string) {
+    this.calls.push(`trade ${signature}`);
+    if (this.down.trade) throw new Error("rpc down");
+    return this.trades.get(signature) ?? null;
+  }
+
+  async tokenHistory(mint: string) {
+    this.calls.push(`history ${mint}`);
+    if (this.down.history) throw new Error("rpc down");
+    return this.history.get(mint) ?? [];
+  }
 }
 
 /** Give every wallet in the database a copy replay that passes the copy gate (median +5% over 20 well-covered copies). */
