@@ -29,13 +29,16 @@ export function modeLine(c: Config): { level: "info" | "warn"; message: string }
 export function settingsReport(c: Config, paused: boolean): string[] {
   const row = (title: string, pairs: Record<string, string | number | boolean>) =>
     `  ${title.padEnd(12)}${Object.entries(pairs).map(([name, value]) => `${name}=${value}`).join("  ")}`;
+  // Under the risk governor a fixed limit that isn't in .env isn't used: the governor sets it.
+  const governed = c.copyMode === "real" && c.riskGovernor;
+  const fixed = (inEnv: boolean, value: number) => (governed && !inEnv ? "(set by the governor)" : value);
   return [
     `Settings in effect${paused ? " (PAUSED: no new buys)" : ""}:`,
     row("mode", { COPY_MODE: c.copyMode, BRAIN_MODE: c.brainMode }),
     row("size", {
       COPY_MIN_TRADE_SOL: c.copyMinTradeSol,
-      COPY_MAX_TRADE_SOL: c.copyMaxTradeSol,
-      COPY_BUDGET_SOL: c.copyBudgetSol,
+      COPY_MAX_TRADE_SOL: fixed(c.fixedInEnv.maxTrade, c.copyMaxTradeSol),
+      COPY_BUDGET_SOL: fixed(c.fixedInEnv.budget, c.copyBudgetSol),
       COPY_MAX_POSITIONS: c.maxPositions,
       WALLET_RESERVE_SOL: c.walletReserveSol,
     }),
@@ -51,7 +54,7 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       FUNDING_OUTFLOW_PAUSE_SOL: c.fundingOutflowPauseSol,
     }),
     row("stops", {
-      COPY_DAILY_LOSS_LIMIT_SOL: c.dailyLossLimitSol,
+      COPY_DAILY_LOSS_LIMIT_SOL: fixed(c.fixedInEnv.dailyLoss, c.dailyLossLimitSol),
       COPY_STOP_LOSS_PCT: c.stopLossPct,
       COPY_TAKE_PROFIT_PCT: c.takeProfitPct,
       COPY_MAX_HOLD_HOURS: c.maxHoldHours,

@@ -164,3 +164,12 @@ test("under the governor, the fixed limits written in .env are named as ceilings
   assert.match(note ?? "", /COPY_MAX_TRADE_SOL=0\.1\s+COPY_DAILY_LOSS_LIMIT_SOL=0\.25\. Take a line out of \.env/);
   assert.doesNotMatch(note ?? "", /COPY_BUDGET_SOL/);
 });
+
+test("under the governor, a fixed limit not in .env is reported as the governor's", () => {
+  const none = { maxTrade: false, budget: false, dailyLoss: false };
+  const governed = settingsReport({ ...real, riskGovernor: true, fixedInEnv: { ...none, budget: true }, copyBudgetSol: 3 }, false).join("\n");
+  assert.match(governed, /COPY_MAX_TRADE_SOL=\(set by the governor\)/);
+  assert.match(governed, /COPY_DAILY_LOSS_LIMIT_SOL=\(set by the governor\)/);
+  assert.match(governed, /COPY_BUDGET_SOL=3(\s|$)/m);
+  assert.match(settingsReport({ ...safe, riskGovernor: true, fixedInEnv: none }, false).join("\n"), /COPY_MAX_TRADE_SOL=0\.1|COPY_MAX_TRADE_SOL=\d/, "paper mode shows the fixed values");
+});
