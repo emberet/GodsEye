@@ -2,7 +2,8 @@
  * THE PRIVATE SOCIAL LAYER'S COLLECTOR — what the X accounts behind analyzed wallets post, for the social model.
  *
  * Each run takes up to X_SOCIAL_WALLETS_PER_HOUR analyzed wallets that are due (never looked up, or not for a week),
- * copied wallets first, then runner-catchers and smart money, then the rest:
+ * copied wallets first, then runner-catchers and smart money, then the rest; by default only the wallets GodsEye copies
+ * or may copy (X_SOCIAL_SCOPE=candidates, pickWallets):
  *   a. links: the runner research's wallet ↔ account links (x_wallet_links) are copied into social_wallet_accounts;
  *   b. accounts: each linked account's profile and latest posts, with the coin and wallet addresses found in each post;
  *   c. mentions: recent posts that contain the wallet's address; their authors are linked with how = 'mention', n = how
@@ -112,9 +113,20 @@ export function urlCoins(urls: string[]): Set<string> {
   return new Set(urls.flatMap((u) => [...u.matchAll(COIN_URL)].map((m) => m[1])));
 }
 
+/**
+ * The wallets worth paying for (X_SOCIAL_SCOPE=candidates): the ones GodsEye copies or may copy. Copied, runner-catchers,
+ * active smart money, already linked to an account, or a track record near the copy bar (10+ closed trades in 30 days,
+ * 45%+ won, up this week). About 2,000 of the ~48,000 analyzed wallets.
+ */
+const CANDIDATE_SQL = `(w.copy_weight > 0
+  OR EXISTS (SELECT 1 FROM runner_catchers c WHERE c.wallet = w.address)
+  OR EXISTS (SELECT 1 FROM smart_wallets s WHERE s.address = w.address AND s.active = 1)
+  OR EXISTS (SELECT 1 FROM x_wallet_links l WHERE l.wallet = w.address)
+  OR EXISTS (SELECT 1 FROM wallet_stats t WHERE t.wallet = w.address AND t.closed_30d >= 10 AND t.win_rate_30d >= 0.45 AND COALESCE(t.pnl_7d_usd, t.pnl_7d_sol) > 0))`;
+
 /** Analyzed wallets due a lookup: copied ones first, then runner-catchers and smart money, never-visited before stale.
  * A wallet whose last count or search failed is left out until its retry time. */
-export function pickWallets(db: DB, limit: number, now = Date.now()): string[] {
+export function pickWallets(db: DB, limit: number, now = Date.now(), scope: "candidates" | "all" = config.xSocialScope): string[] {
   ensureRunnerTables(db);
   ensureSocialTables(db);
   return (
@@ -124,7 +136,7 @@ export function pickWallets(db: DB, limit: number, now = Date.now()): string[] {
            LEFT JOIN social_visits v ON v.wallet = w.address
            LEFT JOIN social_retries r ON r.wallet = w.address
           WHERE w.last_analyzed_at IS NOT NULL AND (v.visited_at IS NULL OR v.visited_at < ?)
-            AND (r.retry_at IS NULL OR r.retry_at <= ?)
+            AND (r.retry_at IS NULL OR r.retry_at <= ?)${scope === "candidates" ? ` AND ${CANDIDATE_SQL}` : ""}
           ORDER BY (w.copy_weight > 0) * 4
                  + (EXISTS (SELECT 1 FROM runner_catchers c WHERE c.wallet = w.address)) * 2
                  + (EXISTS (SELECT 1 FROM smart_wallets s WHERE s.address = w.address AND s.active = 1)) * 2
@@ -363,3 +375,25 @@ export async function runSocialCollect(db: DB, opts: SocialCollectOptions = {}):
   );
   return res;
 }
+
+/** Post text is kept this long; then only the post's id, its counts and the addresses already read from it. */
+export const TEXT_KEEP_MS = 30 * DAY;
+
+/**
+ * X's rules, built in (roadmap 5g): a post's text goes after TEXT_KEEP_MS, both the social layer's (social_posts) and the
+ * runner research's (x_posts). Their ids, engagement counts and the addresses read from them stay, and so do the links
+ * already made. Returns the posts blanked. Hidden like the rest of this file: counts only, to the console.
+ */
+export function forgetOldText(db: DB, now = Date.now()): number {
+  ensureRunnerTables(db);
+  ensureSocialTables(db);
+  const cut = new Date(now - TEXT_KEEP_MS).toISOString();
+  let n = 0;
+  db.transaction(() => {
+    n += db.prepare("UPDATE social_posts SET text = '' WHERE ts < ? AND text != ''").run(cut).changes;
+    n += db.prepare("UPDATE x_posts SET text = '' WHERE ts < ? AND text != ''").run(cut).changes;
+  })();
+  if (n) console.log(`[social] post text older than 30 days removed from ${n} posts (ids and counts kept).`);
+  return n;
+}
+

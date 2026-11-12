@@ -42,6 +42,9 @@ export const readConfig = () => ({
   xCoinsPerHour: envNum("X_COINS_PER_HOUR", 100),
   /** Wallets the social layer looks up on X an hour. */
   xSocialWalletsPerHour: envNum("X_SOCIAL_WALLETS_PER_HOUR", 50),
+  /** Which analyzed wallets the social collector looks up: candidates (default) = the ones GodsEye copies or may copy
+   *  (copied, runner-catchers, active smart money, linked on X, or a track record near the copy bar); all = every one. */
+  xSocialScope: envOneOf("X_SOCIAL_SCOPE", ["candidates", "all"], "candidates"),
 
   // ---- Brain: the reinforcement-learning copy policy, paper money only (brain/, brain/spec/CONTRACT.md) ----
   /** off = no paper trading; paper = the Brain, Explore and Baseline paper accounts trade on the live stream. */

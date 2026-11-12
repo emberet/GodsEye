@@ -44,6 +44,8 @@ import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } f
 import { riskLook } from "./copy/risk";
 import { BrainSleeve } from "./brain/sleeve";
 import { snapshotHistory } from "./learning/history";
+import { forgetOldText } from "./social/collect";
+import { countHolds } from "./x/holds";
 import { scanFlows, walletFlowSource } from "./funding/ledger";
 import { runRewards } from "./creator/rewards";
 import { copyConnection } from "./rpc";
@@ -245,6 +247,8 @@ async function main() {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
   every(config.positionCron, positions);
+  // X's rules: post text is kept 30 days, then only ids and counts (social/collect.ts forgetOldText).
+  every("35 4 * * *", () => void job("x text retention", async () => void forgetOldText(db), false));
   // Rug, organic, skill and cluster values as they were when made (learning/history.ts), for the brain to learn from later.
   every("40 * * * *", () => void job("feature history", async () => void snapshotHistory(db), false));
   if (config.creatorRewards !== "off") every(config.creatorCron, creator);
@@ -333,6 +337,11 @@ async function main() {
     if (xConfigured()) every("50 * * * *", () => void job("x research", async () => {
       const line = await runXResearch(db);
       if (line) say("learn", line);
+    }, false));
+    // Posts about a coin while GodsEye held it (x/holds.ts): one count per closed position, in shadow. Console only.
+    if (xConfigured()) every("55 * * * *", () => void job("x hold counts", async () => {
+      const r = await countHolds(db);
+      if (r.counted) console.log(`[x] hold counts: ${r.counted} closed positions counted${r.stop ? ` (stopped: ${r.stop})` : ""}.`);
     }, false));
     // X's own count of the posts read, next to the agent's (x/usage.ts): the dollar budget rests on the agent's count.
     if (xConfigured()) every("5 3 * * *", () => void job("x usage", async () => void (await checkXUsage(db)), false));

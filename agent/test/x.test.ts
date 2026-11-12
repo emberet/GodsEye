@@ -13,7 +13,7 @@ process.env.X_BEARER_TOKEN = "test-token";
 process.env.X_MONTHLY_USD = "600";
 const { retryTiming } = await import("../src/backoff");
 const { budgetCap, dayShare, PRICE, searchAll, spentThisMonth, spentToday, tweetsReadThisMonth } = await import("../src/x/client");
-const { addressesIn, buildQuery, callerHitRateLb, linkWallets, runXResearch, searchCoins, searchWindow } = await import("../src/x/calls");
+const { addressesIn, buildQuery, callerHitRateLb, linkWallets, matchControls, runXResearch, searchCoins, searchWindow } = await import("../src/x/calls");
 const { attachLogDb } = await import("../src/log");
 const { ensureRunnerTables } = await import("../src/runners/schema");
 retryTiming.scale = 0;
@@ -127,7 +127,8 @@ test("search: the mint or a plain $TICKER with crypto words; the window ends at 
   assert.equal(buildQuery("MINTpump", "🐸 frog"), "(MINTpump) -is:retweet");
   const t0 = Date.parse("2026-10-30T12:00:00.000Z");
   const w = searchWindow("runner", t0, t0 + 3_600_000, t0 + 10 * 3_600_000)!;
-  assert.deepEqual(w, { from: "2026-10-30T11:00:00.000Z", to: "2026-10-30T14:00:00.000Z" });
+  assert.deepEqual(w, { from: "2026-10-30T11:00:00.000Z", to: "2026-10-30T12:30:00.000Z" }, "an hour before the first trade to 30 min after");
+  assert.deepEqual(searchWindow("control", t0, t0, t0 + 10 * 3_600_000), w, "a control: the same window");
   const recent = searchWindow("control", t0, t0, t0 + 60_000)!;
   assert.equal(recent.to, "2026-10-30T12:00:30.000Z");
   assert.equal(searchWindow("control", t0, t0, t0 - 3_590_000), null);
@@ -154,4 +155,12 @@ test("caller hit rate: an account posting every coin scores below one posting a 
   const picker = callerHitRateLb({ early: 5, runners: 6, controls: 1 }, 10);
   assert.ok(picker > 0.1, `picker ${picker}`); // 5 hits against 1 control × 10 (the controls stand for 10x as many coins) + 1 late call
   assert.ok(spammer < 0.01);
+});
+
+test("matched controls: the same day, the nearest early-buyer count, each used once", () => {
+  const c = (mint: string, day: string, buyers: number) => ({ mint, first_seen: `${day}T12:00:00.000Z`, buyers });
+  const runners = [c("R1", "2026-11-01", 100), c("R2", "2026-11-01", 20), c("R3", "2026-11-02", 50)];
+  const pool = [c("C1", "2026-11-01", 90), c("C2", "2026-11-01", 25), c("C3", "2026-10-31", 50), c("C4", "2026-11-01", 400)];
+  assert.deepEqual(matchControls(runners, pool).map((x) => x.mint), ["C1", "C2"], "R3's day has no crowd coin: no control");
+  assert.deepEqual(matchControls([c("R", "2026-11-01", 100), c("S", "2026-11-01", 100)], [c("C", "2026-11-01", 100)]).map((x) => x.mint), ["C"], "each control used once");
 });

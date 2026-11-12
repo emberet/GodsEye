@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 from brain import config
 
@@ -62,6 +63,8 @@ TABLES: list[Table] = [
     Table("x_wallet_links", False, private=True),
     Table("social_accounts", False, private=True),
     Table("social_posts", True, private=True),
+    Table("social_score_history", True, private=True),
+    Table("x_hold_counts", False, private=True),  # posts about a coin while GodsEye held it (agent/src/x/holds.ts)  # every social score as written (agent/src/social/schema.ts)
 ]
 
 
@@ -167,6 +170,45 @@ def pull_archive() -> int:
     return done
 
 
+LEDGER_ARCHIVES = ("mirror_ledger", "ps_ledger", "dd_ledger")
+
+
+def pull_ledger_archives() -> None:
+    """The leader-ledger rows the server pruned after 8 days (agent/src/brain/ledger.ts prune), as it archived them:
+    data/archive/<table>/<day>.ndjson.gz -> archive_raw/<table>/. Raw files only; a table with none yet is skipped."""
+    base = config.SERVER_DB.rsplit("/", 1)[0] + "/archive"
+    for table in LEDGER_ARCHIVES:
+        raw = config.DATA_DIR / "archive_raw" / table
+        raw.mkdir(parents=True, exist_ok=True)
+        r = subprocess.run(["rsync", "-q", "--partial", "--timeout=60", "-r", f"{config.SERVER}:{base}/{table}/", f"{raw}/"])
+        if r.returncode not in (0, 23):  # 23: no such folder on the server yet
+            raise RuntimeError(f"rsync of the {table} archive failed ({r.returncode})")
+
+
+TEXT_KEEP_DAYS = 30
+TEXT_TABLES = ("x_posts", "social_posts")
+
+
+def forget_old_text(now: float | None = None) -> int:
+    """X's rules on the Mac's private copy too (agent/src/social/collect.ts forgetOldText): a post's text goes after 30
+    days; its id, counts and addresses stay. Part files holding such text are rewritten in place. Returns the files."""
+    cut = pd.Timestamp(now, unit="s", tz="UTC") if now else pd.Timestamp.now(tz="UTC")
+    cut = (cut - pd.Timedelta(days=TEXT_KEEP_DAYS)).isoformat()
+    con = duckdb.connect()
+    done = 0
+    for table in TEXT_TABLES:
+        for f in sorted((config.PRIVATE_DIR / table).glob("[!.]*.parquet")):
+            n = con.execute(f"SELECT count(*) FROM read_parquet('{f}') WHERE ts < ? AND text <> ''", [cut]).fetchone()[0]
+            if not n:
+                continue
+            tmp = f.with_name(f".tmp-{f.name}")
+            con.execute(f"COPY (SELECT * REPLACE (CASE WHEN ts < '{cut}' THEN '' ELSE text END AS text) FROM read_parquet('{f}')) "
+                        f"TO '{tmp}' (FORMAT parquet, COMPRESSION zstd)")
+            tmp.replace(f)
+            done += 1
+    return done
+
+
 def drop_appledouble() -> int:
     """macOS writes a `._name` metadata twin beside every file on the FAT32 drive; parquet globs would read them as data."""
     n = 0
@@ -197,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.only or "archive" in args.only:
         t0 = time.time()
         print(f"  archive: {pull_archive()} day files converted in {time.time() - t0:.0f}s")
+        pull_ledger_archives()
+    print(f"  private post text older than {TEXT_KEEP_DAYS} days removed from {forget_old_text()} part files")
     drop_appledouble()
     return 0
 

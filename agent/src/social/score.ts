@@ -492,6 +492,7 @@ export async function runSocialScore(db: DB, opts: SocialScoreOptions = {}): Pro
       `INSERT INTO social_scores (wallet, score, n_posts, model_version, updated_at) VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(wallet) DO UPDATE SET score = excluded.score, n_posts = excluded.n_posts, model_version = excluded.model_version, updated_at = excluded.updated_at`,
     );
+    const history = db.prepare("INSERT INTO social_score_history (wallet, score, n_posts, model_version, at) VALUES (?, ?, ?, ?, ?)");
     const at = opts.now !== undefined ? new Date(opts.now).toISOString() : nowIso();
     db.transaction(() => {
       wallets.forEach((w, i) => {
@@ -500,6 +501,7 @@ export async function runSocialScore(db: DB, opts: SocialScoreOptions = {}): Pro
           return;
         }
         put.run(w, scores[i], rows.get(w)!.nPosts, m.version, at);
+        history.run(w, scores[i], rows.get(w)!.nPosts, m.version, at);
         res.wallets++;
       });
     })();

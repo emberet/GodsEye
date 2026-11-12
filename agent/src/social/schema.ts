@@ -78,6 +78,17 @@ CREATE TABLE IF NOT EXISTS social_scores (
   updated_at TEXT
 );
 
+-- Every score as it was written (append-only): training sees each score as it was on the day, never a later one.
+CREATE TABLE IF NOT EXISTS social_score_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  wallet TEXT NOT NULL,
+  score REAL,
+  n_posts INTEGER,
+  model_version TEXT,
+  at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_social_score_history_wallet ON social_score_history(wallet, at);
+
 -- When the collector last looked a wallet up on X (each is revisited about weekly).
 CREATE TABLE IF NOT EXISTS social_visits (
   wallet TEXT PRIMARY KEY,

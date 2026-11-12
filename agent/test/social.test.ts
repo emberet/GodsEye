@@ -18,10 +18,11 @@ process.env.X_BEARER_TOKEN = "test-token";
 // $100 a month: $50 for the runner research, $40 for the social layer, a fifteenth of each in a day. A full page of
 // mentions with its authors ($1.50) fits a day's share, so the budget cuts a run short only where a test spends it first.
 process.env.X_MONTHLY_USD = "100";
+process.env.X_SOCIAL_SCOPE = "all"; // these tests read every analyzed wallet; the candidates scope has its own test
 const { retryTiming } = await import("../src/backoff");
 const { config } = await import("../src/config");
 const { budgetCap, budgetSpent, dayShare, lookupUsers, PRICE, searchAll, tweetsReadThisMonth, usersReadThisMonth, userTweets, xRefusal } = await import("../src/x/client");
-const { MAX_MENTION_COUNT, RETRY_MS, SEARCH_MAX_RESULTS, VISIT_TIMELINE_POSTS, pickWallets, postText, retryWait, runSocialCollect, splitAddresses, syncLinks, urlCoins } =
+const { MAX_MENTION_COUNT, RETRY_MS, SEARCH_MAX_RESULTS, TEXT_KEEP_MS, VISIT_TIMELINE_POSTS, forgetOldText, pickWallets, postText, retryWait, runSocialCollect, splitAddresses, syncLinks, urlCoins } =
   await import("../src/social/collect");
 const { ensureRunnerTables } = await import("../src/runners/schema");
 const { ensureSocialTables, socialTablesExist } = await import("../src/social/schema");
@@ -632,4 +633,46 @@ test("collector: by default a visit's timeline share is split between its accoun
       net.restore();
     }
   }
+});
+
+test("collector scope: by default only the wallets GodsEye copies or may copy are paid for", () => {
+  const db = openDb(":memory:");
+  ensureRunnerTables(db);
+  ensureSocialTables(db);
+  const now = Date.now();
+  const a = (k: string) => `${k}${"1".repeat(43 - k.length)}`;
+  const add = db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, last_analyzed_at, copy_weight) VALUES (?, '2026-10-01', 'manual', '2026-11-01', ?)");
+  add.run(a("Copied"), 0.3);
+  add.run(a("Near"), 0);
+  add.run(a("Nobody"), 0);
+  db.prepare(`INSERT INTO wallet_stats (wallet, computed_at, swaps_total, swaps_7d, swaps_30d, pnl_7d_sol, pnl_30d_sol, pnl_all_sol, closed_7d, closed_30d, wins_30d, win_rate_30d, pnl_7d_usd)
+              VALUES (?, '2026-11-01', 40, 10, 40, 1, 2, 2, 4, 12, 6, 0.5, 40)`).run(a("Near"));
+  assert.deepEqual(pickWallets(db, 10, now, "candidates").sort(), [a("Copied"), a("Near")].sort());
+  assert.equal(pickWallets(db, 10, now, "all").length, 3);
+});
+
+test("X's rules: post text goes after 30 days, the post's id and counts stay", () => {
+  const db = openDb(":memory:");
+  ensureRunnerTables(db);
+  ensureSocialTables(db);
+  const now = Date.now();
+  const old = new Date(now - TEXT_KEEP_MS - 60_000).toISOString();
+  const fresh = new Date(now - 60_000).toISOString();
+  const sp = db.prepare("INSERT INTO social_posts (post_id, author_id, ts, text, likes, fetched_at) VALUES (?, 'a1', ?, ?, 7, ?)");
+  sp.run("p-old", old, "old text", fresh);
+  sp.run("p-new", fresh, "new text", fresh);
+  db.prepare("INSERT INTO x_posts (id, mint, author_id, ts, text, likes, fetched_at) VALUES ('x-old', 'M', 'a1', ?, 'old call', 3, ?)").run(old, fresh);
+  const print = console.log;
+  console.log = () => undefined;
+  try {
+    assert.equal(forgetOldText(db, now), 2);
+  } finally {
+    console.log = print;
+  }
+  assert.deepEqual(db.prepare("SELECT post_id, text, likes FROM social_posts ORDER BY post_id").all(), [
+    { post_id: "p-new", text: "new text", likes: 7 },
+    { post_id: "p-old", text: "", likes: 7 },
+  ]);
+  assert.deepEqual(db.prepare("SELECT id, text, likes FROM x_posts").get(), { id: "x-old", text: "", likes: 3 });
+  assert.equal(forgetOldText(db, now), 0);
 });

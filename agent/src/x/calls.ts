@@ -1,10 +1,12 @@
 /**
  * WHO CALLS RUNNERS ON X — accounts that post a coin before it runs, and the wallets behind them.
  *
- *   1. Search: each runner (runners/define.ts) is searched on X from an hour before its first trade to an hour after its
- *      peak: its mint address, or its $TICKER next to pump / sol / solana / CA. The same number of coins that drew a crowd
- *      but didn't run are searched too, from an hour before to 6 hours after their first trade: the control. Without it,
- *      an account that posts every new coin would look like it calls every runner.
+ *   1. Search: each runner (runners/define.ts) is searched on X from an hour before its first trade to 30 minutes after
+ *      it (later posts can't help an entry, and cost the same): its mint address, or its $TICKER next to pump / sol /
+ *      solana / CA. For each runner a control is searched over the same window: a coin that drew a crowd but didn't run,
+ *      first traded the same UTC day with the nearest number of early buyers (a matched control, not a random one: the
+ *      random ones were often runners' look-alikes from other days). Without it, an account that posts every new coin
+ *      would look like it calls every runner.
  *   2. Score: per account over 30 days, the runners it posted before they reached 3x ("early calls") against the
  *      non-runners it posted, the latter scaled up to all non-runners (only a sample was searched). Its hit rate's
  *      Wilson lower bound against the share of crowd coins that run; how many minutes ahead of the 3x; distinct days.
@@ -33,11 +35,34 @@ export function buildQuery(mint: string, symbol: string | null): string {
   return `(${mint}${tag ? ` OR ${tag}` : ""}) -is:retweet`;
 }
 
-/** Pure: the window searched for a coin, clamped to what X allows (ends at least 30 s ago, starts before it ends). */
-export function searchWindow(kind: "runner" | "control", firstSeen: number, peakAt: number, now = Date.now()): { from: string; to: string } | null {
+/** Posts later than this after a coin's first trade can't help an entry: they aren't read. */
+export const ENTRY_WINDOW_MS = 30 * 60_000;
+
+/** Pure: the window searched for a coin, runner or control alike: from an hour before its first trade to ENTRY_WINDOW_MS
+ *  after it, clamped to what X allows (ends at least 30 s ago, starts before it ends). */
+export function searchWindow(_kind: "runner" | "control", firstSeen: number, _peakAt: number, now = Date.now()): { from: string; to: string } | null {
   const fromMs = firstSeen - HOUR;
-  const toMs = Math.min(now - END_MARGIN_MS, kind === "runner" ? Math.max(peakAt, firstSeen) + HOUR : firstSeen + 6 * HOUR, fromMs + 3 * 24 * HOUR);
+  const toMs = Math.min(now - END_MARGIN_MS, firstSeen + ENTRY_WINDOW_MS);
   return toMs > fromMs + 60_000 ? { from: new Date(fromMs).toISOString(), to: new Date(toMs).toISOString() } : null;
+}
+
+/**
+ * Pure: a control for each runner, from `pool` (crowd coins that didn't run): first traded the same UTC day, the nearest
+ * early-buyer count (on a log scale), each used once. A runner with no such coin that day gets none.
+ */
+export function matchControls<T extends { mint: string; first_seen: string; buyers: number }>(runners: T[], pool: T[]): T[] {
+  const left = [...pool];
+  const out: T[] = [];
+  for (const r of runners) {
+    const day = r.first_seen.slice(0, 10);
+    let best = -1;
+    for (let i = 0; i < left.length; i++) {
+      if (left[i].first_seen.slice(0, 10) !== day) continue;
+      if (best < 0 || Math.abs(Math.log(left[i].buyers) - Math.log(r.buyers)) < Math.abs(Math.log(left[best].buyers) - Math.log(r.buyers))) best = i;
+    }
+    if (best >= 0) out.push(left.splice(best, 1)[0]);
+  }
+  return out;
 }
 
 /** Pure: addresses in a text that could be wallets (on-curve keys), minus `exclude` (the coin itself, known mints). */
@@ -51,6 +76,7 @@ interface CoinRow {
   first_seen: string;
   peak_at: string;
   x3_at: string | null;
+  buyers: number;
 }
 
 function storeResults(db: DB, mint: string, tweets: XTweet[], users: XUser[]): void {
@@ -82,13 +108,14 @@ export async function searchCoins(db: DB, limit: number, now = Date.now()): Prom
   const pick = (runner: number, n: number) =>
     db
       .prepare(
-        `SELECT t.mint, COALESCE(t.symbol, i.symbol) symbol, t.first_seen, t.peak_at, t.x3_at FROM runner_tokens t LEFT JOIN token_info i ON i.mint = t.mint
+        `SELECT t.mint, COALESCE(t.symbol, i.symbol) symbol, t.first_seen, t.peak_at, t.x3_at, t.buyers FROM runner_tokens t LEFT JOIN token_info i ON i.mint = t.mint
           WHERE t.is_runner = ? AND t.first_seen >= ? AND t.buyers >= 15 AND t.mint NOT IN (SELECT mint FROM x_searches)
-          ORDER BY ${runner ? "t.first_seen DESC" : "random()"} LIMIT ?`,
+          ORDER BY t.first_seen DESC LIMIT ?`,
       )
       .all(runner, since, n) as CoinRow[];
   const runners = pick(1, Math.ceil(limit / 2));
-  const controls = pick(0, Math.max(runners.length, 1));
+  // Matched controls: the same day, the nearest early-buyer count (matchControls), from every unsearched crowd coin.
+  const controls = matchControls(runners, pick(0, 100_000));
   const record = db.prepare("INSERT OR REPLACE INTO x_searches (mint, kind, window_from, window_to, ran_at, tweets, searched_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
   let searched = 0;
   let tweets = 0;

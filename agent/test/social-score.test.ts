@@ -238,6 +238,10 @@ test("hourly score: runs the model on every owner-linked wallet and writes centr
   point(dir, "v2");
   await quiet(() => runSocialScore(db, { dir, now: T_MS + 3_600_000 }));
   assert.deepEqual(scores(db).map((r) => [r.wallet, r.model_version]), LINKED.map((w) => [w, "v2"]));
+  // The history keeps both runs' scores, each as it was written (social_scores keeps only the latest).
+  const hist = db.prepare("SELECT model_version, COUNT(*) n FROM social_score_history GROUP BY model_version ORDER BY MIN(id)").all() as { model_version: string; n: number }[];
+  assert.deepEqual(hist.map((h) => h.n), [LINKED.length, LINKED.length]);
+  assert.equal(hist[1].model_version, "v2");
 });
 
 test("hourly score: no model, a bad hash, a wrong manifest or a failed out-of-time test write nothing", async () => {
