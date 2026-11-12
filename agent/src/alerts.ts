@@ -18,6 +18,7 @@ import { openRealPositions } from "./startup";
 
 export type AlertKind =
   | "x_credits" // X refuses paid reads: out of credits, or over its usage cap
+  | "x_usage" // X counts more posts read this month than the agent did
   | "unknown_outflow" // SOL left the wallet and no trade explains it
   | "self_pause" // the agent paused itself at its drawdown limit
   | "daily_stop" // the day's loss limit stopped new buys
@@ -33,6 +34,7 @@ const HOUR = 3_600_000;
 /** How long a kind stays quiet while the same trouble lasts. Never under an hour. */
 const REMIND_MS: Record<AlertKind, number> = {
   x_credits: 24 * HOUR,
+  x_usage: 24 * HOUR,
   unknown_outflow: HOUR,
   self_pause: 24 * HOUR,
   daily_stop: 24 * HOUR,

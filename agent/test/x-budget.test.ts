@@ -2,7 +2,7 @@
  * The X client's money (x/client.ts): posts, profiles and post counts are paid from a dollar budget for the month, a
  * paced budget spends only its day's share, and a spent month or day skips the call instead of waiting inside the cron
  * job. When X refuses reads (out of credits, over the usage cap) the call stops at once, the reason is kept and the
- * owner is told once a day. In-memory database, a stubbed X API (no network).
+ * owner is told once a day. The daily look at X's own count (x/usage.ts). In-memory database, a stubbed X API (no network).
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -16,6 +16,7 @@ process.env.X_BEARER_TOKEN = "test-token";
 process.env.X_MONTHLY_USD = "2"; // test-sized: $1.00 for the research, $0.80 for the social layer, no pacing
 const { config } = await import("../src/config");
 const X = await import("../src/x/client");
+const U = await import("../src/x/usage");
 const { HttpError } = await import("../src/http");
 const { retryTiming } = await import("../src/backoff");
 retryTiming.scale = 0;
@@ -303,6 +304,76 @@ test("over the usage cap (a 429 that says so) nothing waits; a plain rate limit 
     assert.equal(alertsOf(out.lines, "x_credits").length, 1);
     assert.ok(!out.lines.join("\n").includes("made-up"));
   } finally {
+    out.stop();
+    net.restore();
+  }
+});
+
+test("the daily usage check keeps X's count next to the agent's, and tells the owner only when X counts well above", async () => {
+  const days = (rows: { date: string; usage: number | string }[]) => ({ data: { daily_project_usage: { project_id: "1", usage: rows } } });
+  const thisMonth = (posts: number) =>
+    days([
+      { date: `${today}T00:00:00.000Z`, usage: String(posts - 350) },
+      { date: `${month}-01T00:00:00.000Z`, usage: 350 },
+      { date: new Date(Date.parse(`${month}-01T00:00:00.000Z`) - 10 * DAY).toISOString(), usage: "9999" }, // last month's
+    ]);
+  /** A database where the agent counted `ours` posts this month, and X then answers `answer`. */
+  const check = async (ours: number, theirs: Answer) => {
+    const db = openDb(":memory:");
+    setMeta(db, `x_tweets_read_${month}`, Math.ceil(ours * 0.6));
+    setMeta(db, `x_social_tweets_read_${month}`, Math.floor(ours * 0.4));
+    setMeta(db, `x_users_read_${month}`, 77); // profiles and counts are not posts
+    setMeta(db, `x_counts_read_${month}`, 33);
+    answer = theirs;
+    return { db, found: (await U.checkXUsage(db))! };
+  };
+  const told = (db: DB): boolean => !!getMeta(db, "alert_x_usage");
+  let answer: Answer;
+  const net = stubFetch(() => answer);
+  const out = listen();
+  try {
+    const close = await check(1_000, thisMonth(1_050));
+    assert.deepEqual([close.found.theirs, close.found.ours, close.found.note], [1_050, 1_000, undefined]);
+    assert.deepEqual(U.xUsageCheck(close.db), close.found, "kept for the next look");
+    assert.equal(told(close.db), false);
+    const call = net.calls[0]!;
+    assert.equal(new URL(call.url).pathname, "/2/usage/tweets");
+    assert.deepEqual([asked(call, "usage.fields"), asked(call, "days")], ["daily_project_usage", String(Math.min(90, new Date().getUTCDate() + 1))]);
+
+    // X does not bill a post twice in a day, so its count may be the lower one; small differences are noise.
+    assert.equal(told((await check(1_000, thisMonth(500))).db), false);
+    assert.equal(told((await check(0, days([{ date: `${today}T00:00:00.000Z`, usage: 150 }]))).db), false);
+    assert.equal(told((await check(5_000, thisMonth(5_500))).db), false);
+    assert.equal((await check(0, days([]))).found.theirs, 0);
+    assert.deepEqual(out.lines, []);
+
+    const above = await check(1_000, thisMonth(1_650));
+    assert.equal(told(above.db), true);
+    assert.equal(told((await check(5_000, thisMonth(5_501))).db), true);
+    assert.equal(alertsOf(out.lines, "x_usage").length, 2);
+    assert.match(out.lines[0]!, /Owner alert \(x_usage\): X counts 1,650 posts read this month, the agent counted 1,000\. /);
+
+    // No figure from X: kept as such, nobody is told, and the refusal row of the paid reads is left alone.
+    const refused = await check(1_000, new Response(JSON.stringify({ detail: "made-up answer" }), { status: 402 }));
+    assert.deepEqual([refused.found.theirs, refused.found.ours, refused.found.note], [null, 1_000, "refused"]);
+    assert.deepEqual([told(refused.db), getMeta(refused.db, "alert_x_credits"), X.xRefusal(refused.db)], [false, null, null]);
+    assert.equal(out.lines.at(-1), "[x] usage check: X's own count could not be read (status 402).");
+    assert.equal((await check(1_000, new Response("made-up answer", { status: 500 }))).found.note, "failed");
+    assert.equal(out.lines.at(-1), "[x] usage check: X's own count could not be read (status 500).");
+    for (const odd of [{ data: {} }, days([{ date: "not a day", usage: 5 }])]) {
+      const unread = await check(1_000, odd);
+      assert.deepEqual([unread.found.theirs, unread.found.note, told(unread.db)], [null, "failed", false]);
+      assert.equal(out.lines.at(-1), "[x] usage check: X's own count could not be read (no usable answer).");
+    }
+    assert.ok(!out.lines.join("\n").includes("made-up"));
+
+    // With no X key nothing is asked.
+    const calls = net.calls.length;
+    config.xBearerToken = "";
+    assert.equal(await U.checkXUsage(openDb(":memory:")), null);
+    assert.equal(net.calls.length, calls);
+  } finally {
+    config.xBearerToken = "test-token";
     out.stop();
     net.restore();
   }

@@ -32,6 +32,7 @@ import { LeaderWatcher } from "./copy/watcher";
 import { defineRunners, describeDefinition } from "./runners/define";
 import { scoreCatchers } from "./runners/score";
 import { xConfigured } from "./x/client";
+import { checkXUsage } from "./x/usage";
 import { BrainRuntime } from "./brain/runtime";
 import { runSocialCollect } from "./social/collect";
 import { labelWallets } from "./social/labels";
@@ -308,6 +309,8 @@ async function main() {
       const line = await runXResearch(db);
       if (line) say("learn", line);
     }, false));
+    // X's own count of the posts read, next to the agent's (x/usage.ts): the dollar budget rests on the agent's count.
+    if (xConfigured()) every("5 3 * * *", () => void job("x usage", async () => void (await checkXUsage(db)), false));
     // The Brain (brain/): paper money only. Its paper accounts trade every streamed signal and pick up each model the Mac
     // pushes; nothing reaches the real engine, and the real pause doesn't stop them.
     if (config.brainMode !== "off") {
