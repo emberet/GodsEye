@@ -382,7 +382,8 @@ async function shutdown() {
   stopping = true;
   live?.stop();
   say("info", "Stopping: no new trades; waiting for the ones under way.");
-  const done = await engine.stop(60_000).catch(() => false);
+  // Under systemd's 30-second stop timeout (godseye-agent.service), so the database still closes cleanly.
+  const done = await engine.stop(25_000).catch(() => false);
   if (!done) say("warn", "Stopped with a trade still under way: it is settled from the chain at the next start.");
   say("info", "Stopped.");
   setMeta(db, "stream_status", "stopped");
