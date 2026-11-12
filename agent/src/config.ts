@@ -245,6 +245,18 @@ export const readConfig = () => ({
   riskMinEquitySol: envNum("RISK_MIN_EQUITY_SOL", 0.5),
   /** SOL leaving the wallet that no trade explains and the owner didn't announce: above this the agent pauses itself. */
   fundingOutflowPauseSol: envNum("FUNDING_OUTFLOW_PAUSE_SOL", 0.02),
+  // ---- Creator rewards (creator/rewards.ts): GodsEye's own pump.fun coin, launched from the agent's wallet ----
+  /** off (default) · dry = works out and simulates what it would do, signs nothing · on. */
+  creatorRewards: envOneOf("CREATOR_REWARDS", ["off", "dry", "on"], "off"),
+  /** The agent's share of the coin's creator rewards, to trade with (0.30 = 30%); the rest goes to the owner. */
+  creatorTradingShare: envNum("CREATOR_TRADING_SHARE", 0.3),
+  /** The owner's wallet for the other 70% (an address; empty = that share stays in the agent's wallet, set aside, never traded). */
+  creatorPayoutWallet: envStr("CREATOR_PAYOUT_WALLET"),
+  /** The coin's mint, once launched (`npm run creator -- split <mint>` remembers it too). */
+  creatorMint: envStr("CREATOR_MINT"),
+  /** Smallest payout worth a transaction. */
+  creatorMinClaimSol: envNum("CREATOR_MIN_CLAIM_SOL", 0.05),
+  creatorCron: envStr("CREATOR_CRON", "17,47 * * * *"),
   /** Which fixed limits are written in .env (under the governor only those are ceilings). */
   fixedInEnv: {
     maxTrade: envStr("COPY_MAX_TRADE_SOL") !== "",

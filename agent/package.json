@@ -22,6 +22,7 @@
     "pause": "tsx src/cli/pause.ts pause",
     "resume": "tsx src/cli/pause.ts resume",
     "funding": "tsx src/cli/funding.ts",
+    "creator": "tsx src/cli/creator.ts",
     "alert-test": "tsx src/cli/alerts.ts test",
     "alert-check": "tsx src/cli/alerts.ts check",
     "close-all": "tsx src/cli/close-all.ts",
@@ -38,6 +39,7 @@
   },
   "dependencies": {
     "@godseye/shared": "*",
+    "@pump-fun/pump-sdk": "4.3.1",
     "@solana/web3.js": "^1.98.0",
     "@triton-one/yellowstone-grpc": "8.0.0",
     "bs58": "^6.0.0",

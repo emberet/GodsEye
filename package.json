@@ -26,6 +26,7 @@
     "pause": "npm run pause -w agent",
     "resume": "npm run resume -w agent",
     "funding": "npm run funding -w agent --",
+    "creator": "npm run creator -w agent --",
     "alert-test": "npm run alert-test -w agent",
     "alert-check": "npm run alert-check -w agent",
     "close-all": "npm run close-all -w agent",

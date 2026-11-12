@@ -43,6 +43,9 @@ import { loadOrCreateWallet, walletBalanceAt, walletHoldings, walletTokenBalance
 import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } from "./copy/recovery";
 import { riskLook } from "./copy/risk";
 import { scanFlows, walletFlowSource } from "./funding/ledger";
+import { runRewards } from "./creator/rewards";
+import { copyConnection } from "./rpc";
+import { pumpClient, walletSender } from "./creator/pump";
 import { walletChain } from "./copy/settle-chain";
 import { publishSnapshot } from "./publish/snapshot";
 import { LiveStream, streamConfigured } from "./stream/stream";
@@ -186,6 +189,12 @@ const positions = () =>
     }
   }, true, TRADING);
 const poll = () => job("leader poll", () => watcher.poll(), false, TRADING);
+/** Creator rewards of the agent's own pump.fun coin (CREATOR_REWARDS, off by default): arms itself once there is one. */
+const creator = () =>
+  job("creator rewards", async () => {
+    const conn = copyConnection();
+    await runRewards(db, config, { wallet: keypair.publicKey, client: await pumpClient(conn), sender: walletSender(conn, keypair.publicKey, keypair) });
+  }, false, TRADING);
 /** Price, liquidity and a sell quote for the tokens the shadow log is following (shadow/sampler.ts). */
 const followShadow = () => job("shadow log", async () => void (await sampleDue(db)), false);
 
@@ -230,10 +239,11 @@ async function main() {
   if (!live) say("info", "TODO: set GRPC_URL + GRPC_TOKEN in .env (Shyft, Triton, Helius or QuickNode gRPC) to watch every DEX swap live. Sampling busy pools meanwhile.");
   if (snapshotStoreConfigured()) say("info", "Publishing dashboard data to Turso after every job (for the hosted website).");
 
-  for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron, PRUNE_CRON: config.pruneCron })) {
+  for (const [name, expr] of Object.entries({ DISCOVER_CRON: config.discoverCron, ANALYZE_CRON: config.analyzeCron, LEARN_CRON: config.learnCron, POSITION_CRON: config.positionCron, PRUNE_CRON: config.pruneCron, CREATOR_CRON: config.creatorCron })) {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
   every(config.positionCron, positions);
+  if (config.creatorRewards !== "off") every(config.creatorCron, creator);
   if (shadow) every("* * * * *", followShadow);
   every(config.analyzeCron, analyze);
   every(config.learnCron, learn);

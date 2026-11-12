@@ -59,6 +59,7 @@ test("the console report names every safety switch and limit by its .env name", 
     "HOLDER_CHECK_ENABLED", "BUNDLE_MAX_PCT", "CLUSTER_MAX_PCT", "TOP10_MAX_PCT", "INSIDER_MAX_PCT",
     "SHADOW_ENABLED", "QUANT_SIZING", "QUANT_SKILL_GATE", "SOCIAL_WARNING",
     "RISK_GOVERNOR", "RISK_START_TRADE_PCT", "RISK_MIN_TRADE_PCT", "RISK_MAX_TRADE_PCT", "RISK_DAILY_STOP_PCT", "RISK_DRAWDOWN_PAUSE_PCT", "RISK_MIN_TRADE_SOL", "RISK_MIN_EQUITY_SOL", "FUNDING_OUTFLOW_PAUSE_SOL",
+    "CREATOR_REWARDS", "CREATOR_TRADING_SHARE", "CREATOR_PAYOUT_WALLET", "CREATOR_MINT", "CREATOR_MIN_CLAIM_SOL",
   ];
   for (const name of names) assert.match(report, new RegExp(`(^|\\s)${name}=\\S`, "m"), name);
   assert.match(report, /COPY_MODE=paper/);

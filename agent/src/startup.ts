@@ -94,6 +94,8 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       TOP10_MAX_PCT: c.top10MaxPct,
       INSIDER_MAX_PCT: c.insiderMaxPct,
     }),
+    // The payout wallet: whether it is filled in, never what it holds.
+    row("creator", { CREATOR_REWARDS: c.creatorRewards, CREATOR_TRADING_SHARE: c.creatorTradingShare, CREATOR_PAYOUT_WALLET: c.creatorPayoutWallet ? "set" : "empty", CREATOR_MINT: c.creatorMint ? "set" : "empty", CREATOR_MIN_CLAIM_SOL: c.creatorMinClaimSol }),
     row("research", { SHADOW_ENABLED: c.shadowEnabled, QUANT_SIZING: c.quantSizing, QUANT_SKILL_GATE: c.quantSkillGate, SOCIAL_WARNING: c.socialWarning }),
     // Whether each is filled in, never what it holds.
     row("alerts", { TELEGRAM_BOT_TOKEN: c.telegramBotToken ? "set" : "empty", TELEGRAM_CHAT_ID: c.telegramChatId ? "set" : "empty" }),

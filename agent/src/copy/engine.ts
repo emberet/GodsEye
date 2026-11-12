@@ -36,6 +36,7 @@ import { copySize } from "../learning/weights";
 import { currentExits, type Exits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
 import { effectiveLimits, type Limits } from "./risk";
+import { ownCoin } from "../creator/rewards";
 import { rugLook, UNFINISHED_TEXT } from "../market/rugcheck";
 import { gate, gateReason } from "../brain/gates";
 import type { ShadowLogger } from "../shadow/log";
@@ -261,6 +262,11 @@ export class CopyEngine {
     const weight = skillGateBlocks(this.db, swap.wallet) ? 0 : (leader?.copy_weight ?? 0);
     if (weight <= 0 || swap.solAmount < config.minLeaderBuySol) return;
     this.audit?.begin(swap, seenAt, weight); // from here on this buy is a candidate and gets a row in copy_decisions
+    // Never its own coin: buying it would trade on what the agent itself makes happen.
+    if (swap.mint === ownCoin(this.db, config)) {
+      this.audit?.check(swap, "not_own_coin", "fail", "this is the agent's own coin");
+      return this.audit?.finish(swap, "ignored:own_coin");
+    }
     if (this.db.prepare("SELECT 1 FROM positions WHERE status='open' AND mint = ?").get(swap.mint)) {
       this.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
       return this.audit?.finish(swap, "ignored:holding");

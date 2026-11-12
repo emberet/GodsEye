@@ -6,6 +6,7 @@
  *   - one of the agent's own trades (its signature is on a copy_trades row): nothing to record, the trade has its row;
  *   - the agent's own housekeeping (closing empty token accounts for their rent): a trading cost, nothing to record;
  *   - a swap the agent didn't make: recorded as `swap`, without units (the wallet sweep adopts or settles the tokens);
+ *   - SOL in from pump.fun's programs: the agent's share of its own coin's creator rewards (`creator_claim`);
  *   - SOL in: a `deposit`; SOL out: a `withdrawal`. Changes under DUST_SOL (spam, a failed transaction's fee) are left out.
  * The risk look (copy/risk.ts) then gives each deposit and withdrawal its units.
  *
@@ -22,6 +23,7 @@ import { noteCopyRpc } from "../chain/rpc-budget";
 import { withTimeout } from "../jobs";
 import { say } from "../log";
 import { TOKEN_2022_PROGRAM, TOKEN_PROGRAM } from "../market/mint-profile";
+import { PUMP_PROGRAMS } from "../creator/rewards";
 import { copyConnection } from "../rpc";
 
 /** An amount of SOL, unsigned. */
@@ -42,7 +44,7 @@ const CURSOR_KEY = "funding_cursor";
 export const EXPECT_KEY = "funding_expect";
 const EXPECT_SLACK_SOL = 0.01;
 
-export type FlowKind = "deposit" | "withdrawal" | "swap";
+export type FlowKind = "deposit" | "withdrawal" | "swap" | "creator_claim";
 
 /** What a transaction did to the wallet's SOL, apart from its own trades; null = nothing to record. Pure. */
 export function classifyFlow(tx: TxLike, wallet: string): { kind: FlowKind; sol: number } | null {
@@ -57,6 +59,8 @@ export function classifyFlow(tx: TxLike, wallet: string): { kind: FlowKind; sol:
   // The wallet paid for it and it only touched token accounts: the agent closing empty ones for their rent.
   if (idx === 0 && programs.length > 0 && programs.every((p) => HOUSEKEEPING.has(p))) return null;
   if (!meta.err && parseSwaps(tx, wallet).length) return { kind: "swap", sol };
+  // SOL from pump.fun that no swap explains: the agent's share of its own coin's creator rewards (creator/rewards.ts).
+  if (sol > 0 && programs.some((p) => PUMP_PROGRAMS.has(p))) return { kind: "creator_claim", sol };
   return { kind: sol > 0 ? "deposit" : "withdrawal", sol };
 }
 
@@ -174,6 +178,7 @@ export async function scanFlows(db: DB, src: FlowSource, wallet: string, uptoSlo
 /** Tells about a new flow; an unexplained withdrawal above the line pauses new buys. */
 function noteFlow(db: DB, flow: { kind: FlowKind; sol: number }, expected: boolean, outflowPauseSol: number): void {
   if (flow.kind === "deposit") return say("info", `Deposit recorded: ${amount(flow.sol)} came into the agent's wallet (it buys units, so it isn't counted as profit).`);
+  if (flow.kind === "creator_claim") return say("info", `Creator rewards recorded: ${amount(flow.sol)} came into the agent's wallet from its coin (it buys units, so it isn't counted as profit).`);
   if (flow.kind === "swap") return say("warn", `A swap the agent didn't make moved ${amount(flow.sol)} in its wallet; the wallet sweep takes the tokens into account.`);
   if (expected) return say("info", `Withdrawal recorded: ${amount(-flow.sol)} left the agent's wallet, as announced.`);
   if (-flow.sol < outflowPauseSol) return say("info", `Withdrawal recorded: ${amount(-flow.sol)} left the agent's wallet.`);
