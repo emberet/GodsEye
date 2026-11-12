@@ -17,7 +17,7 @@
  */
 import { getHeapStatistics } from "node:v8";
 import Client, { CommitmentLevel, type SubscribeRequest, type SubscribeUpdate } from "@triton-one/yellowstone-grpc";
-import { type DB, nowIso, setMeta } from "@godseye/shared";
+import { type DB, getMeta, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say, short } from "../log";
 import { parseSwaps, type ParsedSwap } from "../chain/parse";
@@ -100,6 +100,8 @@ export function streamConfigured(): boolean {
 export class LiveStream {
   readonly book = new LiveBook({ maxWallets: config.streamMaxWallets, idleMs: config.streamIdleHours * 3_600_000, earlyBuySeconds: config.earlyBuySeconds });
   private tracked = new Set<string>();
+  /** The agent's own address. Its trades count as market prices and nothing more: it is never tracked, scored or listed. */
+  private own: string | null = null;
   private pendingSwaps: ParsedSwap[] = [];
   private stats = { txs: 0, swaps: 0, since: Date.now() };
   private retryMs = 1_000;
@@ -123,6 +125,9 @@ export class LiveStream {
 
   /** Re-read which wallets are in the database (call after discovery / promotion). */
   refreshTracked(): void {
+    this.own = getMeta(this.db, "wallet_pubkey");
+    // A row an older version wrote for its own wallet.
+    if (this.own) this.db.prepare("DELETE FROM wallet_activity WHERE address = ?").run(this.own);
     // Wallets already found to be bots aren't stored swap by swap (half of all stored swaps were theirs); copied ones always are.
     this.tracked = new Set((this.db.prepare(`SELECT address FROM wallets WHERE ${NOT_A_BOT}`).all() as { address: string }[]).map((r) => r.address));
   }
@@ -263,6 +268,10 @@ export class LiveStream {
   private onSignerSwaps(signer: string, swaps: ParsedSwap[], tx: TxLike, now: number): void {
     if (!swaps.length) return;
     this.stats.swaps += swaps.length;
+    if (signer === this.own) {
+      for (const swap of swaps) this.watcher.marketSwap(swap);
+      return;
+    }
     for (const swap of swaps) {
       this.book.record(swap, now);
       this.smart.onSwap(swap, now);

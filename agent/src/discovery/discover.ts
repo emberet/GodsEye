@@ -13,7 +13,7 @@
  * SOL to a wallet GodsEye has never seen, that wallet is added too
  * ("funded_by_tracked") — the classic move of a trader starting fresh.
  */
-import { type DB, isNonMemecoinSymbol, nowIso, setMeta } from "@godseye/shared";
+import { type DB, getMeta, isNonMemecoinSymbol, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say } from "../log";
 import { fetchPoolTrades, fetchTopPools, fetchTrendingPools, type PoolInfo } from "../market/geckoterminal";
@@ -29,7 +29,8 @@ export function memecoinPoolKind(p: Pick<PoolInfo, "symbol" | "quoteSymbol" | "q
 }
 
 export function addWallet(db: DB, address: string, via: string, detail: string): boolean {
-  if (config.ignoreWallets.includes(address)) return false;
+  // Never its own wallet: it would be scored, listed on the site and could end up copying itself.
+  if (config.ignoreWallets.includes(address) || address === getMeta(db, "wallet_pubkey")) return false;
   const info = db
     .prepare("INSERT OR IGNORE INTO wallets (address, first_seen_at, discovered_via, discovered_detail) VALUES (?, ?, ?, ?)")
     .run(address, nowIso(), via, detail);

@@ -150,9 +150,9 @@ test("COPY_MAX_POSITIONS=0: no count limit; the copy budget decides how many tra
 });
 
 test("rent reclaim: CloseAccount is instruction 9 with the account, the owner as rent receiver and the owner signing", async () => {
-  const { PublicKey } = await import("@solana/web3.js");
+  const { Keypair, PublicKey } = await import("@solana/web3.js");
   const { closeAccountIx } = await import("../src/copy/executor");
-  const [acct, owner, prog] = [new PublicKey("So11111111111111111111111111111111111111112"), new PublicKey("52Nhb9CQwDJetd18TmBbxMDtApfxp1j7sYjKokJnpzMQ"), new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")];
+  const [acct, owner, prog] = [Keypair.generate().publicKey, Keypair.generate().publicKey, new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")];
   const ix = closeAccountIx(acct, owner, prog);
   assert.deepEqual([...ix.data], [9]);
   assert.ok(ix.programId.equals(prog), "Token-2022 accounts close through Token-2022");

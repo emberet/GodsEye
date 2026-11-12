@@ -198,7 +198,8 @@ const BANNER = `
 async function main() {
   console.log(BANNER);
   heartbeat();
-  say("info", `Waking up. Agent wallet ${keypair.publicKey.toBase58()}${created ? " (just created — back up data/wallet/!)" : ""}.`);
+  // The address stays out of the log; `npm run wallet` shows it to the owner.
+  say("info", `Waking up.${created ? " A new wallet was just created — back up data/wallet/!" : ""}`);
   const mode = modeLine(config);
   say(mode.level, mode.message);
   // Console only (the owner's terminal, the server's journal), never the public feed: every limit and safety switch

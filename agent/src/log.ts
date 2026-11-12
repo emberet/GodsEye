@@ -1,8 +1,11 @@
 /**
  * GodsEye's voice. Everything it says goes to the terminal AND to the
- * database, so the dashboard can show a live "terminal feed".
+ * database, so the dashboard can show a live "terminal feed". The terminal
+ * gets the line as it is; the stored copy never names the agent's own wallet
+ * or a transaction (its own would lead to that wallet).
  */
-import { type DB, nowIso } from "@godseye/shared";
+import { type DB, getMeta, nowIso } from "@godseye/shared";
+import { hideOwnWallet, hideSignatures } from "@godseye/shared/public-view";
 
 type Level = "info" | "trade" | "win" | "loss" | "warn" | "error" | "learn" | "wallet";
 
@@ -18,8 +21,11 @@ const COLORS: Record<Level, string> = {
 };
 
 let db: DB | null = null;
+/** The agent's own address, looked up once it has a wallet. */
+let own: string | null = null;
 export function attachLogDb(d: DB): void {
   db = d;
+  own = null;
 }
 
 export function say(level: Level, message: string): void {
@@ -27,7 +33,8 @@ export function say(level: Level, message: string): void {
   console.log(`\x1b[90m${ts.slice(11, 19)}\x1b[0m ${COLORS[level]}[GodsEye]\x1b[0m ${message}`);
   if (!db) return;
   try {
-    db.prepare("INSERT INTO agent_log (ts, level, message) VALUES (?, ?, ?)").run(ts, level, message);
+    own ??= getMeta(db, "wallet_pubkey");
+    db.prepare("INSERT INTO agent_log (ts, level, message) VALUES (?, ?, ?)").run(ts, level, hideSignatures(hideOwnWallet(message, own)));
     // keep the log table from growing forever
     db.prepare("DELETE FROM agent_log WHERE id < (SELECT MAX(id) - 5000 FROM agent_log)").run();
   } catch {

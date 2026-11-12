@@ -210,7 +210,7 @@ export class CopyEngine {
     if (mode === "real" && this.wallet) {
       const balance = (await this.walletSol()) - flying.c;
       if (balance - config.walletReserveSol < size) {
-        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to ${short(this.wallet.toBase58())} to start copying`, true), null;
+        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to the agent's wallet to start copying`, true), null;
       }
     }
     return size;

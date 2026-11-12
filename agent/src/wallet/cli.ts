@@ -6,8 +6,9 @@ const db = openDb();
 // The owner asked for the wallet, so this command may make one in any mode (the agent itself never does in real mode).
 const { keypair, created } = loadOrCreateWallet(db, false);
 console.log(created ? "New GodsEye wallet created!" : "GodsEye wallet:");
-console.log(`   Address (public, safe to share): ${keypair.publicKey.toBase58()}`);
-console.log(`   Secret key file (NEVER share):   ${walletFile()}`);
+console.log(`   Address (send SOL here to fund it): ${keypair.publicKey.toBase58()}`);
+console.log("   Keep the address to yourself: anyone who knows it can watch its trades and trade against them.");
+console.log(`   Secret key file (NEVER share):      ${walletFile()}`);
 try {
   const bal = await walletBalanceSol(keypair.publicKey);
   setMeta(db, "wallet_balance_sol", bal);
