@@ -237,3 +237,18 @@ def test_rails_view_reads_each_scenarios_rails_figures():
     assert v["combined_worst"]["worst_day"] == -0.3 and v["worst_day_alt"] == {"skipped": "no signals"}
     names = {x["name"]: x["passed"] for x in gate.safety_checks(v)}
     assert names["combined_worst"] is True and gate.safety_checks(st)[0]["passed"] is False
+
+
+def test_plain_report_says_what_it_means_in_plain_words():
+    rep = {"version": "v1", "decision": {"exit": gate.REAL_TEST, "failed": ["combined_worst"]},
+           "selection": {"candidate": {"per_copy": 0.0141, "copies": 1864, "copies_per_day": 773, "account_net": 24.3, "max_drawdown": 0.13},
+                         "B4": {"per_copy": -0.0029}},
+           "stress": {"combined_worst": {"worst_day": -0.59, "rails": {"worst_day": -0.31}}},
+           "real_test": {"passed": True, "failed": []}}
+    text = gate.plain_report(rep)
+    assert "real-test" in text and "may follow it with real money" in text
+    assert "+0.0141 SOL" in text and "-0.0029 SOL" in text
+    assert "-0.59 SOL on the paper account's fixed sizes, -0.31 SOL on the real-money rails" in text
+    assert "Licensed for the Brain sleeve: **yes**" in text and "- combined_worst" in text
+    no = gate.plain_report({"decision": {"exit": gate.REJECT, "failed": ["bundle_files"]}, "real_test": {"passed": False, "failed": ["bundle_files"]}})
+    assert "rejected" in no and "**no**. Failed: bundle_files" in no

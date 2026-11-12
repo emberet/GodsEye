@@ -579,10 +579,60 @@ def social(bundle_dir: Path) -> tuple[int, dict]:
     return (PROMOTE if ok else REJECT), rep
 
 
+PLAIN_EXIT = {
+    PROMOTE: "promoted: it beat the hand rules with a clear margin and passed every safety check. The Brain account trades it on paper.",
+    REAL_TEST: "real-test: not proven better than the hand rules, but safe on the real-money rails. The Brain account trades it on "
+               "paper and the server's Brain sleeve may follow it with real money.",
+    EXPLORE_ONLY: "explore-only: safe, but not better than the hand rules. Only the Explore account uses it, to gather data.",
+    REJECT: "rejected: it failed a sanity or safety check. The server keeps its current model.",
+}
+
+
+def plain_report(rep: dict) -> str:
+    """One page in plain words for the owner: what was tested, what it means, and why (CONTRACT.md "Promotion")."""
+    from brain.data import splits
+    d = rep.get("decision", {})
+    code = d.get("exit", REJECT)
+    lines = [f"# Brain model {rep.get('version') or '?'}", "", f"**Result: {PLAIN_EXIT.get(code, PLAIN_EXIT[REJECT])}**", ""]
+    per = splits.describe()["periods"]
+    day = lambda x: (x or "")[:10]
+    lines += [f"Learned from {day(per['fit'][0])} to {day(per['fit'][1])}; tested on {day(per['selection'][0])} to "
+              f"{day(per['selection'][1])} (days it never saw). The newest days, from {day(per['test'][0])}, are kept back untouched.", ""]
+    sel = rep.get("selection") or {}
+    c, b = sel.get("candidate"), sel.get("B4")
+    if c and b:
+        lines += ["## On the test days", "",
+                  f"- Per copy: **{c['per_copy']:+.4f} SOL** with this model, {b['per_copy']:+.4f} SOL with the hand rules (B4).",
+                  f"- Copies: {c['copies']} ({c['copies_per_day']:.0f} a day). A 1 SOL paper account would end at {1 + c['account_net']:.2f} SOL; "
+                  f"its worst fall from a high was {c['max_drawdown']:.2f} SOL.", ""]
+    st = rep.get("stress") or {}
+    cw = st.get("combined_worst") or {}
+    if "worst_day" in cw:
+        r = cw.get("rails") or {}
+        lines += ["## In a bad market (the combined-worst stress test)", "",
+                  f"- Worst day: {cw['worst_day']:+.2f} SOL on the paper account's fixed sizes"
+                  + (f", {r['worst_day']:+.2f} SOL on the real-money rails (5% a trade, a 20% day's stop)." if "worst_day" in r else "."),
+                  "- The line it must not cross: -0.50 SOL in a day.", ""]
+    rt = rep.get("real_test") or {}
+    if rt:
+        lines += ["## Real money", "", "Licensed for the Brain sleeve: **yes**." if rt.get("passed") else
+                  f"Licensed for the Brain sleeve: **no**. Failed: {', '.join(rt.get('failed', [])) or '?'}.", ""]
+    failed = d.get("failed") or []
+    if failed:
+        lines += ["## Checks it failed", "", *[f"- {f}" for f in failed], ""]
+    lines += ["Simulated results, on paper. Real trading pays fees and slippage the simulator only estimates."]
+    return "\n".join(lines) + "\n"
+
+
 def write_report(bundle_dir: Path, rep: dict) -> Path:
     path = bundle_dir.parent / REPORT.format(version=rep.get("version") or bundle_dir.name)
     rep.setdefault("gate_sha256", code_hash())
     path.write_text(json.dumps(rep, indent=1, default=_json))
+    if rep.get("kind") != "social":
+        try:  # the plain one-page version next to it (<version>.report.md); never in the way of the gate's exit
+            (bundle_dir.parent / f"{rep.get('version') or bundle_dir.name}.report.md").write_text(plain_report(rep))
+        except Exception as e:  # noqa: BLE001
+            log(f"gate: plain report not written: {e}")
     return path
 
 
