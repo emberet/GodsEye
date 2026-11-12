@@ -21,7 +21,7 @@
  * read 7). Each swap's writes (and each slice's) go in one transaction: one commit, not one per row, on the stream's thread.
  * Paper and research only: nothing here touches copy_trades or positions.
  */
-import { type DB, isNonMemecoin } from "@godseye/shared";
+import { appendArchive, dataPath, type DB, isNonMemecoin } from "@godseye/shared";
 import { config } from "../config";
 import { ensureBrainTables } from "./schema";
 import { markOk, OK_TAIL, type StreamState, type StreamSwap, TrailingFilter, VALID_PRICE_SQL, WINDOW_7D_MS } from "./state";
@@ -96,6 +96,8 @@ export interface LedgerDeps {
    * undefined = not asked. Optional.
    */
   quoteSell?(mint: string, tokens: number): Promise<number | null | undefined>;
+  /** Where pruned rows are archived (default data/archive). */
+  archiveDir?: string;
 }
 
 /** A due ps or dd job: the window [from, to) of its coin's swaps it reads. */
@@ -496,12 +498,24 @@ export class MirrorLedger {
     }
   }
 
-  /** Rows older than 8 days go (every feature window is 7 days). */
+  /**
+   * Rows older than 8 days leave the tables (every feature window is 7 days), into the archive first
+   * (data/archive/<table>/<day>.ndjson.gz, written and synced before the delete): the Mac's labels then don't depend on
+   * it pulling at least every 8 days.
+   */
   prune(now = this.deps.now()): void {
     const cut = iso(now - LEDGER_KEEP_MS);
-    this.db.prepare("DELETE FROM mirror_ledger WHERE buy_ts < ?").run(cut);
-    this.db.prepare("DELETE FROM ps_ledger WHERE avail_at < ?").run(cut);
-    this.db.prepare("DELETE FROM dd_ledger WHERE avail_at < ?").run(cut);
+    const dir = this.deps.archiveDir ?? dataPath("archive");
+    for (const [table, col] of [["mirror_ledger", "buy_ts"], ["ps_ledger", "avail_at"], ["dd_ledger", "avail_at"]] as const) {
+      for (;;) {
+        const rows = this.db.prepare(`SELECT rowid AS _rowid, * FROM ${table} WHERE ${col} < ? ORDER BY ${col} LIMIT 20000`).all(cut) as Record<string, unknown>[];
+        if (!rows.length) break;
+        appendArchive(dir, table, rows.map(({ _rowid, ...r }) => r), (r) => String(r[col]));
+        const del = this.db.prepare(`DELETE FROM ${table} WHERE rowid = ?`);
+        this.db.transaction(() => rows.forEach((r) => del.run(r._rowid)))();
+        if (rows.length < 20000) break;
+      }
+    }
   }
 
   // ---------------------------------------------------------------- feature reads: rows known in [t − 7 d, t)

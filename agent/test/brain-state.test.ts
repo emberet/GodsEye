@@ -6,7 +6,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { openDb, type DB } from "@godseye/shared";
+import path from "node:path";
+import zlib from "node:zlib";
+import { dataPath, openDb, type DB } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 
 process.env.MIN_LEADER_BUY_SOL = "0.2";
@@ -359,10 +361,18 @@ test("ps and dd ledgers: delayed jobs read the stored swaps when due; rows older
   near(ledger.ddRate("L1", clock.t)!, 0.5);
   assert.equal(ledger.ddRate("L1", T0 + HOUR), null, "not available yet");
 
+  const count = () => (db.prepare("SELECT (SELECT COUNT(*) FROM mirror_ledger) + (SELECT COUNT(*) FROM ps_ledger) + (SELECT COUNT(*) FROM dd_ledger) n").get() as { n: number }).n;
+  const before = count();
   clock.t += 9 * 86_400_000;
   await ledger.tick();
-  const left = db.prepare("SELECT (SELECT COUNT(*) FROM mirror_ledger) + (SELECT COUNT(*) FROM ps_ledger) + (SELECT COUNT(*) FROM dd_ledger) n").get() as { n: number };
-  assert.equal(left.n, 0);
+  assert.equal(count(), 0);
+  // ... into the archive first: every pruned row is in data/archive/<table>/<day>.ndjson.gz (the test's own temp root).
+  const archived = ["mirror_ledger", "ps_ledger", "dd_ledger"].flatMap((t) => {
+    const d = dataPath("archive", t);
+    return fs.existsSync(d) ? fs.readdirSync(d).flatMap((f) => zlib.gunzipSync(fs.readFileSync(path.join(d, f))).toString().trim().split("\n")) : [];
+  });
+  assert.ok(before > 0 && archived.length >= before, `${archived.length} archived of ${before}`);
+  assert.ok(archived.every((l) => !("_rowid" in JSON.parse(l))));
   const plan = db.prepare("EXPLAIN QUERY PLAN SELECT COUNT(*) FROM mirror_ledger WHERE leader = ? AND resolved_at >= ? AND resolved_at < ?").all("L1", "a", "b") as { detail: string }[];
   assert.match(plan.map((p) => p.detail).join(" "), /idx_mirror_leader_resolved/);
 });

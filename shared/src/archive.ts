@@ -43,7 +43,30 @@ type Row = Record<string, unknown> & { id: number; ts: string };
 const PROTECTED = `wallet NOT IN (SELECT address FROM wallets WHERE copy_weight > 0)
   AND wallet NOT IN (SELECT leader FROM positions WHERE status = 'open' AND leader IS NOT NULL)`;
 
-export const archiveFile = (dir: string, day: string): string => path.join(dir, "wallet_swaps", `${day}.ndjson.gz`);
+export const archiveFile = (dir: string, day: string, table = "wallet_swaps"): string => path.join(dir, table, `${day}.ndjson.gz`);
+
+/**
+ * Appends `rows` to <dir>/<table>/<day>.ndjson.gz, grouped by the UTC day `dayOf` gives, and fsyncs each file: call it
+ * before deleting the rows, so a crash can leave a row in both places but never in neither.
+ */
+export function appendArchive(dir: string, table: string, rows: Record<string, unknown>[], dayOf: (r: Record<string, unknown>) => string): void {
+  if (!rows.length) return;
+  fs.mkdirSync(path.join(dir, table), { recursive: true });
+  const byDay = new Map<string, string[]>();
+  for (const r of rows) {
+    const day = dayOf(r).slice(0, 10);
+    (byDay.get(day) ?? byDay.set(day, []).get(day)!).push(JSON.stringify(r));
+  }
+  for (const [day, lines] of byDay) {
+    const fd = fs.openSync(archiveFile(dir, day, table), "a");
+    try {
+      fs.writeSync(fd, zlib.gzipSync(`${lines.join("\n")}\n`, { level: 6 }));
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+}
 
 /** Compress and append rows (grouped by UTC day), fsync, then delete them from wallet_swaps. */
 function moveOut(db: DB, dir: string, rows: Row[]): void {
