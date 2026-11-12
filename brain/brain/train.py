@@ -428,7 +428,12 @@ def transitions_rows(meta) -> tuple[pd.DataFrame, pd.DataFrame, list | None]:
     import duckdb
     con = duckdb.connect()
     rows = con.execute(f"SELECT * FROM read_parquet('{d}/[!.]*.parquet', union_by_name=true) WHERE account IN ('brain', 'explore')").df()
+    # Only transitions dated in fit: with rolling periods (splits.yaml) newer ones fall in embargo / selection / test,
+    # and learning from them would score selection in-sample. They join once the window has moved past them.
+    from brain.data import splits
     ts = pd.to_datetime(rows["ts"], utc=True)
+    keep = (ts < splits.period("fit").end).to_numpy()
+    rows, ts = rows[keep].reset_index(drop=True), ts[keep]
     span = [ts.min().isoformat(), ts.max().isoformat()] if len(rows) else None
     return from_brain_transitions(rows, meta["columns"]), rows[rows["kind"] == "exit"].reset_index(drop=True), span
 

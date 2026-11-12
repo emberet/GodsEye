@@ -4,7 +4,9 @@
 #   pull.sh -> brain.train --mode hourly (full at 03:xx) -> brain.gate --bundle <dir> --no-test -> brain.push <dir>
 #           -> brain.social.train -> brain.gate --bundle <dir> --no-test --social -> brain.push <dir> --social
 # The gate never scores the TEST window here (--no-test): TEST is looked at once, by hand, at the end (splits.yaml).
-# Gate exit 0 pushes the model; exit 3 (explore-only, CONTRACT.md "Promotion") pushes it with brain.push --explore-only,
+# In the nightly full cycle, scripts/rebuild.sh first rebuilds the data when it is older than REBUILD_HOURS.
+# Gate exit 0 pushes the model; exit 5 (real-test) pushes it with brain.push --real-test (not over a promoted model);
+# exit 3 (explore-only, CONTRACT.md "Promotion") pushes it with brain.push --explore-only,
 # which ships it with brain_enabled false (the Brain account skips every signal, Explore and Baseline still trade) and
 # skips (exit 4) while the server runs a promoted model. CYCLE_EXPLORE_ONLY=0 turns that off: exit 3 then keeps the
 # server's model like any other. Anything else keeps the server's model.
@@ -109,6 +111,18 @@ lane() {
   fi
   step "$label gate" python -m brain.gate --bundle "$bundle" --no-test $social
   rc=$?
+  if [ $rc -eq 5 ] && [ -z "$social" ]; then
+    # Real-test: not promoted, but safe on the real-money rails: the Brain account trades it on paper and the server's
+    # Brain sleeve may follow it with real money. It never replaces a promoted model.
+    log "$label: gate exit 5: real-test (brain_enabled and real_test true), pushed unless the server runs a promoted model"
+    step "$label push --real-test" python -m brain.push "$bundle" --real-test
+    rc=$?
+    if [ $rc -eq 4 ]; then
+      log "$label: the server runs a promoted model: it keeps it"
+      return 0
+    fi
+    return $rc
+  fi
   if [ $rc -eq 3 ] && [ -z "$social" ] && [ "$EXPLORE_ONLY" != 1 ]; then
     log "$label: gate exit 3: explore-only, not pushed (CYCLE_EXPLORE_ONLY=0): the server keeps its current model"
     return 0
@@ -141,7 +155,19 @@ if ! step pull "$BRAIN_ROOT/scripts/pull.sh"; then
   log "cycle end: pull failed"
   exit 1
 fi
-lane model brain.train "" --mode "$mode" || failed=1
+# Before the nightly full retrain, rebuild what it learns from when it is older than REBUILD_HOURS (scripts/rebuild.sh,
+# about 6 hours): without it every night retrains on the same days. A failed rebuild skips that night's retrain.
+REBUILD_HOURS="${REBUILD_HOURS:-20}"
+if [ "$mode" = full ] && [ "${CYCLE_REBUILD:-1}" = 1 ] && \
+   [ -z "$(find "$BRAIN_DATA_DIR/derived/_meta.json" -mmin "-$((REBUILD_HOURS * 60))" 2>/dev/null)" ]; then
+  if ! step rebuild "$BRAIN_ROOT/scripts/rebuild.sh"; then
+    log "rebuild failed: no full retrain tonight (the old data stays in use)"
+    mode=skip
+  fi
+fi
+if [ "$mode" != skip ]; then
+  lane model brain.train "" --mode "$mode" || failed=1
+fi
 # The social model's own tables (brain.social.pull): its ledger pull copies the server's whole mirror ledger each time,
 # so at most once a day (it must run at least every 8 days, or the ledger's coverage starts over).
 if have brain.social.pull && ! find "$BRAIN_DATA_DIR/export/mirror_ledger" -name 'part-*.parquet' -mmin -1200 2>/dev/null | grep -q .; then

@@ -57,7 +57,7 @@ MIN_PRICE_TOKENS = 1.0
 OUTLIER_X = 10.0  # a price more than 10x off the median of the mint's previous valid prices is a unit/parse error
 TRAIL_WINDOW = 10  # ... over this many previous valid prices (TRAILING: the server can run the same filter live)
 LEADER_EXIT_FRAC = 0.99  # the leader has "exited" once they sold 99% of the position held right after the buy
-TEST_START = splits.test_start().isoformat()  # ts >= this is held-out test (brain/spec/splits.yaml)
+TEST_START = splits.test_start().isoformat()  # the current build's test start (brain/spec/splits.yaml); a new build uses its own
 VALUATION_SEC = 86400  # crosses_outage: the episode's [ts, ts + 24 h] window touches a masked hour
 OUTAGE_SHARE = 0.25  # an hour is an ingest outage below this share of the trailing median for that hour of day ...
 OUTAGE_DAYS = 7  # ... over the previous 7 days (at least OUTAGE_MIN_DAYS of them in the data)
@@ -449,11 +449,19 @@ def build_leader_sells(con: duckdb.DuckDBPyConnection) -> None:
     """)
 
 
+def anchor_of(label_end_t: int) -> pd.Timestamp:
+    """The splits anchor of a build whose labels end at label_end_t (splits.yaml mode rolling)."""
+    return pd.Timestamp(label_end_t, unit="s", tz="UTC").floor("D")
+
+
 def episodes_sql(label_end_t: int) -> str:
     """
     The final episode rows from ep, ent, pstat, lsel and the `outage` hours. Horizon returns past label_end_t (the end
-    of the complete tape: label_end, i.e. the data end or the start of the export tail) are NULL (censored).
+    of the complete tape: label_end, i.e. the data end or the start of the export tail) are NULL (censored). The periods
+    are this build's (anchored at its label end), not the previous build's.
     """
+    a = anchor_of(label_end_t)
+    test_start = splits.test_start(anchor=a).isoformat()
     hret = []
     for h, s in HORIZONS.items():
         hret.append(f"CASE WHEN n.t0 + {s} <= {label_end_t} THEN p.ret_{h} END AS ret_{h}")
@@ -464,8 +472,8 @@ def episodes_sql(label_end_t: int) -> str:
     return f"""
         SELECT e.episode_id, e.leader, e.mint, e.ts, e.slot, e.signature,
                CAST(e.ts AS DATE) AS day,
-               CASE WHEN e.ts >= TIMESTAMPTZ '{TEST_START}' THEN 'test' ELSE 'train' END AS split,
-               {splits.period_sql('e.ts')} AS period,
+               CASE WHEN e.ts >= TIMESTAMPTZ '{test_start}' THEN 'test' ELSE 'train' END AS split,
+               {splits.period_sql('e.ts', anchor=a)} AS period,
                e.ins_ts, e.leader_first_seen_at, coalesce(e.ts >= e.leader_first_seen_at, false) AS known_at_t,
                EXISTS (SELECT 1 FROM outage o WHERE o.h >= e.t // 3600 * 3600 AND o.h <= e.t + {VALUATION_SEC}) AS crosses_outage,
                e.leader_sol, e.leader_price_sol, e.leader_price_ok, e.leader_usd, e.venue, e.token_age_sec, e.quote,
@@ -743,12 +751,14 @@ def build(root: Path | None = None, n_buckets: int = 32, only_buckets: list[int]
             "outlier_x": OUTLIER_X,
             "price_filter": f"trailing: median of the previous {TRAIL_WINDOW} valid prices of the mint, not backed by its own "
                             "wallet alone; labels also keep > 10x drops the price never climbs back from",
-            "trail_window": TRAIL_WINDOW, "leader_exit_frac": LEADER_EXIT_FRAC, "test_start": TEST_START,
+            "trail_window": TRAIL_WINDOW, "leader_exit_frac": LEADER_EXIT_FRAC,
+            "test_start": splits.test_start(anchor=anchor_of(label_end_t)).isoformat(),
             "base_mints_excluded": BASE_MINTS, "valuation_sec": VALUATION_SEC, "outage_share": OUTAGE_SHARE,
             "outage_days": OUTAGE_DAYS, "outage_min_days": OUTAGE_MIN_DAYS, "outage_min_cover_sec": OUTAGE_MIN_COVER_SEC,
             "outage_ext_back": OUTAGE_EXT_BACK, "outage_ext_fwd": OUTAGE_EXT_FWD, "complete_share": COMPLETE_SHARE,
             "lag_cap_sec": LAG_CAP_SEC, "lag_ref_sec": LAG_REF_SEC, "fwd_min_complete": FWD_MIN_COMPLETE,
             "splits": splits.load(),
+            "periods": splits.describe(anchor=anchor_of(label_end_t)),
         },
         "data_start_t": data_start_t,
         "outage_hours": [datetime.fromtimestamp(int(h), timezone.utc).isoformat() for h in hourly.loc[hourly["masked"], "h"]],

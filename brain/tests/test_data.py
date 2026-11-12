@@ -699,3 +699,36 @@ def test_build_with_a_lagged_export_tail(tmp_path):
     assert e.loc[e.censored_24h, "ret_24h"].isna().all() and e.loc[~e.censored_24h, "ret_24h"].notna().any()
     assert e.loc[e.t0 + 3600 > lab, "ret_1h"].isna().all()
     assert (e.crosses_outage == (e.t + 86400 >= lab)).all()
+
+
+def test_rolling_splits_move_with_the_build(monkeypatch):
+    """splits.yaml mode rolling: the 11-06 build (label end 11-04) gives exactly the fixed periods and folds; a later
+    build moves test to its last 2 days, selection to the 2 before, and trains on everything older."""
+    assert splits.load()["mode"] == "rolling"
+    fixed = [(p.name, p.start, p.end) for p in splits.periods(anchor=None)]  # no build in the tests: the fixed ones
+    assert [(p.name, p.start, p.end) for p in splits.periods(anchor="2026-11-04")] == fixed
+    assert [(f.train_to, f.valid_from, f.valid_to) for f in splits.folds(anchor="2026-11-04")] == \
+        [(f.train_to, f.valid_from, f.valid_to) for f in splits.folds()]
+    d = lambda s: pd.Timestamp(s, tz="UTC")
+    got = {p.name: (p.start, p.end) for p in splits.periods(anchor="2026-11-12T21:00:00Z")}  # a label end mid-day: its day
+    assert got == {"fit": (d("2026-10-16"), d("2026-11-07")), "embargo": (d("2026-11-07"), d("2026-11-08")),
+                   "selection": (d("2026-11-08"), d("2026-11-10")), "test": (d("2026-11-10"), None)}
+    fs = splits.folds(anchor="2026-11-12")
+    assert fs[-1].valid_from == d("2026-11-08") and fs[-1].train_to == d("2026-11-07")
+    for f in fs:
+        assert f.valid_from - f.train_to >= pd.Timedelta(hours=24) and f.valid_to <= d("2026-11-10")
+        assert not {d("2026-10-23"), d("2026-10-24")} & set(pd.date_range(f.valid_from, f.valid_to - pd.Timedelta(seconds=1)))
+    # pinned by the environment, and read by period_of / period_sql alike
+    monkeypatch.setenv("BRAIN_SPLITS_ANCHOR", "2026-11-12")
+    assert splits.period_of("2026-11-09T12:00:00Z") == "selection" and splits.period_of("2026-11-05") == "fit"
+    assert "2026-11-10" in splits.period_sql("x")
+    # too little data to roll (a test's synthetic swaps): the fixed periods
+    assert [(p.name, p.start, p.end) for p in splits.periods(anchor="2026-10-18")] == fixed
+
+
+def test_derive_labels_with_its_own_build_anchor():
+    """A new build writes the periods of its own label end, not the previous build's."""
+    t = int(pd.Timestamp("2026-11-12T21:00:00Z").timestamp())
+    sql = derive.episodes_sql(t)
+    assert "TIMESTAMPTZ '2026-11-10T00:00:00+00:00' THEN 'test'" in sql or "2026-11-10T00:00:00+00:00" in sql
+    assert derive.anchor_of(t) == pd.Timestamp("2026-11-12", tz="UTC")

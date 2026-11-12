@@ -18,10 +18,25 @@
 # crosses_outage drops every episode whose 24 h window reaches the tail, so a 24 h test covers 11-02 .. 11-03 until a
 # later export. Do not move the bounds to win test days back.
 
-version: 1
+version: 2
 timezone: UTC
 data_start: "2026-10-16T00:00:00Z"
 
+# Since 2026-11-13 the periods roll with the data (brain.data.splits): counted back from the anchor, the UTC day of the
+# data build's label end (derived/_meta.json label_end_ts). Test = the last test_days, selection = the selection_days
+# before it, then the 24 h embargo; fit is everything from data_start up to it. Each rebuild keeps a fresh test slice
+# nobody has scored, and trains on everything older. The 11-06 build (label end 11-04) gives exactly the fixed periods
+# below. With no build to anchor on (a fresh data dir, the tests) the fixed periods and folds apply.
+mode: rolling
+rolling:
+  test_days: 2
+  selection_days: 2
+  fold_days: 2
+  n_folds: 4
+  # never validate on these days: an ingest outage (derived/outage_hours.parquet)
+  avoid_valid_days: ["2026-10-23", "2026-10-24"]
+
+# The fixed periods (mode: fixed, or no build to anchor on). They are the 11-06 build's rolling ones.
 periods:
   - {name: fit, from: "2026-10-16T00:00:00Z", to: "2026-10-30T00:00:00Z"}
   - {name: embargo, from: "2026-10-30T00:00:00Z", to: "2026-10-31T00:00:00Z"}

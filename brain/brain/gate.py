@@ -2,8 +2,14 @@
 The promotion gate (CONTRACT.md "Promotion"): `python -m brain.gate --bundle <dir> [--social]`.
 
     exit 0  promote: the bundle passes the sanity checks, the stress suite and the bar
+    exit 5  real-test: not promoted, but the real-test check passes (brain.push --real-test): the Brain sleeve may trade it
     exit 3  explore-only: sanity and the stress suite's safety checks pass, the bar does not (brain.push --explore-only)
     exit 1  reject: keep the server's current model
+
+The real-test check (real_test(), the Brain sleeve's licence for real money, roadmap 2026-11-11): every sanity check;
+the stress suite's safety checks, unchanged, on the same copies run through the server's real-money rails
+(spec/rails.yaml: 5% of the account a trade, a 20% day's stop, a pause 50% below the high); zero gated copies; and every
+assure check but the planted-edge and stress-world learning ones. Only the proven-edge and stress bars are relaxed.
 
 The bundle is scored as the server would run it: its ONNX files through onnxruntime with the manifest's norms, margin_c
 and exit network (policy.bundle), on the rebuilt simulator (sim.yaml), the same population as the baselines (leader buy
@@ -64,12 +70,16 @@ from brain.policy.entry import Augment
 from brain.policy.exit import ExitFeaturizer
 from brain.policy.reference import b4, baselines
 from brain.policy.score import FILL_X, MIN_COPIES_PER_DAY, cleaned
-from brain.sim.account import account, cluster_ci, counted, metrics, one_per_coin, paired_diff
+from brain.sim.account import Rails, account, cluster_ci, counted, metrics, one_per_coin, paired_diff
 from brain.sim.evaluate import evaluate, load_window
 from brain.sim.params import SimParams
 from brain.sim.stress import scenarios
 
 PROMOTE, EXPLORE_ONLY, REJECT = 0, 3, 1
+REAL_TEST = 5  # not promoted, but passes the real-test check: brain.push --real-test (the Brain sleeve may trade it)
+# The assure checks the real-test check does not require: the planted-edge and stress-world learning checks, i.e. the
+# "proven edge" and stress bars. Every other assure check (the bundle, the real-data checks, null world, veto) stays.
+RELAXED_ASSURE = ("L3 ", "L9 ")
 EXPLORE_BUDGET = 1e-4      # SOL per decision combined_worst may lose (skip scores 0): about half B4's selection loss
 B1B2_MARGIN = 0.005        # stress.yaml base_selection
 STRESS_PER_DAY = 40_000    # signals per stress day (hash subsample; the big days hold 1.3-1.5 M)
@@ -216,9 +226,17 @@ def append_ledger(models: Path, entry: dict) -> None:
         f.write(json.dumps(entry, default=_json) + "\n")
 
 
+OLD_TEST_FROM = "2026-11-02T00:00:00+00:00"  # the fixed test start, for ledger rows written before the periods rolled
+
+
 def ledger_summary(models: Path, version: str | None) -> dict:
-    """How often TEST has been scored (this bundle, every bundle): numbers seen before are no longer a clean holdout."""
-    rows = read_ledger(models)
+    """
+    How often the current TEST window has been scored (this bundle, every bundle): numbers seen before are no longer a
+    clean holdout. The periods roll with the data (splits.yaml), so only scorings of this window's start count.
+    """
+    from brain.data import splits
+    now = splits.test_start().isoformat()
+    rows = [r for r in read_ledger(models) if r.get("test_from", OLD_TEST_FROM) == now]
     mine = [r for r in rows if r.get("version") == version]
     return {"views_all_bundles": len(rows), "bundles": sorted({r.get("version") for r in rows}), "views_this_bundle": mine,
             "label": (f"TEST has been scored {len(rows)} times across {len({r.get('version') for r in rows})} bundles "
@@ -235,6 +253,7 @@ def code_hash() -> str:
 class Scorer:
     def __init__(self, bundle: Bundle, p: SimParams, con, meta: dict, hourly):
         self.b, self.p, self.con, self.meta, self.hourly = bundle, p, con, meta, hourly
+        self.rails = Rails.load()
         self.aug = Augment.for_entry(meta)
 
     def candidate(self, w, ei, chaos=None, seed: int = 0, B: int = 500, rows=None, keep_book: bool = False):
@@ -300,11 +319,38 @@ def run_stress(sc: Scorer, per_day: int, seed: int = 0, names=None) -> dict:
         o["solo"] = one_per_coin(o)
         acc = account(o, o["t_dec"].to_numpy(), sc.p)
         m = metrics(o, acc, days, sc.p, B=300, seed=seed)
+        # The same copies through the server's real-money rails (spec/rails.yaml): what the real-test check reads.
+        m_r = metrics(o, account(o, o["t_dec"].to_numpy(), sc.p, rails=sc.rails), days, sc.p, B=300, seed=seed)
         res[s.name] = {"days": days, "per_day_sample": per_day, "gated_copies": gated, "fill_outliers_skipped": outliers, **brief(m),
+                       "rails": {**brief(m_r), "blocked": m_r["account"]["blocked"]},
                        "by_day": {d: v for d, v in m["by_day"].items()}}
         log(f"stress {s.name}: per decision {m['per_decision']['mean_sol']:+.6f} account {m['account']['net_sol']:+.3f} "
             f"min eq {m['account']['min_equity']:.3f} worst day {m['account']['worst_day_sol']:+.3f} ({time.time() - t:.0f} s)")
     return res
+
+
+def rails_view(st: dict) -> dict:
+    """The stress results as the real-money rails saw them (each scenario's `rails` figures over its own)."""
+    return {k: ({**v, **v["rails"]} if isinstance(v, dict) and "rails" in v else v) for k, v in st.items()}
+
+
+def real_test(sanity: list[dict], rails_safety: list[dict], bar: list[dict], assure: dict | None) -> dict:
+    """
+    The real-test check (the Brain sleeve's licence for real money): every sanity check; the stress suite's safety checks,
+    unchanged, scored on the real-money rails; zero copies of gated signals on selection; and every assure check but the
+    learning ones RELAXED_ASSURE names. Only the proven-edge bar and the stress bars are relaxed.
+    """
+    failed = [c["name"] for c in sanity + rails_safety if not c["passed"]]
+    if not rails_safety:
+        failed.append("rails_safety (the stress suite did not run)")
+    failed += [c["name"] for c in bar if c["name"] == "selection_gated_copies" and not c["passed"]]
+    if assure is None:
+        failed.append("assure (did not run)")
+    else:
+        failed += [n for n in assure.get("failed", []) if not n.startswith(RELAXED_ASSURE)]
+    return {"passed": not failed, "failed": failed, "relaxed": ["the bar: edge over B4/B1/B2, copies per day, drawdown vs B4, "
+            "live slice, robustness", *[f"assure {x.strip()}" for x in RELAXED_ASSURE]],
+            "rails": {k: v for k, v in Rails.load().__dict__.items()}}
 
 
 def safety_checks(st: dict) -> list[dict]:
@@ -428,8 +474,10 @@ def gate(bundle_dir: Path, a) -> tuple[int, dict]:
         st = run_stress(sc, a.stress_per_day, names=a.stress.split(",") if a.stress else None)
         rep["stress"] = st
         rep["checks"]["safety"] = safety_checks(st)
+        rep["checks"]["rails_safety"] = safety_checks(rails_view(st))
     else:
         rep["checks"]["safety"] = [check("stress_suite", False, None, "the stress suite ran (--no-stress)")]
+        rep["checks"]["rails_safety"] = []
     # ---- test: only with --final-test, once per bundle (the ledger), never used in the decision
     if getattr(a, "final_test", False) and trained["test_in_sample"]:
         rep["test_reported_never_used"] = {"skipped": "the bundle trained on test-period data (trained_out_of_sample): TEST is in-sample for it"}
@@ -455,7 +503,9 @@ def gate(bundle_dir: Path, a) -> tuple[int, dict]:
             "stress_yaml_held_out_test": {  # stress.yaml pass_criteria held_out_test: reported, never a check
                 "per_decision_ge_0": bool(ct["metrics"]["per_decision"]["mean_sol"] >= 0),
                 "account_ge_1_sol": bool(1.0 + ct["metrics"]["account"]["net_sol"] >= 1.0)}}
+        from brain.data import splits
         append_ledger(bundle_dir.parent, {"version": rep["version"], "at": pd.Timestamp.now(tz="UTC").isoformat(), "gate_sha256": rep["gate_sha256"],
+                                          "test_from": splits.test_start().isoformat(),
                                           "share": a.test_share, "rescore": bool(getattr(a, "rescore_test", False)),
                                           "per_copy": ct["metrics"]["per_copy"]["mean_sol"], "per_decision": ct["metrics"]["per_decision"]["mean_sol"]})
         log(f"test (reported only): candidate {brief(ct['metrics'])['per_copy']:+.5f}/copy, B4 {brief(bt['metrics'])['per_copy']:+.5f}/copy "
@@ -473,18 +523,27 @@ def gate(bundle_dir: Path, a) -> tuple[int, dict]:
         log(f"assure: passed {res['passed']} learning_verified {res['learning_verified']} ({time.time() - t:.0f} s)")
     else:
         bar.append(check("assure", False, None, "brain.assure check_bundle ran (--no-assure)"))
-    code = decide(sanity, rep["checks"]["safety"], bar)
-    rep["decision"] = {"exit": code, "promote": code == PROMOTE, "explore_only": code == EXPLORE_ONLY,
+    rep["real_test"] = real_test(sanity, rep["checks"]["rails_safety"], bar, rep.get("assure"))
+    code = decide(sanity, rep["checks"]["safety"], bar, rep["real_test"]["passed"])
+    rep["decision"] = {"exit": code, "promote": code == PROMOTE, "explore_only": code == EXPLORE_ONLY, "real_test": rep["real_test"]["passed"],
                        "failed": [c["name"] for c in sanity + rep["checks"]["safety"] + bar if not c["passed"]]}
     rep["runtime_s"] = round(time.time() - t0)
     return code, rep
 
 
-def decide(sanity: list[dict], safety: list[dict], bar: list[dict]) -> int:
-    """0 promote (everything passes), 3 explore-only (sanity and safety pass, the bar does not), 1 reject."""
-    if not all(c["passed"] for c in sanity) or not safety or not all(c["passed"] for c in safety):
+def decide(sanity: list[dict], safety: list[dict], bar: list[dict], real: bool = False) -> int:
+    """
+    0 promote (everything passes), 5 real-test (not promoted, but the real-test check passes), 3 explore-only (sanity and
+    safety pass, the bar does not), 1 reject.
+    """
+    if not all(c["passed"] for c in sanity):
         return REJECT
-    return PROMOTE if bar and all(c["passed"] for c in bar) else EXPLORE_ONLY
+    safe = bool(safety) and all(c["passed"] for c in safety)
+    if safe and bar and all(c["passed"] for c in bar):
+        return PROMOTE
+    if real:
+        return REAL_TEST
+    return EXPLORE_ONLY if safe else REJECT
 
 
 def _venue_group(v: str) -> str:
@@ -572,7 +631,7 @@ def main(argv=None) -> int:
             code = EXPLORE_ONLY
         rep["decision"]["exit"] = code
     path = write_report(d, rep)
-    log(f"gate: exit {code} ({'promote' if code == PROMOTE else 'explore-only' if code == EXPLORE_ONLY else 'reject'}); report {path}")
+    log(f"gate: exit {code} ({'promote' if code == PROMOTE else 'real-test' if code == REAL_TEST else 'explore-only' if code == EXPLORE_ONLY else 'reject'}); report {path}")
     print(json.dumps({"exit": code, "report": str(path), "failed": rep.get("decision", {}).get("failed")}))
     return code
 
