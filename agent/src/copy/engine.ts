@@ -94,6 +94,8 @@ export class CopyEngine {
   private openMints: { set: Set<string>; at: number } | null = null;
   /** Makes each own-exit sell's id unique (two tries of one exit can fall in the same millisecond). */
   private exitSeq = 0;
+  /** Set by `stop()`: no new trade starts, and the ones under way are waited for. */
+  private stopping = false;
   /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
   private quiet = new Map<string, { until: number; held: number }>();
   private balance: { sol: number; at: number } | null = null;
@@ -124,6 +126,22 @@ export class CopyEngine {
     const next = this.buyGate.then(fn, fn);
     this.buyGate = next.catch(() => undefined);
     return next;
+  }
+
+  /**
+   * Lets no new trade start and waits (at most `maxMs`) for every action under way to finish, so a shutdown doesn't cut a
+   * trade between its send and its record. False when some were still going at the deadline: their rows stay pending with
+   * the signature, and the settle step reads them from the chain at the next start.
+   */
+  async stop(maxMs = 60_000): Promise<boolean> {
+    this.stopping = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<boolean>((r) => (timer = setTimeout(() => r(false), maxMs)));
+    try {
+      return await Promise.race([Promise.allSettled([...this.locks.values(), this.buyGate]).then(() => true), late]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async onLeaderSwap(swap: ParsedSwap, seenAt = Date.now()): Promise<void> {
@@ -280,23 +298,33 @@ export class CopyEngine {
 
     // 5) Check the limits again and reserve the buy, under the buy gate.
     const reserved = await this.withBuyGate(async () => {
+      if (this.stopping) return "stopping" as const;
       const size = await this.roomFor(swap, weight, symbol);
       if (size === null) return null;
-      const row = this.db
-        .prepare(
-          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, created_at)
-           VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?)`,
-        )
-        .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, nowIso());
-      return row.changes === 0 ? null : { size, copyId: Number(row.lastInsertRowid) }; // 0 = already handled this leader trade
+      // The pending row, its proof entry and the link between them are written in one step: a crash never leaves one without the other.
+      return this.db.transaction(() => {
+        const row = this.db
+          .prepare(
+            `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, created_at)
+             VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?)`,
+          )
+          .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, nowIso());
+        if (row.changes === 0) return null; // already handled this leader trade
+        const copyId = Number(row.lastInsertRowid);
+        const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
+        this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
+        return { size, copyId };
+      })();
     });
+    if (reserved === "stopping") {
+      this.audit?.check(swap, "reserve", "fail", "the agent is stopping");
+      return this.audit?.finish(swap, "ignored:stopping");
+    }
     if (!reserved) {
       this.audit?.check(swap, "reserve", "fail", "this leader trade was already handled");
       return this.audit?.finish(swap, "ignored:duplicate");
     }
     const { size, copyId } = reserved;
-    const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
-    this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
     try {
       const fill = await this.executor.buy(swap.mint, size, this.onSigned(copyId));
       openPositionFromFill(this.db, { copyId, fill, latencyMs: Date.now() - Date.parse(swap.ts), mint: swap.mint, symbol, leader: swap.wallet, mode: this.executor.mode });
@@ -351,11 +379,20 @@ export class CopyEngine {
       this.holdOff(pos.id, UNSETTLED_WAIT_MS);
       return false;
     }
-    const row = record("pending", null);
-    if (row.changes === 0) return false; // already handled this leader trade
-    const copyId = Number(row.lastInsertRowid);
-    const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
-    this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
+    if (this.stopping) {
+      if (leaderSwap) record("failed", "not sent: the agent was stopping"); // a leader's sell comes once: keep it on record
+      return false;
+    }
+    // The pending row, its proof entry and the link between them, in one step.
+    const copyId = this.db.transaction(() => {
+      const row = record("pending", null);
+      if (row.changes === 0) return null; // already handled this leader trade
+      const id = Number(row.lastInsertRowid);
+      const proof = commitProof(this.db, "copy_sell", { position_id: pos.id, mint: pos.mint, symbol, tokens, all, reason, mode: this.executor.mode });
+      this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, id);
+      return id;
+    })();
+    if (copyId === null) return false;
     try {
       const slip = this.sellFailures.get(pos.id)?.slip ?? 0;
       const fill = await this.executor.sell(pos.mint, tokens, all, urgent ? exitSlippageBps(slip) : config.slippageBps, this.onSigned(copyId));

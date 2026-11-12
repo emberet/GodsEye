@@ -167,3 +167,49 @@ test("engine: a token whose name lookup hangs is still copied within a few secon
     fake.restore();
   }
 });
+
+test("engine: a buy's pending row and its proof entry are written together, or not at all", async () => {
+  const { db, ex, engine } = setup(0.5);
+  db.exec("DROP TABLE proof_ledger"); // the proof entry can't be written
+  await assert.rejects(engine.onLeaderSwap(leaderSwap({})));
+  assert.equal(ex.calls.length, 0, "nothing sent");
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM copy_trades WHERE side = 'buy'").get() as { n: number }).n, 0, "no pending row left holding the budget");
+});
+
+test("engine: stop() lets no new trade start and waits for the one under way", async () => {
+  const { db, ex, engine } = setup(0.5);
+  let release!: () => void;
+  const held = new Promise<void>((r) => (release = r));
+  const buy = ex.buy.bind(ex);
+  ex.buy = async (mint: string, sol: number) => {
+    await held;
+    return buy(mint, sol);
+  };
+  const first = engine.onLeaderSwap(leaderSwap({}));
+  while (!(db.prepare("SELECT 1 FROM copy_trades WHERE status = 'pending'").get())) await new Promise((r) => setTimeout(r, 5));
+  let stopped: boolean | null = null;
+  const stopping = engine.stop(5_000).then((v) => (stopped = v));
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(stopped, null, "still waiting for the buy");
+  release();
+  await first;
+  await stopping;
+  assert.equal(stopped, true);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM positions WHERE status = 'open'").get() as { n: number }).n, 1, "the buy under way finished and was recorded");
+
+  db.prepare("INSERT INTO token_info (mint, symbol, decimals, pool_created_at, checked_at) VALUES ('OTHER', 'OTH', 6, '2026-01-01T00:00:00Z', ?)").run(new Date().toISOString());
+  await engine.onLeaderSwap(leaderSwap({ mint: "OTHER" }));
+  await engine.onLeaderSwap(leaderSwap({ side: "sell", tokenAmount: 1000, tokenBalanceBefore: 1000 }));
+  assert.deepEqual(ex.calls, ["buy 0.1"], "no buy and no sell after stop()");
+  const sell = db.prepare("SELECT status, reason, error FROM copy_trades WHERE side = 'sell'").get() as { status: string; error: string };
+  assert.equal(sell.status, "failed");
+  assert.match(sell.error, /the agent was stopping/, "a leader's sell comes once: it stays on record");
+});
+
+test("engine: stop() gives up at its deadline and says so", async () => {
+  const { ex, engine } = setup(0.5);
+  ex.buy = () => new Promise<Fill>(() => undefined); // never lands
+  void engine.onLeaderSwap(leaderSwap({}));
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(await engine.stop(50), false);
+});

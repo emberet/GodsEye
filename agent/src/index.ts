@@ -375,15 +375,22 @@ async function main() {
   await learn();
 }
 
-function shutdown() {
-  say("info", "Stopped.");
+let stopping = false;
+async function shutdown() {
+  // A second Ctrl-C (or signal) stops at once: anything still sent but unrecorded is settled from the chain at the next start.
+  if (stopping) process.exit(1);
+  stopping = true;
   live?.stop();
+  say("info", "Stopping: no new trades; waiting for the ones under way.");
+  const done = await engine.stop(60_000).catch(() => false);
+  if (!done) say("warn", "Stopped with a trade still under way: it is settled from the chain at the next start.");
+  say("info", "Stopped.");
   setMeta(db, "stream_status", "stopped");
   heartbeat("stopped");
   db.close();
   process.exit(0);
 }
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());
 
 await main();
