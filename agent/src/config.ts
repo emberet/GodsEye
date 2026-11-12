@@ -1,8 +1,10 @@
 /**
  * All of GodsEye's settings, read from the .env file in the project root.
- * Every setting has a default, so the agent starts even with an empty .env.
+ * Every setting has a default, so the agent starts even with an empty .env (in paper mode: real money is never a
+ * default). A value that can't be read (a word that isn't one of a switch's words, a number that isn't a number)
+ * refuses to start and names the setting.
  */
-import { envBool, envNum, envStr, loadEnv, HARD_MAX_COPY_TRADE_SOL } from "@godseye/shared";
+import { envBool, envNum, envOneOf, envStr, loadEnv, HARD_MAX_COPY_TRADE_SOL } from "@godseye/shared";
 
 /** Stream promotion can be loosened in .env, but never below these. */
 export const STREAM_PROMOTE_PNL_FLOOR_USD = 25;
@@ -12,10 +14,12 @@ loadEnv();
 
 const list = (name: string) => envStr(name).split(",").map((s) => s.trim()).filter(Boolean);
 
-export const config = {
+/** Reads every setting from the environment. Runs once, at load; the tests call it again to see what a bad .env does. */
+export const readConfig = () => ({
   // ---- Mode ----
-  /** "real" (default) = copy trades spend real SOL from GodsEye's wallet. "paper" = simulate fills with Jupiter quotes. */
-  copyMode: (envStr("COPY_MODE", "real").toLowerCase() === "paper" ? "paper" : "real") as "real" | "paper",
+  /** "paper" (default) = simulate fills with Jupiter quotes. "real" = copy trades spend real SOL from GodsEye's wallet.
+   *  Only the word "real" turns real money on; a typo refuses to start. */
+  copyMode: envOneOf("COPY_MODE", ["paper", "real"], "paper"),
 
   // ---- API keys ----
   heliusApiKey: envStr("HELIUS_API_KEY"),
@@ -43,7 +47,7 @@ export const config = {
 
   // ---- Brain: the reinforcement-learning copy policy, paper money only (brain/, brain/spec/CONTRACT.md) ----
   /** off = no paper trading; paper = the Brain, Explore and Baseline paper accounts trade on the live stream. */
-  brainMode: envStr("BRAIN_MODE", "paper") as "off" | "paper",
+  brainMode: envOneOf("BRAIN_MODE", ["off", "paper"], "paper"),
   /** Where model bundles live (models/<version>, current -> symlink, staging/). Relative to the repo root. */
   brainDir: envStr("BRAIN_DIR", "data/brain"),
   /** Each paper account's starting bankroll; empty = today's real COPY_BUDGET_SOL. */
@@ -91,7 +95,7 @@ export const config = {
   streamPrograms: list("STREAM_PROGRAMS"),
   /** Who parses the live stream: "ts" (default, unchanged), "rust" (events from ge-ingest over GE_INGEST_SOCKET),
    *  or "compare" (TS results are used; the Rust results are only compared and the differences logged). */
-  streamParser: ((v) => (v === "rust" || v === "compare" ? v : "ts"))(envStr("STREAM_PARSER", "ts").toLowerCase()) as "ts" | "rust" | "compare",
+  streamParser: envOneOf("STREAM_PARSER", ["ts", "rust", "compare"], "ts"),
   geIngestSocket: envStr("GE_INGEST_SOCKET", "/tmp/godseye-ingest.sock"),
   /** Promote a live wallet to full analysis once it has realized this much profit (USD at settlement) on the stream… */
   streamPromotePnlUsd: Math.max(STREAM_PROMOTE_PNL_FLOOR_USD, envNum("STREAM_PROMOTE_PNL_USD", 50)),
@@ -214,7 +218,7 @@ export const config = {
   /** Our own copies of a leader must not lose more than this (SOL) over the last 14 days, or the leader is dropped. */
   copyLossDropSol: envNum("COPY_LOSS_DROP_SOL", 0.2),
 
-  // ---- Copy trading (real money by default) ----
+  // ---- Copy trading (real money only with COPY_MODE=real) ----
   /** Total SOL GodsEye may have in copy positions at once, shared out by weight. */
   copyBudgetSol: envNum("COPY_BUDGET_SOL", 1),
   copyMinTradeSol: envNum("COPY_MIN_TRADE_SOL", 0.01),
@@ -237,6 +241,13 @@ export const config = {
    * priced ≥ 1e-4 SOL a token, or an AMM coin first seen under 10 min ago, is skipped (copy_decisions, copy_trades). Owner-approved.
    */
   copyBrainGates: envBool("COPY_BRAIN_GATES", true),
+  /**
+   * Three switches the copy engine reads for itself at decision time, where an unknown word quietly means "off"
+   * (copy/quant.ts, social/labels.ts). They are read here as well, so a typo stops the start instead.
+   */
+  quantSizing: envOneOf("QUANT_SIZING", ["off", "shadow", "on"], "off"),
+  quantSkillGate: envOneOf("QUANT_SKILL_GATE", ["off", "on"], "off"),
+  socialWarning: envOneOf("SOCIAL_WARNING", ["off", "shadow"], "off"),
   slippageBps: envNum("COPY_SLIPPAGE_BPS", 300),
   /** Most slippage a stop-loss / trailing-stop sell may allow after slippage failures (it steps 3% → 10% → 25%). */
   exitMaxSlippageBps: envNum("COPY_EXIT_MAX_SLIPPAGE_BPS", 2500),
@@ -254,7 +265,7 @@ export const config = {
   /** Skip coins whose pool liquidity isn't at least this % locked or burned (liquidity-weighted across pools; 0 = off). */
   lpMinLockedPct: envNum("LP_MIN_LOCKED_PCT", 90),
   /** Concentrated-liquidity pools (Orca, Raydium CLMM, Meteora DLMM) hold positions, not LP tokens, so "% locked" does not describe them: "block" counts them like any pool (default), "warn" leaves them out of the figure. */
-  lpConcentratedPools: (envStr("LP_CONCENTRATED_POOLS", "block") === "warn" ? "warn" : "block") as "block" | "warn",
+  lpConcentratedPools: envOneOf("LP_CONCENTRATED_POOLS", ["block", "warn"], "block"),
   rugAllowlist: list("RUG_ALLOWLIST"),
   rugCheckCacheHours: envNum("RUG_CHECK_CACHE_HOURS", 6),
   /** Bundled / clustered supply check before buying (see src/market/holders.ts). */
@@ -279,7 +290,9 @@ export const config = {
   // ---- Misc ----
   /** Never track these wallets (exchanges, your own wallets…). */
   ignoreWallets: list("IGNORE_WALLETS"),
-};
+});
+
+export const config = readConfig();
 
 export type Config = typeof config;
 
