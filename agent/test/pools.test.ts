@@ -101,15 +101,19 @@ test("trade traits: a heavy fee blocks, a small one warns, and an authority that
 const clean: OnchainMint = { mintAuthority: null, freezeAuthority: null, extensions: [] };
 const rcOpts = { blockMintAuthority: true, maxRiskScore: 75, allowlist: [] as string[], minLockedPct: 90 };
 
-test("the rug screen blocks a heavy transfer fee and warns about a light one, and a trusted coin is exempt", () => {
+test("the rug screen blocks a transfer fee of 1% or more and warns about a lighter one, and a trusted coin is exempt", () => {
   const heavy: OnchainMint = { ...clean, tokenProgram: TOKEN_2022_PROGRAM, extensions: [feeExt(3000, 3000, 1066, null)] };
   const v = judgeRugRisk("COIN", heavy, null, rcOpts);
   assert.equal(v.verdict, "blocked");
   assert.match(v.blocks.join(), /30% transfer fee is taken on every buy and sell/);
-  const light: OnchainMint = { ...clean, extensions: [feeExt(100, 100, 1066, null)] };
+  const light: OnchainMint = { ...clean, extensions: [feeExt(50, 50, 1066, null)] };
   const w = judgeRugRisk("COIN", light, null, rcOpts);
   assert.equal(w.verdict, "pass");
-  assert.ok(w.warnings.some((x) => /1% transfer fee/.test(x)));
+  assert.ok(w.warnings.some((x) => /0\.50% transfer fee/.test(x)));
+  // A copy pays the fee twice, on the buy and on the sell: 1% is refused unless the setting says otherwise.
+  const onePct: OnchainMint = { ...clean, extensions: [feeExt(100, 100, 1066, null)] };
+  assert.equal(judgeRugRisk("COIN", onePct, null, rcOpts).verdict, "blocked");
+  assert.equal(judgeRugRisk("COIN", onePct, null, { ...rcOpts, maxTransferFeeBps: 101 }).verdict, "pass");
   assert.equal(judgeRugRisk("COIN", heavy, null, { ...rcOpts, allowlist: ["COIN"] }).verdict, "pass");
   assert.equal(judgeRugRisk("COIN", heavy, null, { ...rcOpts, maxTransferFeeBps: 5000 }).verdict, "pass", "the limit is a setting");
 });

@@ -258,8 +258,10 @@ export const readConfig = () => ({
   rugCheckEnabled: envBool("RUG_CHECK_ENABLED", true),
   rugBlockMintAuthority: envBool("RUG_BLOCK_MINT_AUTHORITY", true),
   rugMaxRiskScore: envNum("RUG_MAX_RISK_SCORE", 75),
-  /** Skip Token-2022 coins that take at least this many basis points on every transfer (a tax on each buy and sell; 1000 = 10%). */
-  rugMaxTransferFeeBps: envNum("RUG_MAX_TRANSFER_FEE_BPS", 1000),
+  /** A buy needs RugCheck's answer as well as Solana's. false = when RugCheck gives no answer, the on-chain checks alone decide. */
+  rugRequireRugcheck: envBool("RUG_REQUIRE_RUGCHECK", true),
+  /** Skip Token-2022 coins that take at least this many basis points on every transfer (a copy pays it on the buy and again on the sell; 100 = 1%). */
+  rugMaxTransferFeeBps: envNum("RUG_MAX_TRANSFER_FEE_BPS", 100),
   /** Skip coins whose pool liquidity isn't at least this % locked or burned (liquidity-weighted across pools; 0 = off). */
   lpMinLockedPct: envNum("LP_MIN_LOCKED_PCT", 90),
   /** Concentrated-liquidity pools (Orca, Raydium CLMM, Meteora DLMM) hold positions, not LP tokens, so "% locked" does not describe them: "block" counts them like any pool (default), "warn" leaves them out of the figure. */

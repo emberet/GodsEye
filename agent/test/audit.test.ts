@@ -8,7 +8,7 @@ import fc from "fast-check";
 import { openDb, type DB } from "@godseye/shared";
 import type { ParsedSwap } from "../src/chain/parse";
 import type { WeightInput } from "../src/learning/weights";
-import { passCopyGate } from "./helpers";
+import { passCopyGate, stubFetch } from "./helpers";
 
 // The Brain's hard gates (COPY_BRAIN_GATES) would skip these fresh pumpswap coins at 0.001 SOL a token: they are
 // tested in brain-gates.test.ts; here the rest of the copy screen is.
@@ -435,6 +435,34 @@ test("a blocked rug verdict is one failed check with the reasons, and the verdic
   const rugChecks = checksOf(d).filter((c) => c.check.startsWith("rug"));
   assert.deepEqual(rugChecks.map((c) => [c.check, c.result, c.detail]), [["rug_screen", "fail", "top 10 holders hold 70%"]]);
   assert.equal(JSON.parse(d.rug).verdict, "blocked");
+});
+
+test("a look the rug screen couldn't finish (RugCheck silent) is no buy, says what was missing, and keeps no verdict", async () => {
+  const { db, eng } = engine();
+  const s = swap();
+  token(db, s.mint);
+  const net = stubFetch((url) =>
+    url.startsWith("https://api.rugcheck.xyz/")
+      ? new Response("down", { status: 503 })
+      : { jsonrpc: "2.0", id: 1, result: { value: { owner: "TokenProgram", data: { parsed: { info: { mintAuthority: null, freezeAuthority: null, extensions: [] } } } } } },
+  );
+  const holders = config.holderCheckEnabled;
+  config.rugCheckEnabled = true;
+  config.holderCheckEnabled = false;
+  try {
+    await eng.onLeaderSwap(s, Date.now());
+  } finally {
+    config.rugCheckEnabled = false;
+    config.holderCheckEnabled = holders;
+    net.restore();
+  }
+  const [d] = decisions(db);
+  assert.equal(d.outcome, "skipped:unverified");
+  const rugChecks = checksOf(d).filter((c) => c.check.startsWith("rug"));
+  assert.deepEqual(rugChecks.map((c) => [c.check, c.result, c.detail]), [["rug_screen", "fail", "RugCheck gave no answer"]]);
+  assert.equal((db.prepare("SELECT COUNT(*) n FROM rug_checks").get() as { n: number }).n, 0);
+  const skip = db.prepare("SELECT status, reason FROM copy_trades WHERE mint = ?").get(s.mint) as { status: string; reason: string };
+  assert.deepEqual(skip, { status: "skipped", reason: "rug check not finished: RugCheck gave no answer" });
 });
 
 test("a second leader buying a token we hold is recorded, not silently dropped; non-memecoins and small buys are not candidates", async () => {

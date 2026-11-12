@@ -87,13 +87,13 @@ export class DecisionAudit {
       .then(() => this.attachGate(t));
   }
 
-  /** The rug screen's answer (null = it couldn't be read). */
-  rug(swap: ParsedSwap, v: { verdict: string; blocks: string[]; warnings: string[] } | null): void {
+  /** The rug screen's answer (null = the look couldn't be finished; `why` says what was missing). */
+  rug(swap: ParsedSwap, v: { verdict: string; blocks: string[]; warnings: string[] } | null, why?: string): void {
     const t = this.traces.get(key(swap));
     if (!t) return;
     t.rug = v;
     const result = !v ? "fail" : v.verdict === "blocked" ? "fail" : "pass";
-    t.checks.push({ check: "rug_screen", result, detail: !v ? "couldn't verify the token on Solana" : v.blocks.join("; ") || undefined });
+    t.checks.push({ check: "rug_screen", result, detail: !v ? (why ?? "couldn't verify the token on Solana") : v.blocks.join("; ") || undefined });
   }
 
   /** A check failed and the engine skipped the buy. */

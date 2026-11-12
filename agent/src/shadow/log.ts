@@ -15,11 +15,11 @@ import { type DB, nowIso } from "@godseye/shared";
 import { config } from "../config";
 import type { ParsedSwap } from "../chain/parse";
 import { copySize } from "../learning/weights";
-import { rugcheckFacts, saveVerdict, screenToken, type Screen } from "../market/rugcheck";
+import { rugcheckFacts, saveVerdict, screenToken, type Screen, type Unfinished, unfinished } from "../market/rugcheck";
 import { solUsdAt } from "../market/solprice";
 import { cachedTokenInfo } from "../market/tokens";
 
-export type ScreenStatus = "pending" | "done" | "chain_unreadable" | "holders_failed" | "holders_timeout" | "queue_full" | "error";
+export type ScreenStatus = "pending" | "done" | Unfinished | "queue_full" | "error";
 
 /** The cutoffs the screen is using right now (kept with each verdict, because they get re-tuned). */
 export function currentLimits(): Record<string, number | boolean> {
@@ -35,11 +35,9 @@ export function currentLimits(): Record<string, number | boolean> {
   };
 }
 
+/** "done" when the look can be acted on, as on the live path; else what was missing. */
 export function screenStatusOf(s: Screen): ScreenStatus {
-  if (!s.verdict) return "chain_unreadable";
-  if (s.holdersStatus === "failed") return "holders_failed";
-  if (s.holdersStatus === "timeout") return "holders_timeout";
-  return "done";
+  return unfinished(s) ?? "done";
 }
 
 export class ShadowLogger {

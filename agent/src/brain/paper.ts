@@ -53,7 +53,7 @@ import { copySize } from "../learning/weights";
 import { currentExits, ruleName, type Exits } from "../learning/exits";
 import { currentLeaders } from "../learning/loop";
 import { applyQuantSizing, skillGateBlocks } from "../copy/quant";
-import { type RugCheckRow, type RugVerdict, type Screen, saveVerdict, screenToken } from "../market/rugcheck";
+import { type RugCheckRow, type RugVerdict, type Screen, saveVerdict, screenToken, unfinished } from "../market/rugcheck";
 import { replayDelaySec } from "../smart/copy-check";
 import type { ParsedSwap } from "../chain/parse";
 import { darkMark, isRateLimit, jupiterBuyQuoteOnce, type JupiterBucket, jupiterBucket, type QuoteModel, QuoteBudget, quoteModel, sellQuoteClient, staleMark } from "./quotes";
@@ -295,8 +295,8 @@ export async function paperRugCheck(db: DB, mint: string, symbol: string, screen
     return { verdict: cached.verdict, blocks: JSON.parse(cached.blocks), warnings: JSON.parse(cached.warnings), rugcheckScore: cached.rugcheck_score };
   }
   const s = await screen(mint);
-  if (!s.verdict || s.holdersStatus === "failed" || s.holdersStatus === "timeout") return null;
-  saveVerdict(db, mint, symbol, s.verdict, false);
+  if (unfinished(s)) return null;
+  saveVerdict(db, mint, symbol, s.verdict!, false);
   return s.verdict;
 }
 

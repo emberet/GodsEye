@@ -446,7 +446,8 @@ CREATE TABLE IF NOT EXISTS shadow_candidates (
   venue TEXT,
   -- what the copy engine did with this buy: bought · late · balance · paused · rug · unverified … (null until it decided)
   copy_outcome TEXT,
-  -- the rug screen, run on arrival. pending · done · chain_unreadable · holders_failed · holders_timeout · queue_full · error
+  -- the rug screen, run on arrival. pending · done · chain_unreadable · holders_failed · holders_timeout · rugcheck_down · lock_unknown ·
+  -- queue_full · error
   screen_status TEXT NOT NULL DEFAULT 'pending',
   screened_at TEXT,
   screen_ms INTEGER,

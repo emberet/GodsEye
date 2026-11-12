@@ -34,7 +34,7 @@ import { insertSwaps } from "../analysis/analyze";
 import { copySize } from "../learning/weights";
 import { currentExits, type Exits } from "../learning/exits";
 import { applyQuantSizing, skillGateBlocks } from "./quant";
-import { rugCheck } from "../market/rugcheck";
+import { rugLook, UNFINISHED_TEXT } from "../market/rugcheck";
 import { gate, gateReason } from "../brain/gates";
 import type { ShadowLogger } from "../shadow/log";
 import { createDecisionAudit, type DecisionAudit } from "../audit/decisions";
@@ -271,10 +271,11 @@ export class CopyEngine {
     this.audit?.check(swap, "limits", "pass", "budget, positions, daily loss, balance and pause all allow it");
     // 4) The token itself (also blocks tokens that can still be minted — most bridged tokens)
     if (config.rugCheckEnabled) {
-      const v = await rugCheck(this.db, swap.mint, symbol);
-      this.audit?.rug(swap, v);
-      if (!v) return this.skip(swap, weight, symbol, "unverified", "couldn't verify the token on Solana");
-      if (v.verdict === "blocked") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${v.blocks.join("; ")}`);
+      const look = await rugLook(this.db, swap.mint, symbol);
+      this.audit?.rug(swap, look.verdict, look.why ? UNFINISHED_TEXT[look.why] : undefined);
+      // Fail closed: a look that couldn't be finished is no buy, whatever it had found so far.
+      if (!look.verdict) return this.skip(swap, weight, symbol, `unverified:${look.why}`, `rug check not finished: ${UNFINISHED_TEXT[look.why]}`);
+      if (look.verdict.verdict !== "pass") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${look.verdict.blocks.join("; ")}`);
     }
 
     // 5) Check the limits again and reserve the buy, under the buy gate.

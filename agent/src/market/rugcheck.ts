@@ -1,10 +1,9 @@
 /**
  * RUG CHECKS — run on every token before GodsEye copies a buy of it.
  *
- * Two sources:
- *  1. Solana itself (always): the token's own settings.
- *  2. RugCheck.xyz (free, no key): an overall risk score + extra signals.
- *     If RugCheck is unreachable, the on-chain checks still apply.
+ * Two sources, and a buy needs an answer from both:
+ *  1. Solana itself: the token's own settings.
+ *  2. RugCheck.xyz (free, no key): an overall risk score, the coin's pools and how much of their liquidity is locked.
  *
  * HARD BLOCKS (the creator could take or trap your tokens):
  *   • freeze authority enabled        — can freeze any wallet holding it
@@ -12,6 +11,8 @@
  *   • pausable transfers              — can stop all selling
  *   • new accounts start frozen       — you may be unable to sell
  *   • mint authority enabled          — can print more and dump (allowlist trusted bridged coins)
+ *   • transfer hook                   — a program of the creator's runs on every transfer and can refuse a sell;
+ *                                       also blocked while someone still holds the right to set one
  *   • transfer fee of RUG_MAX_TRANSFER_FEE_BPS or more (Token-2022: taken from every buy and sell)
  *   • RugCheck risk score ≥ RUG_MAX_RISK_SCORE, or flagged as rugged/honeypot
  *   • liquidity not locked: less than LP_MIN_LOCKED_PCT of the pools' liquidity (by USD) is locked or burned,
@@ -20,9 +21,15 @@
  *     funded by one wallet or by the creator, top-10 holders holding too much, or a RugCheck insider network
  * WARNINGS (logged + shown, not blocking — common on legit big tokens):
  *   • top holders own a lot (often exchanges / pools)
- *   • transfer hook · mutable metadata · any smaller transfer fee, or an authority that can still change it
- *   • liquidity lock unknown (RugCheck has no pool data yet)
- * If Solana can't be read, the token is skipped this cycle (fail closed).
+ *   • mutable metadata · any smaller transfer fee, or an authority that can still change it
+ *
+ * FAIL CLOSED. A buy needs a pass, and a pass counts only when everything it rests on was read:
+ *   • Solana can't be read, or the holders can't be measured in time   → no buy this time
+ *   • RugCheck gives no answer                                         → no buy this time
+ *     (RUG_REQUIRE_RUGCHECK=false trades on the on-chain checks alone)
+ *   • RugCheck has no pool data yet, so the liquidity lock is unknown  → no buy this time
+ * Such a look is not kept: the next buy of that coin looks again. With RugCheck silent, a block found on Solana's
+ * facts still stands and is kept.
  */
 import { type DB, nowIso, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
@@ -51,11 +58,16 @@ export interface RugCheckSummary {
   token?: { supply?: number; decimals?: number };
 }
 
+/** What a verdict could not check: RugCheck gave no answer, or it has no pool data yet to tell whether the liquidity is locked. */
+export type Unchecked = "rugcheck_down" | "lock_unknown";
+
 export interface RugVerdict {
   verdict: "pass" | "blocked";
   blocks: string[];
   warnings: string[];
   rugcheckScore: number | null;
+  /** Set when part of the check could not be made. A block stands without it; a pass with this set is not acted on and not kept (see `unfinished`). */
+  unchecked?: Unchecked;
 }
 
 /**
@@ -82,7 +94,11 @@ export function judgeRugRisk(
   mint: string,
   onchain: OnchainMint,
   rc: RugCheckSummary | null,
-  opts: { blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[]; minLockedPct?: number; maxTransferFeeBps?: number; concentratedPools?: "block" | "warn" },
+  opts: {
+    blockMintAuthority: boolean; maxRiskScore: number; allowlist: string[]; minLockedPct?: number; maxTransferFeeBps?: number; concentratedPools?: "block" | "warn";
+    /** A pass needs RugCheck's answer (the default). false = with no answer, the on-chain checks alone decide. */
+    requireRugcheck?: boolean;
+  },
 ): RugVerdict {
   const blocks: string[] = [];
   const warnings: string[] = [];
@@ -95,13 +111,15 @@ export function judgeRugRisk(
     if (ext.extension === "permanentDelegate" && st.delegate) blocks.push("creator can take tokens from wallets (permanent delegate)");
     if (ext.extension === "pausableConfig" && st.authority) blocks.push("transfers can be paused");
     if (ext.extension === "defaultAccountState" && st.accountState === "frozen") blocks.push("new holders start frozen");
-    if (ext.extension === "transferHook" && st.programId) warnings.push("has a transfer hook (custom code runs on every transfer)");
+    // A hook program runs on every transfer and can refuse a sell. An authority with no program yet can still set one.
+    if (ext.extension === "transferHook" && (st.programId || st.authority)) blocks.push(st.programId ? "a transfer hook runs custom code on every transfer (it can refuse a sell)" : "a transfer hook can still be added (hook authority)");
   }
   // What the contract does to a trade beyond the authorities above: a transfer fee (taken from every buy and sell) and the like.
-  for (const t of tradeTraits(profileMint(onchain), { maxFeeBps: opts.maxTransferFeeBps ?? 1000 })) (t.severity === "block" ? blocks : warnings).push(t.text);
+  for (const t of tradeTraits(profileMint(onchain), { maxFeeBps: opts.maxTransferFeeBps ?? 100 })) (t.severity === "block" ? blocks : warnings).push(t.text);
   if (trusted && blocks.length) blocks.length = 0;
 
   const score = typeof rc?.score_normalised === "number" ? rc.score_normalised : null;
+  let unchecked: Unchecked | undefined;
   if (rc) {
     if (score !== null && score >= opts.maxRiskScore && !trusted) blocks.push(`RugCheck risk score ${score}/100`);
     const minLocked = opts.minLockedPct ?? 0;
@@ -111,8 +129,12 @@ export function judgeRugRisk(
     const locked = lockedLiquidityPct(rc, { skipConcentrated: skip });
     const concentrated = (rc?.markets ?? []).filter((m) => m.lp && isConcentratedMarket(m.marketType));
     if (minLocked > 0 && !trusted) {
-      if (locked === null) warnings.push(skip && concentrated.length ? "liquidity is in concentrated-liquidity positions, so no lock figure applies (who owns the positions isn't checked)" : "liquidity lock unknown (RugCheck has no pool data yet)");
-      else if (locked < minLocked) {
+      if (locked === null && skip && concentrated.length) warnings.push("liquidity is in concentrated-liquidity positions, so no lock figure applies (who owns the positions isn't checked)");
+      else if (locked === null) {
+        // No pool to read a lock from: the rule can neither pass nor fail, so the look is not finished.
+        warnings.push("liquidity lock unknown (RugCheck has no pool data yet)");
+        unchecked = "lock_unknown";
+      } else if (locked < minLocked) {
         const hint = concentrated.length && !skip ? "; part of it sits in concentrated-liquidity positions, where this figure doesn't describe ownership (LP_CONCENTRATED_POOLS=warn to leave those out)" : "";
         blocks.push(`liquidity not locked: only ${Math.round(locked)}% of the pool liquidity is locked or burned (needs ${minLocked}%)${hint}`);
       } else if (skip && concentrated.length) warnings.push("part of the liquidity is in concentrated-liquidity positions, not counted in the lock figure");
@@ -124,8 +146,10 @@ export function judgeRugRisk(
     }
   } else {
     warnings.push("RugCheck unavailable — on-chain checks only");
+    // Its score, its flags and the liquidity lock are all missing.
+    if (!trusted && (opts.requireRugcheck ?? true)) unchecked = "rugcheck_down";
   }
-  return { verdict: blocks.length ? "blocked" : "pass", blocks: [...new Set(blocks)], warnings: [...new Set(warnings)], rugcheckScore: score };
+  return { verdict: blocks.length ? "blocked" : "pass", blocks: [...new Set(blocks)], warnings: [...new Set(warnings)], rugcheckScore: score, ...(unchecked ? { unchecked } : {}) };
 }
 
 export async function readMint(mint: string): Promise<OnchainMint> {
@@ -145,9 +169,11 @@ export async function readMint(mint: string): Promise<OnchainMint> {
   };
 }
 
+/** RugCheck's report, or null when it gave none. A report without its score counts as none: the score rule can't be applied to it. */
 export async function readRugCheck(mint: string): Promise<RugCheckSummary | null> {
   try {
-    return await fetchJson<RugCheckSummary>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 10_000 });
+    const report = await fetchJson<RugCheckSummary | null>(`https://api.rugcheck.xyz/v1/tokens/${mint}/report`, { retries: 0, timeoutMs: 10_000 });
+    return typeof report?.score_normalised === "number" ? report : null;
   } catch {
     return null;
   }
@@ -167,7 +193,7 @@ export interface RugCheckRow {
 export interface Screen {
   /** null = Solana couldn't be read. */
   onchain: OnchainMint | null;
-  /** null = RugCheck unreachable (or not asked, because Solana couldn't be read). */
+  /** null = RugCheck gave no usable answer (or wasn't asked, because Solana couldn't be read). */
   rc: RugCheckSummary | null;
   holders: HolderMetrics | null;
   /** off = holder check disabled or the coin is trusted · failed / timeout = couldn't be measured (the live path then skips the buy). */
@@ -193,7 +219,7 @@ async function runScreen(mint: string): Promise<Screen> {
   const rugcheckMs = Date.now() - t1;
   const verdict = judgeRugRisk(mint, onchain, rc, {
     blockMintAuthority: config.rugBlockMintAuthority, maxRiskScore: config.rugMaxRiskScore, allowlist: config.rugAllowlist, minLockedPct: config.lpMinLockedPct,
-    maxTransferFeeBps: config.rugMaxTransferFeeBps, concentratedPools: config.lpConcentratedPools,
+    maxTransferFeeBps: config.rugMaxTransferFeeBps, concentratedPools: config.lpConcentratedPools, requireRugcheck: config.rugRequireRugcheck,
   });
   // Bundled or clustered supply. If the holders can't be read in time, the live path doesn't trade it this cycle (fail closed).
   let holders: HolderMetrics | null = null;
@@ -259,17 +285,46 @@ export function saveVerdict(db: DB, mint: string, symbol: string, v: RugVerdict,
   if (announce && v.verdict === "blocked" && before?.verdict !== "blocked") say("warn", `Rug check: won't trade ${symbol} — ${v.blocks.join("; ")}.`);
 }
 
-/** Checks a token (cached for RUG_CHECK_CACHE_HOURS). Returns null if Solana couldn't be read. */
-export async function rugCheck(db: DB, mint: string, symbol: string): Promise<RugVerdict | null> {
+/** Why a look can't be acted on. */
+export type Unfinished = "chain_unreadable" | "holders_failed" | "holders_timeout" | Unchecked;
+
+/** Why this look can't be acted on, or null when it can (fail closed: an unfinished look is no buy, and it is not kept). */
+export function unfinished(s: Screen): Unfinished | null {
+  if (!s.verdict) return "chain_unreadable";
+  if (s.holdersStatus === "failed") return "holders_failed";
+  if (s.holdersStatus === "timeout") return "holders_timeout";
+  // A block stands by itself; a pass needs everything it rests on.
+  return s.verdict.verdict === "pass" ? (s.verdict.unchecked ?? null) : null;
+}
+
+/** The same, in plain words (no address). */
+export const UNFINISHED_TEXT: Record<Unfinished, string> = {
+  chain_unreadable: "couldn't read the token on Solana",
+  holders_failed: "couldn't read the token's holders",
+  holders_timeout: "reading the token's holders took too long",
+  rugcheck_down: "RugCheck gave no answer",
+  lock_unknown: "RugCheck has no pool data yet, so the liquidity lock is unknown",
+};
+
+/** One look's answer: a verdict to act on, or why there is none. */
+export type RugLook = { verdict: RugVerdict; why: null } | { verdict: null; why: Unfinished };
+
+/** Checks a token (cached for RUG_CHECK_CACHE_HOURS). A look that couldn't be finished gives no verdict and says why. */
+export async function rugLook(db: DB, mint: string, symbol: string): Promise<RugLook> {
   const cached = db.prepare("SELECT * FROM rug_checks WHERE mint = ?").get(mint) as RugCheckRow | undefined;
   if (cached && Date.now() - new Date(cached.checked_at).getTime() < config.rugCheckCacheHours * 3_600_000) {
-    return { verdict: cached.verdict, blocks: JSON.parse(cached.blocks), warnings: JSON.parse(cached.warnings), rugcheckScore: cached.rugcheck_score };
+    return { verdict: { verdict: cached.verdict, blocks: JSON.parse(cached.blocks), warnings: JSON.parse(cached.warnings), rugcheckScore: cached.rugcheck_score }, why: null };
   }
   const s = await screenToken(mint);
-  if (!s.verdict) return null; // fail closed: can't verify → don't trade it this cycle
-  if (s.holdersStatus === "failed" || s.holdersStatus === "timeout") return null;
-  saveVerdict(db, mint, symbol, s.verdict);
-  return s.verdict;
+  const why = unfinished(s);
+  if (why) return { verdict: null, why };
+  saveVerdict(db, mint, symbol, s.verdict!);
+  return { verdict: s.verdict!, why: null };
+}
+
+/** The verdict alone: null when the look couldn't be finished. */
+export async function rugCheck(db: DB, mint: string, symbol: string): Promise<RugVerdict | null> {
+  return (await rugLook(db, mint, symbol)).verdict;
 }
 
 /** Keeps only tokens that pass the rug check. */

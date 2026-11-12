@@ -58,6 +58,7 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       RUG_CHECK_ENABLED: c.rugCheckEnabled,
       RUG_BLOCK_MINT_AUTHORITY: c.rugBlockMintAuthority,
       RUG_MAX_RISK_SCORE: c.rugMaxRiskScore,
+      RUG_REQUIRE_RUGCHECK: c.rugRequireRugcheck,
       RUG_MAX_TRANSFER_FEE_BPS: c.rugMaxTransferFeeBps,
       LP_MIN_LOCKED_PCT: c.lpMinLockedPct,
       LP_CONCENTRATED_POOLS: c.lpConcentratedPools,

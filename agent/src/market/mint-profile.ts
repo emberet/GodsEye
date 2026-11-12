@@ -128,9 +128,9 @@ export interface TraitFinding {
 
 /**
  * What in the mint can hurt someone who buys it, beyond the authorities rugcheck.ts already judges. `maxFeeBps` is the
- * transfer fee at or above which buying is refused (a fee that large is a tax on every exit).
+ * transfer fee at or above which buying is refused: a copy pays it twice, once in and once out.
  */
-export function tradeTraits(p: MintProfile, opts: { maxFeeBps: number; currentEpoch?: number } = { maxFeeBps: 1000 }): TraitFinding[] {
+export function tradeTraits(p: MintProfile, opts: { maxFeeBps: number; currentEpoch?: number } = { maxFeeBps: 100 }): TraitFinding[] {
   const out: TraitFinding[] = [];
   if (p.transferFee) {
     const f = feeInForce(p.transferFee, opts.currentEpoch);

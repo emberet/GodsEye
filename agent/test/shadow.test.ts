@@ -121,6 +121,10 @@ test("an incomplete screen keeps what it read but gives no verdict, as the live 
 
   assert.equal(screenStatusOf(cleanScreen({ holdersStatus: "failed" })), "holders_failed");
   assert.equal(screenStatusOf(cleanScreen({ holdersStatus: "off" })), "done");
+  // A pass that rests on something missing is no verdict, as on the live path.
+  const pass = cleanScreen().verdict!;
+  assert.equal(screenStatusOf(cleanScreen({ rc: null, verdict: { ...pass, unchecked: "rugcheck_down" } })), "rugcheck_down");
+  assert.equal(screenStatusOf(cleanScreen({ verdict: { ...pass, unchecked: "lock_unknown" } })), "lock_unknown");
 });
 
 test("a screen that throws is recorded as an error, and never reaches the caller", async () => {
