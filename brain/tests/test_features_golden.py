@@ -25,9 +25,22 @@ def close(a, b, tol=1e-6) -> bool:
     return abs(a - b) <= tol * max(1.0, abs(a))
 
 
+def same(a, b, tol=1e-9) -> bool:
+    """JSON trees equal, numbers to `tol` (relative): libm differs in the last digits between macOS and Linux (CI)."""
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k], tol) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(same(x, y, tol) for x, y in zip(a, b))
+    if isinstance(a, float) or isinstance(b, float):
+        if not (isinstance(a, (int, float)) and isinstance(b, (int, float))):
+            return False
+        return (math.isnan(a) and math.isnan(b)) or abs(a - b) <= tol * max(1.0, abs(a), abs(b))
+    return a == b
+
+
 def test_golden_files_are_up_to_date():
-    assert ENTRY.read_text() == golden.render(golden.build_entry()), "run python -m brain.features.golden"
-    assert EXIT.read_text() == golden.render(golden.build_exit()), "run python -m brain.features.golden"
+    for path, built in ((ENTRY, golden.build_entry()), (EXIT, golden.build_exit())):
+        assert same(json.loads(path.read_text()), json.loads(golden.render(built))), "run python -m brain.features.golden"
 
 
 def test_entry_cases_reproduce_from_the_json_alone():
@@ -134,7 +147,7 @@ def sql_ok(rows: list[dict]) -> list[bool]:
 def test_filter_file_is_up_to_date_and_matches_the_sql():
     from brain.features import prices
 
-    assert FILTER.read_text() == golden.render(golden.build_filter()), "run python -m brain.features.golden"
+    assert same(json.loads(FILTER.read_text()), json.loads(golden.render(golden.build_filter()))), "run python -m brain.features.golden"
     doc = json.loads(FILTER.read_text())
     assert len(doc["cases"]) >= 10
     for c in doc["cases"]:
