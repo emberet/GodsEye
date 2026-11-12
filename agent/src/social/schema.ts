@@ -1,7 +1,8 @@
 /**
  * Tables of the PRIVATE social layer (social/): X accounts tied to wallets, their posts, and the social score the brain
  * reads. Created here, not in the shared schema, and never read by anything that publishes (dashboard data, the
- * snapshot, the public API, the agent_log feed). Only the owner's `npm run social` and the brain read them.
+ * snapshot, the public API, the agent_log feed). Only the owner's `npm run social` and the brain read them; the copy
+ * engine reads the labels for one thing, to write down a "would have skipped" row (social/labels.ts), never to change a trade.
  *
  * POINT IN TIME: the social model learns from past copy decisions, so a feature may only use what was known then.
  *   - social_accounts holds only the latest profile; social_account_snapshots keeps every profile read (filter on fetched_at);
@@ -83,6 +84,37 @@ CREATE TABLE IF NOT EXISTS social_visits (
   visited_at TEXT NOT NULL,
   mentions INTEGER NOT NULL DEFAULT 0
 );
+
+-- A LABEL, NOT PROOF (social/labels.ts). What X says about a wallet, boiled down to one word:
+--   claimed = an account's own bio carries the address (that account's word; nobody has checked it);
+--   named   = an account posted the address (named BY that account, never owned by it).
+-- A label is a hint. It proves neither who owns the wallet nor that the wallet is any good, and it is never used as
+-- evidence FOR a wallet: it raises no copy weight, passes no gate, and enters neither wallet_evidence nor the proof ledger.
+-- accounts = how many accounts are behind it now; since = when the first of them became known (never moved later).
+CREATE TABLE IF NOT EXISTS social_wallet_labels (
+  wallet TEXT PRIMARY KEY,
+  label TEXT NOT NULL CHECK (label IN ('claimed','named')),
+  accounts INTEGER NOT NULL,
+  since TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+-- SOCIAL_WARNING=shadow: every copyable leader buy by a labelled wallet, written down as "the warning would have skipped
+-- this". Observation only: no row here changes a trade. The outcome is in copy_decisions (same leader_signature and mint).
+CREATE TABLE IF NOT EXISTS social_warnings (
+  leader_signature TEXT NOT NULL,
+  mint TEXT NOT NULL,
+  wallet TEXT NOT NULL,
+  -- when the leader bought, and when GodsEye saw it
+  ts TEXT NOT NULL,
+  seen_at TEXT NOT NULL,
+  -- the label as it stood at that moment
+  label TEXT NOT NULL,
+  accounts INTEGER NOT NULL,
+  mode TEXT NOT NULL,
+  PRIMARY KEY (leader_signature, mint)
+);
+CREATE INDEX IF NOT EXISTS idx_social_warnings_wallet ON social_warnings(wallet, ts);
 `;
 
 const ensured = new WeakSet<DB>();
