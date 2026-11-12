@@ -15,17 +15,25 @@ import { publicView, type PublicFeed } from "@godseye/shared/public-view";
 import { stubFetch } from "./helpers";
 
 process.env.X_BEARER_TOKEN = "test-token";
-process.env.X_MONTHLY_TWEET_CAP = "700";
-process.env.X_SOCIAL_MONTHLY_TWEET_CAP = "300";
+// $100 a month: $50 for the runner research, $40 for the social layer, a fifteenth of each in a day. A full page of
+// mentions with its authors ($1.50) fits a day's share, so the budget cuts a run short only where a test spends it first.
+process.env.X_MONTHLY_USD = "100";
 const { retryTiming } = await import("../src/backoff");
 const { config } = await import("../src/config");
-const { budgetSpent, hourlyCap, lookupUsers, searchAll, tweetsReadThisHour, tweetsReadThisMonth, usersReadThisMonth, userTweets } = await import("../src/x/client");
-const { MAX_MENTION_COUNT, SEARCH_MAX_RESULTS, VISIT_TIMELINE_POSTS, postText, runSocialCollect, splitAddresses, syncLinks, urlCoins } = await import("../src/social/collect");
+const { budgetCap, budgetSpent, dayShare, lookupUsers, PRICE, searchAll, tweetsReadThisMonth, usersReadThisMonth, userTweets, xRefusal } = await import("../src/x/client");
+const { MAX_MENTION_COUNT, RETRY_MS, SEARCH_MAX_RESULTS, VISIT_TIMELINE_POSTS, pickWallets, postText, retryWait, runSocialCollect, splitAddresses, syncLinks, urlCoins } =
+  await import("../src/social/collect");
 const { ensureRunnerTables } = await import("../src/runners/schema");
 const { ensureSocialTables, socialTablesExist } = await import("../src/social/schema");
+const { attachLogDb } = await import("../src/log");
 retryTiming.scale = 0;
+// A day's share is counted by UTC day: a run that began in the last seconds of one waits for the next.
+if (Date.now() % 86_400_000 > 86_400_000 - 10_000) await new Promise((r) => setTimeout(r, 11_000));
 
 const month = new Date().toISOString().slice(0, 7);
+const today = () => new Date().toISOString().slice(0, 10);
+/** A budget's whole month, in posts. */
+const postsIn = (budget: "research" | "social") => budgetCap(budget) / PRICE.post;
 const HANDLE = "zz_hidden_caller_q7";
 const MENTIONER = "zz_hidden_mentioner_k3";
 const SECRET_TEXT = "gm frens zz-secret-post-marker";
@@ -84,59 +92,60 @@ async function collect(db: DB, opts = {}) {
 
 test("X budgets: research and social are counted apart; a spent social budget makes no network call", async () => {
   const db = openDb(":memory:");
-  setMeta(db, `x_tweets_read_${month}`, 700); // the research budget is used up
+  setMeta(db, `x_tweets_read_${month}`, postsIn("research")); // the research budget is used up
   const net = stubFetch(() => ({ data: [{ id: "t1", text: "gm", author_id: "a1", created_at: "2026-11-05T10:00:00.000Z" }], meta: {} }));
   try {
     const research = await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z");
-    assert.equal(research.capped, true);
+    assert.deepEqual([research.capped, research.reason], [true, "month"]);
     assert.equal(net.calls.length, 0);
-    const social = await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", 1, "social");
+    const social = await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", { pages: 1, budget: "social" });
     assert.equal(social.capped, false);
     assert.equal(social.tweets.length, 1);
     assert.equal(tweetsReadThisMonth(db, "social"), 1);
-    assert.equal(tweetsReadThisMonth(db), 700, "the research count is untouched");
+    assert.equal(tweetsReadThisMonth(db), postsIn("research"), "the research count is untouched");
     await userTweets(db, "a1", "social");
     assert.equal(tweetsReadThisMonth(db, "social"), 2);
     assert.match(net.calls[1].url, /\/2\/users\/a1\/tweets\?/);
 
-    setMeta(db, `x_social_tweets_read_${month}`, 300);
+    setMeta(db, `x_social_tweets_read_${month}`, postsIn("social"));
     assert.equal(budgetSpent(db, "social"), true);
     const before = net.calls.length;
-    assert.equal((await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", 1, "social")).capped, true);
+    assert.equal((await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", { pages: 1, budget: "social" })).capped, true);
     assert.equal((await userTweets(db, "a1", "social")).capped, true);
     assert.equal((await lookupUsers(db, ["a1"], "social")).capped, true);
-    assert.equal(net.calls.length, before, "no call once the social cap is reached");
+    assert.equal(net.calls.length, before, "no call once the social budget is spent");
   } finally {
     net.restore();
   }
 });
 
-test("collector: stops cleanly at the social cap without calling X", async () => {
+test("collector: stops cleanly when the social budget's month is spent, without calling X", async () => {
   const { db } = seed();
-  setMeta(db, `x_social_tweets_read_${month}`, 300);
-  const net = stubFetch(() => undefined);
-  try {
-    const { res } = await collect(db);
-    assert.ok(res);
-    assert.equal(res.capped, true);
-    assert.equal(res.wallets, 0, "a wallet cut short isn't marked visited");
-    assert.equal(res.links, 1, "local links are still copied");
-    assert.equal(net.calls.length, 0);
-  } finally {
-    net.restore();
-  }
-});
-
-test("collector: the hour's share used up ends the run quietly, and isn't the month's cap", async () => {
-  const { db } = seed();
-  setMeta(db, "x_social_tweets_read_hour", `${new Date().toISOString().slice(0, 13)} 300`);
+  setMeta(db, `x_social_tweets_read_${month}`, postsIn("social"));
   const net = stubFetch(() => undefined);
   try {
     const { res, out } = await collect(db);
     assert.ok(res);
-    assert.deepEqual([res.capped, res.stop, res.wallets, net.calls.length], [false, "hour", 0, 0]);
-    assert.match(out, /stopped: this hour's share is read/);
-    assert.doesNotMatch(out, /cap reached/);
+    assert.deepEqual([res.capped, res.stop], [true, "month"]);
+    assert.equal(res.wallets, 0, "a wallet cut short isn't marked visited");
+    assert.equal(res.links, 1, "local links are still copied");
+    assert.equal(net.calls.length, 0);
+    assert.match(out, /stopped: this month's money is spent/);
+  } finally {
+    net.restore();
+  }
+});
+
+test("collector: the day's share used up ends the run quietly, and isn't the month's budget", async () => {
+  const { db } = seed();
+  setMeta(db, "x_social_spent_day", `${today()} ${dayShare("social")}`);
+  const net = stubFetch(() => undefined);
+  try {
+    const { res, out } = await collect(db);
+    assert.ok(res);
+    assert.deepEqual([res.capped, res.stop, res.wallets, net.calls.length], [false, "day", 0, 0]);
+    assert.match(out, /stopped: today's share is spent/);
+    assert.doesNotMatch(out, /this month's money is spent/);
   } finally {
     net.restore();
   }
@@ -428,7 +437,7 @@ test("collector: posts are counted before a wallet search; none at 0 or above MA
   }
 });
 
-test("collector: a failed mention count or search leaves the visit unrecorded, and the next run searches the same window", async () => {
+test("collector: a failed mention count or search leaves the visit unrecorded; the wallet waits an hour, then the same window is searched", async () => {
   for (const failing of ["/2/tweets/counts/all", "/2/tweets/search/all"]) {
     const { db, wallet, coin, other } = seed();
     let down = true;
@@ -437,24 +446,112 @@ test("collector: a failed mention count or search leaves the visit unrecorded, a
       if (down && u.pathname === failing) return new Response("service unavailable", { status: 503 });
       return xReply(url, wallet, coin, other);
     });
+    const retry = () => db.prepare("SELECT retry_at, failures FROM social_retries WHERE wallet = ?").get(wallet) as { retry_at: string; failures: number } | undefined;
     try {
+      const began = Date.now();
       const first = await collect(db);
       assert.equal(first.res?.errors, 1, failing);
       assert.equal(first.res?.wallets, 0, "a wallet whose window wasn't searched isn't counted as visited");
       assert.equal((db.prepare("SELECT COUNT(*) n FROM social_visits").get() as { n: number }).n, 0, "visited_at isn't moved forward");
+      assert.equal(retry()?.failures, 1);
+      assert.ok(Date.parse(retry()!.retry_at) >= began + RETRY_MS, "it is tried again in an hour, not sooner");
 
       down = false;
       const before = net.calls.length;
-      const second = await collect(db);
+      const soon = await collect(db);
+      assert.deepEqual([soon.res?.wallets, net.calls.length], [0, before], "not within the hour, though X answers again");
+
+      const second = await collect(db, { now: Date.now() + RETRY_MS + 1_000 });
       assert.equal(second.res?.wallets, 1);
       const [from] = net.calls.slice(before).filter((c) => c.url.includes("/2/tweets/search/all")).map((c) => new URL(c.url).searchParams.get("start_time"));
       assert.ok(from && Date.now() - Date.parse(from) > 29 * 86_400_000, "the retry still reaches back the whole first lookback");
       const v = db.prepare("SELECT visited_at, mentions FROM social_visits WHERE wallet = ?").get(wallet) as { visited_at: string; mentions: number };
       assert.ok(v.visited_at);
       assert.equal(v.mentions, 1);
+      assert.equal(retry(), undefined, "a recorded visit ends the wait");
     } finally {
       net.restore();
     }
+  }
+});
+
+test("collector: a wallet whose count failed goes to the back of the queue: the one behind it is read next, and each further failure doubles the wait", async () => {
+  const { db, wallet, coin, other } = seed();
+  // `other` is analyzed too and not copied, so it is read after `wallet`.
+  db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, last_analyzed_at) VALUES (?, '2026-10-01', 'manual', '2026-11-01')").run(other);
+  const net = stubFetch((url) => {
+    const u = new URL(url);
+    if (u.pathname !== "/2/tweets/counts/all") return xReply(url, wallet, coin, other);
+    return (u.searchParams.get("query") ?? "").includes(wallet) ? new Response("service unavailable", { status: 503 }) : { meta: { total_tweet_count: 0 } };
+  });
+  const retry = () => db.prepare("SELECT retry_at, failures FROM social_retries WHERE wallet = ?").get(wallet);
+  const visited = () => (db.prepare("SELECT wallet FROM social_visits").all() as { wallet: string }[]).map((r) => r.wallet);
+  try {
+    const now = Date.now();
+    assert.deepEqual(pickWallets(db, 1, now), [wallet], "the copied wallet is first in line");
+    const first = await collect(db, { limit: 1, now });
+    assert.deepEqual([first.res?.wallets, first.res?.errors], [0, 1]);
+    assert.deepEqual(retry(), { retry_at: new Date(now + RETRY_MS).toISOString(), failures: 1 });
+    assert.deepEqual(pickWallets(db, 1, now), [other], "the wallet behind it is next");
+
+    const second = await collect(db, { limit: 1, now });
+    assert.deepEqual([second.res?.wallets, second.res?.errors], [1, 0]);
+    assert.deepEqual(visited(), [other]);
+
+    // An hour on it is tried again, fails again and waits twice as long.
+    const later = now + RETRY_MS;
+    assert.deepEqual(pickWallets(db, 5, later), [wallet]);
+    await collect(db, { limit: 1, now: later });
+    assert.deepEqual(retry(), { retry_at: new Date(later + 2 * RETRY_MS).toISOString(), failures: 2 });
+    assert.deepEqual(visited(), [other], "still not counted as visited");
+  } finally {
+    net.restore();
+  }
+  assert.deepEqual([1, 2, 3, 30].map((failures) => retryWait(failures)), [RETRY_MS, 2 * RETRY_MS, 4 * RETRY_MS, 7 * 24 * RETRY_MS], "an hour, doubled each time, a week at most");
+});
+
+test("collector: out of credits (402) ends the run at the first refused read; the reason is kept, the owner is told once, and no wallet is pushed back", async () => {
+  const { db, wallet, coin, other } = seed();
+  db.prepare("INSERT INTO wallets (address, first_seen_at, discovered_via, last_analyzed_at) VALUES (?, '2026-10-01', 'manual', '2026-11-01')").run(other);
+  let credits = false;
+  const net = stubFetch((url) => {
+    // X's answer quotes an account: neither the console nor the alert may repeat it.
+    if (!credits) return new Response(JSON.stringify({ title: "CreditsDepleted", detail: `no credits left, asked for ${HANDLE}` }), { status: 402 });
+    return new URL(url).pathname === "/2/tweets/counts/all" ? { meta: { total_tweet_count: 0 } } : xReply(url, wallet, coin, other);
+  });
+  const count = (table: string) => (db.prepare(`SELECT COUNT(*) n FROM ${table}`).get() as { n: number }).n;
+  const told = (out: string) => out.split("\n").filter((line) => line.includes("Owner alert (x_credits)")).length;
+  attachLogDb(db);
+  try {
+    const first = await collect(db);
+    assert.deepEqual(first.res, { wallets: 0, links: 1, accounts: 0, posts: 0, mentions: 0, errors: 0, capped: false, stop: "refused" });
+    assert.equal(net.calls.length, 1, "the first refused read ends the run: the second wallet isn't tried");
+    assert.match(first.out, /stopped: X refuses reads/);
+    const refusal = xRefusal(db);
+    assert.deepEqual([refusal?.why, refusal?.status], ["credits", 402]);
+    assert.equal(told(first.out), 1, "the owner is told");
+    assert.deepEqual([count("social_visits"), count("social_retries")], [0, 0], "X's refusal isn't a wallet's failure: nobody waits longer for it");
+    assert.equal(tweetsReadThisMonth(db, "social") + usersReadThisMonth(db, "social"), 0, "a refused read is not counted as paid");
+
+    const second = await collect(db);
+    assert.equal(second.res?.stop, "refused");
+    assert.equal(net.calls.length, 2, "one read a run goes on, so the first good answer is noticed");
+    assert.equal(told(second.out), 0, "not told again within the hour");
+    assert.equal(xRefusal(db)?.since, refusal?.since, "refused since the first time");
+
+    // The owner alert is the one line a refusal puts in the log, and it names nobody.
+    const logged = (db.prepare("SELECT message FROM agent_log").all() as { message: string }[]).map((r) => r.message);
+    assert.equal(logged.length, 1);
+    assert.match(logged[0]!, /^Owner alert \(x_credits\): X refuses to answer: the account is out of credits\./);
+    for (const text of [first.out, second.out, ...logged]) for (const secret of [wallet, other, HANDLE]) assert.ok(!text.includes(secret), "the console and the alert name nobody");
+
+    credits = true;
+    const third = await collect(db);
+    assert.deepEqual([third.res?.wallets, third.res?.stop], [2, undefined]);
+    assert.equal(xRefusal(db), null, "a good answer ends the refusal");
+  } finally {
+    attachLogDb(null as unknown as DB);
+    net.restore();
   }
 });
 
@@ -534,38 +631,5 @@ test("collector: by default a visit's timeline share is split between its accoun
     } finally {
       net.restore();
     }
-  }
-});
-
-test("X budgets are paced by the hour: a request asks only for what is left of the hour, so no job spends its month in hours", async () => {
-  const db = openDb(":memory:");
-  assert.equal(hourlyCap("research"), 700, "a test-sized cap (PACE_FLOOR or less) may be read in one hour");
-  const prev = config.xMonthlyTweetCap;
-  config.xMonthlyTweetCap = 500_000;
-  try {
-    assert.equal(hourlyCap("research"), 1_388);
-    assert.ok(config.xMonthlyTweetCap / hourlyCap("research") >= 15 * 24, "the 500k research cap lasts at least 15 days");
-    for (const cap of [10_000, 50_000, 3_600]) {
-      config.xMonthlyTweetCap = cap;
-      assert.ok(cap / hourlyCap("research") >= 15 * 24, `a ${cap} cap lasts at least 15 days too`);
-    }
-    config.xMonthlyTweetCap = 1_500;
-    assert.equal(hourlyCap("research"), 10, "still one smallest page an hour");
-  } finally {
-    config.xMonthlyTweetCap = prev;
-  }
-  const hour = new Date().toISOString().slice(0, 13);
-  setMeta(db, "x_tweets_read_hour", `${hour} ${hourlyCap("research") - 300}`);
-  const net = stubFetch((url) => ({ data: Array.from({ length: Number(new URL(url).searchParams.get("max_results")) }, (_, i) => ({ id: `p${i}`, text: "gm", author_id: "a", created_at: "2026-11-05T10:00:00.000Z" })), meta: {} }));
-  try {
-    await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", 1);
-    assert.equal(new URL(net.calls[0].url).searchParams.get("max_results"), "300", "500 asked, 300 left in the hour");
-    assert.equal(tweetsReadThisHour(db, "research"), hourlyCap("research"));
-    assert.equal(tweetsReadThisHour(db, "social"), 0, "the social budget has its own hour");
-    // The hour is used up: the call returns at once (the cron job ends its run) instead of waiting inside it for the next hour.
-    const skipped = await searchAll(db, "q", "2026-11-01T00:00:00.000Z", "2026-11-02T00:00:00.000Z", 1);
-    assert.deepEqual([skipped.capped, skipped.reason, net.calls.length], [true, "hour", 1]);
-  } finally {
-    net.restore();
   }
 });

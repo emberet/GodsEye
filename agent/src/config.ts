@@ -36,12 +36,10 @@ export const readConfig = () => ({
   jupiterApiKey: envStr("JUPITER_API_KEY"),
   /** X (Twitter) API v2 app bearer token, for the runner research (x/): who posts coins before they run. Empty = off. */
   xBearerToken: envStr("X_BEARER_TOKEN"),
-  /** Most tweets read in a calendar month (the plan's quota is shared with anything else using the key). */
-  xMonthlyTweetCap: envNum("X_MONTHLY_TWEET_CAP", 500_000),
+  /** Most dollars spent on X reads in a calendar month. X bills each read; x/client.ts shares the money out. 0 = read nothing. */
+  xMonthlyUsd: envNum("X_MONTHLY_USD", 50),
   /** Coins searched on X an hour (half runners, half non-runners as a control). */
   xCoinsPerHour: envNum("X_COINS_PER_HOUR", 100),
-  /** Most tweets the private social layer (social/) reads in a month, counted apart from the runner research's cap. */
-  xSocialMonthlyTweetCap: envNum("X_SOCIAL_MONTHLY_TWEET_CAP", 500_000),
   /** Wallets the social layer looks up on X an hour. */
   xSocialWalletsPerHour: envNum("X_SOCIAL_WALLETS_PER_HOUR", 50),
 

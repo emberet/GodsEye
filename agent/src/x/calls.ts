@@ -12,13 +12,13 @@
  *      wallet that bought the same coin within 2 minutes before the account's post, on 3+ different coins.
  * Observation only: nothing here buys anything.
  */
-import { type DB, nowIso } from "@godseye/shared";
+import { type DB, getMeta, nowIso, setMeta } from "@godseye/shared";
 import { config } from "../config";
 import { say } from "../log";
 import { isWallet } from "../market/holders";
 import { wilson } from "../shadow/labels";
 import { ensureRunnerTables } from "../runners/schema";
-import { searchAll, tweetsReadThisMonth, type XStop, type XTweet, type XUser, xConfigured } from "./client";
+import { budgetCap, searchAll, spentThisMonth, usd, type XStop, type XTweet, type XUser, xConfigured } from "./client";
 
 const HOUR = 3_600_000;
 /** X refuses an end_time less than ~10 s ago. */
@@ -72,9 +72,9 @@ function storeResults(db: DB, mint: string, tweets: XTweet[], users: XUser[]): v
 
 /**
  * Search up to `limit` coins not searched yet: half runners (newest first), half crowd coins that didn't run. The run
- * ends early when the X client stops (`stop`: the month's cap, the hour's share or the burn guard); `capped` is the
- * month's cap only. A coin whose search stopped after some pages keeps what was read (the reads are already counted)
- * and counts as searched.
+ * ends early when the X client stops (`stop`: the month's money is spent, the day's share is, or X refuses reads);
+ * `capped` is the month only. A coin whose search stopped after some pages keeps what was read (the reads are already
+ * counted) and counts as searched.
  */
 export async function searchCoins(db: DB, limit: number, now = Date.now()): Promise<{ searched: number; tweets: number; capped: boolean; stop?: XStop }> {
   ensureRunnerTables(db);
@@ -218,15 +218,27 @@ export function scoreCallers(db: DB, now = Date.now()): { callers: number; beati
   return { callers: by.size, beating, baseRate: base };
 }
 
-/** The hourly X job: search new coins, tie accounts to wallets, score the callers. */
+/** Holds the month whose spent budget was announced: it is said once, not every hour. */
+const SPENT_SAID = "x_research_spent_said";
+
+/** The hourly X job: search new coins, tie accounts to wallets, score the callers. Null when X is off or nothing could be read. */
 export async function runXResearch(db: DB): Promise<string | null> {
   if (!xConfigured()) return null;
   const s = await searchCoins(db, config.xCoinsPerHour);
   const links = linkWallets(db);
   const c = scoreCallers(db);
-  const used = tweetsReadThisMonth(db);
-  if (s.capped) say("warn", `X research: this month's tweet cap (${config.xMonthlyTweetCap.toLocaleString("en-US")}) is reached; searching again next month.`);
-  // The hour's share or the burn guard: routine pacing, not news. The next run carries on.
-  else if (s.stop) console.log(`[x] research: stopped for now (${s.stop === "hour" ? "this hour's share is read" : "burn guard"}); next run carries on.`);
-  return `X research: searched ${s.searched} coins (${s.tweets} tweets; ${used.toLocaleString("en-US")} read this month), ${links} wallet links, ${c.callers} accounts scored, ${c.beating} beat the base rate (${(c.baseRate * 100).toFixed(1)}% of crowd coins run).`;
+  const [spent, cap] = [usd(spentThisMonth(db, "research")), usd(budgetCap("research"))];
+  if (s.capped) {
+    const month = nowIso().slice(0, 7);
+    if (getMeta(db, SPENT_SAID) !== month) {
+      setMeta(db, SPENT_SAID, month);
+      say("warn", `X research: this month's budget (${cap}) is spent; searching again next month.`);
+    }
+  } else if (s.stop) {
+    // The day's share is routine pacing, and a refusal has gone to the owner as an alert. The next run carries on.
+    console.log(`[x] research: stopped for now (${s.stop === "day" ? "today's share is spent" : "X refuses reads"}); next run carries on.`);
+  }
+  // Nothing was read, so nothing changed: no line for the log.
+  if (s.stop && !s.searched) return null;
+  return `X research: searched ${s.searched} coins (${s.tweets} tweets; ${spent} of ${cap} spent this month), ${links} wallet links, ${c.callers} accounts scored, ${c.beating} beat the base rate (${(c.baseRate * 100).toFixed(1)}% of crowd coins run).`;
 }

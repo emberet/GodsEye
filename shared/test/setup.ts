@@ -32,6 +32,8 @@ const env: Record<string, string> = {
   GRPC_TOKEN: "",
   TELEGRAM_BOT_TOKEN: "",
   TELEGRAM_CHAT_ID: "",
+  X_BEARER_TOKEN: "",
+  X_MONTHLY_USD: "",
   RUG_CHECK_ENABLED: "false",
   GATE_LOG_ENABLED: "false",
 };

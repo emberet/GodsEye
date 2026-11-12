@@ -1,22 +1,28 @@
 /**
- * X research (x/): the API client's rate-limit wait and monthly cap, the search query and window, wallet links and the
- * caller hit rate. Stubbed fetch, in-memory database: nothing reaches X.
+ * X research (x/): the API client's rate-limit wait and its dollar budget, the search query and window, wallet links
+ * and the caller hit rate. Stubbed fetch, in-memory database: nothing reaches X.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Keypair } from "@solana/web3.js";
-import { type DB, openDb, setMeta } from "@godseye/shared";
+import { type DB, getMeta, openDb, setMeta } from "@godseye/shared";
 import { stubFetch } from "./helpers";
 
 process.env.X_BEARER_TOKEN = "test-token";
-process.env.X_MONTHLY_TWEET_CAP = "700";
+// $600 a month: half of it is the research's ($300), a fifteenth of that in a day ($20): room for full pages of 500 posts.
+process.env.X_MONTHLY_USD = "600";
 const { retryTiming } = await import("../src/backoff");
-const { searchAll, tweetsReadThisMonth } = await import("../src/x/client");
+const { budgetCap, dayShare, PRICE, searchAll, spentThisMonth, spentToday, tweetsReadThisMonth } = await import("../src/x/client");
 const { addressesIn, buildQuery, callerHitRateLb, linkWallets, runXResearch, searchCoins, searchWindow } = await import("../src/x/calls");
 const { attachLogDb } = await import("../src/log");
 const { ensureRunnerTables } = await import("../src/runners/schema");
 retryTiming.scale = 0;
+// The day and the month come from the clock: start clear of UTC midnight.
+if (Date.now() % 86_400_000 > 86_400_000 - 10_000) await new Promise((r) => setTimeout(r, 11_000));
 
+const month = new Date().toISOString().slice(0, 7);
+/** What a post costs when it brings its author. */
+const WITH_AUTHOR = PRICE.post + PRICE.profile;
 const tweets = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `t${from + i}`, text: "gm", author_id: "a1", created_at: "2026-10-30T12:00:00.000Z" }));
 
 test("X client: waits for the rate-limit reset on 429, sends the bearer token, pages with next_token", async () => {
@@ -39,25 +45,29 @@ test("X client: waits for the rate-limit reset on 429, sends the bearer token, p
     assert.equal(n, 3, "one 429, then two pages");
     assert.ok(auth.every((a) => a === "Bearer test-token"));
     assert.equal(tweetsReadThisMonth(db), 600);
+    // The author came with both pages and is counted with both: the agent's count never falls short of X's bill.
+    assert.equal(spentThisMonth(db, "research"), 600 * PRICE.post + 2 * PRICE.profile);
+    assert.equal(spentToday(db, "research"), spentThisMonth(db, "research"));
   } finally {
     globalThis.fetch = prev;
   }
 });
 
-test("X client: stops at the month's tweet cap", async () => {
+test("X client: stops when the month's money is spent, and asks nothing", async () => {
   const db = openDb(":memory:");
-  setMeta(db, `x_tweets_read_${new Date().toISOString().slice(0, 7)}`, 700);
   const net = stubFetch(() => undefined);
   try {
+    // What is left is one post's price short of the smallest page (10 posts with their authors).
+    setMeta(db, `x_tweets_read_${month}`, (budgetCap("research") - 10 * WITH_AUTHOR) / PRICE.post + 1);
     const r = await searchAll(db, "q", "2026-10-30T11:00:00.000Z", "2026-10-30T13:00:00.000Z");
-    assert.equal(r.capped, true);
+    assert.deepEqual(r, { tweets: [], users: [], capped: true, reason: "month" });
     assert.equal(net.calls.length, 0);
   } finally {
     net.restore();
   }
 });
 
-test("research: a search stopped by the hour's share keeps its pages, and only the month's cap is announced", async () => {
+test("research: a search stopped by the day's share keeps its pages; only the month's spent budget is announced, once", async () => {
   const db = openDb(":memory:");
   ensureRunnerTables(db);
   attachLogDb(db);
@@ -68,29 +78,45 @@ test("research: a search stopped by the hour's share keeps its pages, and only t
      VALUES (?, 'stream', NULL, ?, 1, 5, ?, ?, 5, 20, 20, 40, ?, ?)`,
   );
   for (const [mint, runner] of [["R1pump", 1], ["R2pump", 1], ["C1pump", 0]] as const) coin.run(mint, at(5), at(4), runner ? at(4.5) : null, runner, at(1));
-  // 600 of the hour's 700 (this file's test-sized cap) are read: room for one page of 100, not a second.
-  setMeta(db, "x_tweets_read_hour", `${new Date(now).toISOString().slice(0, 13)} 600`);
+  // Today's share is spent but for 100 posts with their authors: room for one page of 100, not a second.
+  setMeta(db, "x_spent_day", `${new Date(now).toISOString().slice(0, 10)} ${dayShare("research") - 100 * WITH_AUTHOR}`);
+  // Every post by an author of its own: a page costs all that was set aside for it.
   const net = stubFetch((url) => {
     const n = Number(new URL(url).searchParams.get("max_results"));
-    return { data: tweets(n), includes: { users: [{ id: "a1", username: "caller" }] }, meta: { next_token: "more" } };
+    return {
+      data: tweets(n).map((t, i) => ({ ...t, author_id: `a${i}` })),
+      includes: { users: Array.from({ length: n }, (_, i) => ({ id: `a${i}`, username: `caller${i}` })) },
+      meta: { next_token: "more" },
+    };
   });
+  const printed: string[] = [];
+  const print = console.log;
+  console.log = (...line: unknown[]) => void printed.push(line.join(" "));
   try {
     const s = await searchCoins(db, 2, now);
-    assert.deepEqual(s, { searched: 1, tweets: 100, capped: false, stop: "hour" });
+    assert.deepEqual(s, { searched: 1, tweets: 100, capped: false, stop: "day" });
     assert.equal(net.calls.length, 1);
     const done = db.prepare("SELECT mint, tweets FROM x_searches").all();
     assert.deepEqual(done, [{ mint: "R2pump", tweets: 100 }], "the partial search is stored and not asked again");
     assert.equal((db.prepare("SELECT COUNT(*) n FROM x_posts").get() as { n: number }).n, 100);
     assert.equal(tweetsReadThisMonth(db), 100);
+    assert.equal(spentToday(db, "research"), dayShare("research"));
 
+    assert.equal(await runXResearch(db), null, "nothing was searched, so there is no line for the log");
+    assert.equal(net.calls.length, 1, "the day is used up: nothing asked");
+    const warned = () => (db.prepare("SELECT COUNT(*) n FROM agent_log WHERE message LIKE '%budget%'").get() as { n: number }).n;
+    assert.equal(warned(), 0, "the day's share isn't the month's budget");
+    assert.equal(printed.filter((line) => line.includes("today's share is spent")).length, 1);
+
+    setMeta(db, `x_tweets_read_${month}`, budgetCap("research") / PRICE.post);
+    assert.equal(await runXResearch(db), null);
+    assert.equal(warned(), 1, "the month's budget is");
+    assert.equal(getMeta(db, "x_research_spent_said"), month);
     await runXResearch(db);
-    assert.equal(net.calls.length, 1, "the hour is used up: nothing asked");
-    const warned = () => (db.prepare("SELECT COUNT(*) n FROM agent_log WHERE message LIKE '%cap%'").get() as { n: number }).n;
-    assert.equal(warned(), 0, "the hour's share isn't the month's cap");
-    setMeta(db, `x_tweets_read_${new Date().toISOString().slice(0, 7)}`, 700);
-    await runXResearch(db);
-    assert.equal(warned(), 1, "the month's cap is");
+    assert.equal(warned(), 1, "and it is said once a month");
+    assert.equal(net.calls.length, 1);
   } finally {
+    console.log = print;
     net.restore();
     attachLogDb(null as unknown as DB);
   }

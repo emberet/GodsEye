@@ -7,12 +7,14 @@
  *   b. accounts: each linked account's profile and latest posts, with the coin and wallet addresses found in each post;
  *   c. mentions: recent posts that contain the wallet's address; their authors are linked with how = 'mention', n = how
  *      many stored posts of theirs contain it (also when a post was stored earlier, from a timeline or another search).
- *      The posts are counted first (counts/all returns no posts, so it costs nothing against the cap): at 0 there is no
- *      search, which is most visits; above MAX_MENTION_COUNT neither (an address that many posts carry is a tracker's or
- *      a bot's, and one page of it would say nothing about the owner). A count or search that fails leaves the wallet's
- *      visit unrecorded, so the next run searches the same window again instead of skipping it for good.
+ *      The posts are counted first (counts/all returns no posts and costs as much as two): at 0 there is no search,
+ *      which is most visits; above MAX_MENTION_COUNT neither (an address that many posts carry is a tracker's or a
+ *      bot's, and one page of it would say nothing about the owner). A count is asked only when the search it may call
+ *      for can be paid too. A count or search that fails leaves the wallet's visit unrecorded, so the same window is
+ *      searched again instead of being skipped for good, and sends the wallet to the back of the queue (social_retries:
+ *      an hour, then twice as long after each further failure), so one wallet can't hold up the rest.
  * A visit reads at most VISIT_TIMELINE_POSTS from timelines and SEARCH_MAX_RESULTS from the search, and the X client
- * paces every budget by the hour (x/client.ts), so a run can't spend the month.
+ * paces every budget by the day (x/client.ts), so a run can't spend the month.
  * A long post's whole text (note_tweet) is stored, and the addresses are read from it and from its links' expanded URLs
  * (an address in a link to a coin's page is a coin; so is one GodsEye has seen traded).
  * A profile's read time (fetched_at) and its posts' (timeline_at) are kept apart: a profile refreshed by a mention search
@@ -20,7 +22,8 @@
  * returned), not from the newest stored post: a mention search may have stored a newer post of the account in between,
  * and reading on from that would skip the posts before it for good.
  * Every profile read is also kept in social_account_snapshots (see schema.ts, point in time).
- * Reads count only against the "social" X budget (X_SOCIAL_MONTHLY_TWEET_CAP) and stop cleanly at its cap.
+ * Reads are paid only from the "social" X budget (its share of X_MONTHLY_USD). A run ends cleanly when the month's
+ * money or the day's share is spent, and at once when X refuses reads (out of credits, or over the usage cap).
  *
  * HIDDEN: nothing here goes to the published log feed (no say(), no agent_log, no thrown error text with an address or
  * a handle); the console gets counts only, which the systemd journal keeps. Observation only: nothing here trades.
@@ -30,7 +33,9 @@ import { config } from "../config";
 import { HttpError } from "../http";
 import { isWallet } from "../market/holders";
 import { ensureRunnerTables } from "../runners/schema";
-import { budgetCap, countAll, lookupUsers, searchAll, tweetsReadThisMonth, userTweets, type XStop, type XTweet, type XUser, xConfigured } from "../x/client";
+import {
+  budgetCap, countAll, lookupUsers, noRoom, PRICE, searchAll, smallestSearch, spentThisMonth, usd, userTweets, type XStop, type XTweet, type XUser, xConfigured,
+} from "../x/client";
 import { ensureSocialTables } from "./schema";
 
 const DAY = 24 * 3_600_000;
@@ -50,10 +55,18 @@ export const VISIT_TIMELINE_POSTS = 100;
 export const SEARCH_MAX_RESULTS = 100;
 /** A wallet whose address more posts than this carry isn't searched. */
 export const MAX_MENTION_COUNT = 300;
+/** A wallet whose mention count or search failed is tried again after this long ... */
+export const RETRY_MS = 3_600_000;
+/** ... and twice as long after each further failure, up to a week. */
+export const retryWait = (failures: number): number => Math.min(REVISIT_MS, RETRY_MS * 2 ** Math.min(Math.max(failures, 1) - 1, 10));
+/** The most one wallet's mention check can cost at its smallest: the count, then one smallest search page with its authors. */
+const MENTION_CHECK = PRICE.count + smallestSearch();
 const ADDRESS = /[1-9A-HJ-NP-Za-km-z]{32,44}/g;
 /** A link to a coin's page: the address in it is a coin, whatever its curve. */
 const COIN_URL = /(?:pump\.fun\/(?:coin\/)?|dexscreener\.com\/solana\/|birdeye\.so\/token\/|gmgn\.ai\/sol\/token\/|solscan\.io\/token\/|axiom\.trade\/meme\/)([1-9A-HJ-NP-Za-km-z]{32,44})/gi;
 const LOG = "[social]";
+/** Why a run stopped, for the console's count line. */
+const STOP_WORDS: Record<XStop, string> = { month: "this month's money is spent", day: "today's share is spent", refused: "X refuses reads" };
 
 export interface SocialCollectOptions {
   /** Wallets looked up this run (default X_SOCIAL_WALLETS_PER_HOUR). */
@@ -70,9 +83,9 @@ export interface SocialCollectResult {
   posts: number;
   mentions: number;
   errors: number;
-  /** The social budget's monthly cap was reached: the run stopped there. */
+  /** The social budget's month is spent: the run stopped there. */
   capped: boolean;
-  /** Why the X client stopped the run, if it did: the month's cap, the hour's share (the next run carries on) or the burn guard. */
+  /** Why the X client stopped the run, if it did: the month's money is spent, the day's share is (tomorrow carries on), or X refuses reads. */
   stop?: XStop;
 }
 
@@ -99,7 +112,8 @@ export function urlCoins(urls: string[]): Set<string> {
   return new Set(urls.flatMap((u) => [...u.matchAll(COIN_URL)].map((m) => m[1])));
 }
 
-/** Analyzed wallets due a lookup: copied ones first, then runner-catchers and smart money, never-visited before stale. */
+/** Analyzed wallets due a lookup: copied ones first, then runner-catchers and smart money, never-visited before stale.
+ * A wallet whose last count or search failed is left out until its retry time. */
 export function pickWallets(db: DB, limit: number, now = Date.now()): string[] {
   ensureRunnerTables(db);
   ensureSocialTables(db);
@@ -108,7 +122,9 @@ export function pickWallets(db: DB, limit: number, now = Date.now()): string[] {
       .prepare(
         `SELECT w.address FROM wallets w
            LEFT JOIN social_visits v ON v.wallet = w.address
+           LEFT JOIN social_retries r ON r.wallet = w.address
           WHERE w.last_analyzed_at IS NOT NULL AND (v.visited_at IS NULL OR v.visited_at < ?)
+            AND (r.retry_at IS NULL OR r.retry_at <= ?)
           ORDER BY (w.copy_weight > 0) * 4
                  + (EXISTS (SELECT 1 FROM runner_catchers c WHERE c.wallet = w.address)) * 2
                  + (EXISTS (SELECT 1 FROM smart_wallets s WHERE s.address = w.address AND s.active = 1)) * 2
@@ -116,7 +132,7 @@ export function pickWallets(db: DB, limit: number, now = Date.now()): string[] {
                    v.visited_at IS NOT NULL, v.visited_at, w.copy_weight DESC
           LIMIT ?`,
       )
-      .all(new Date(now - REVISIT_MS).toISOString(), limit) as { address: string }[]
+      .all(new Date(now - REVISIT_MS).toISOString(), new Date(now).toISOString(), limit) as { address: string }[]
   ).map((r) => r.address);
 }
 
@@ -209,6 +225,12 @@ export async function runSocialCollect(db: DB, opts: SocialCollectOptions = {}):
      ON CONFLICT(wallet) DO UPDATE SET visited_at = excluded.visited_at, mentions = social_visits.mentions + excluded.mentions`,
   );
   const lastVisit = db.prepare("SELECT visited_at FROM social_visits WHERE wallet = ?");
+  const failuresSoFar = db.prepare("SELECT failures FROM social_retries WHERE wallet = ?");
+  const putRetry = db.prepare(
+    `INSERT INTO social_retries (wallet, retry_at, failures) VALUES (?, ?, ?)
+     ON CONFLICT(wallet) DO UPDATE SET retry_at = excluded.retry_at, failures = excluded.failures`,
+  );
+  const clearRetry = db.prepare("DELETE FROM social_retries WHERE wallet = ?");
 
   /** Stores profiles (latest, and a snapshot of each read); doesn't touch timeline_at. */
   const storeAccounts = (users: XUser[]) => {
@@ -240,21 +262,23 @@ export async function runSocialCollect(db: DB, opts: SocialCollectOptions = {}):
     })();
     res.posts += fresh;
   };
-  /** Runs one X call: a stop (the cap, the hour's share, the burn guard) or an auth/rate-limit refusal ends the run;
-   * anything else is counted and skipped. */
+  /** The X client stopped the run: nothing more is asked of X in it. */
+  const stopRun = (why: XStop): never => {
+    res.stop = why;
+    res.capped = why === "month";
+    throw new Stop();
+  };
+  /** Runs one X call: a stop (the month's money, the day's share, X refusing reads) or an auth/rate-limit refusal ends
+   * the run; anything else is counted and skipped. */
   const call = async <T>(fn: () => Promise<T & { capped: boolean; reason?: XStop }>): Promise<T | null> => {
     try {
       const r = await fn();
-      if (r.capped) {
-        res.stop = r.reason ?? "month";
-        res.capped = res.stop === "month";
-        throw new Stop();
-      }
+      if (r.capped) stopRun(r.reason ?? "month");
       return r;
     } catch (e) {
       if (e instanceof Stop) throw e;
       res.errors++;
-      if (res.errors >= MAX_ERRORS || (e instanceof HttpError && [401, 403, 429].includes(e.status))) throw new Stop();
+      if (res.errors >= MAX_ERRORS || (e instanceof HttpError && [401, 402, 403, 429].includes(e.status))) throw new Stop();
       return null;
     }
   };
@@ -296,9 +320,12 @@ export async function runSocialCollect(db: DB, opts: SocialCollectOptions = {}):
       let searched = true;
       if (toMs > fromMs + 60_000) {
         const [q, from, to] = [`${wallet} -is:retweet`, new Date(fromMs).toISOString(), new Date(toMs).toISOString()];
+        // No count without the money for its search: a count whose search can't follow is paid again on the next run.
+        const short = noRoom(db, "social", MENTION_CHECK);
+        if (short) stopRun(short);
         const counted = await call(() => countAll(db, q, from, to, "social"));
         const n = counted?.count ?? 0;
-        const found = n > 0 && n <= MAX_MENTION_COUNT ? await call(() => searchAll(db, q, from, to, 1, "social", SEARCH_MAX_RESULTS)) : null;
+        const found = n > 0 && n <= MAX_MENTION_COUNT ? await call(() => searchAll(db, q, from, to, { pages: 1, budget: "social", max: SEARCH_MAX_RESULTS })) : null;
         // The window counts as searched only when the count (and the search it called for) answered.
         searched = counted !== null && (n === 0 || n > MAX_MENTION_COUNT || found !== null);
         if (found) {
@@ -313,18 +340,26 @@ export async function runSocialCollect(db: DB, opts: SocialCollectOptions = {}):
         }
       }
       res.mentions += mentions;
-      // A failed count or search leaves visited_at where it was, so a later run searches the same window again.
-      if (!searched) continue;
-      visit.run(wallet, new Date(now).toISOString(), mentions);
+      // A failed count or search leaves visited_at where it was, so a later run searches the same window again: later,
+      // and later still after each further failure, so the wallets behind it get their turn.
+      if (!searched) {
+        const failures = ((failuresSoFar.get(wallet) as { failures: number } | undefined)?.failures ?? 0) + 1;
+        putRetry.run(wallet, new Date(now + retryWait(failures)).toISOString(), failures);
+        continue;
+      }
+      db.transaction(() => {
+        visit.run(wallet, new Date(now).toISOString(), mentions);
+        clearRetry.run(wallet);
+      })();
       res.wallets++;
     }
   } catch (e) {
     if (!(e instanceof Stop)) res.errors++;
   }
-  const used = tweetsReadThisMonth(db, "social");
+  const why = res.stop ? ` (stopped: ${STOP_WORDS[res.stop]})` : "";
   console.log(
     `${LOG} ${res.wallets} wallets, ${res.links} links synced, ${res.accounts} profiles, ${res.posts} new posts, ${res.mentions} mentions; ` +
-      `${used.toLocaleString("en-US")} of ${budgetCap("social").toLocaleString("en-US")} read this month${res.capped ? " (cap reached)" : res.stop ? ` (stopped: ${res.stop === "hour" ? "this hour's share is read" : "burn guard"})` : ""}${res.errors ? `, ${res.errors} errors` : ""}.`,
+      `${usd(spentThisMonth(db, "social"))} of ${usd(budgetCap("social"))} spent this month${why}${res.errors ? `, ${res.errors} errors` : ""}.`,
   );
   return res;
 }

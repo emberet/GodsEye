@@ -9,7 +9,7 @@ import { openDbReadonly } from "@godseye/shared";
 import { config } from "../config";
 import { socialWarningMode } from "../social/labels";
 import { socialTablesExist } from "../social/schema";
-import { budgetCap, tweetsReadThisMonth, usersReadThisMonth } from "../x/client";
+import { budgetCap, countsReadThisMonth, dayShare, spentThisMonth, spentToday, tweetsReadThisMonth, usd, usersReadThisMonth, type XBudget, xRefusal } from "../x/client";
 
 const args = process.argv.slice(2);
 const top = (() => {
@@ -20,10 +20,14 @@ const top = (() => {
 const db = openDbReadonly();
 const fmt = (n: number) => n.toLocaleString("en-US");
 
-const used = tweetsReadThisMonth(db, "social");
-const cap = budgetCap("social");
-console.log(`X social budget: ${fmt(used)} of ${fmt(cap)} tweets read this month (${cap ? ((used / cap) * 100).toFixed(1) : "—"}%), plus ${fmt(usersReadThisMonth(db, "social"))} profiles${config.xBearerToken ? "" : "; X_BEARER_TOKEN not set, so nothing is collected"}.`);
-console.log(`(The runner research counts apart: ${fmt(tweetsReadThisMonth(db, "research"))} of ${fmt(budgetCap("research"))}, plus ${fmt(usersReadThisMonth(db, "research"))} profiles.)`);
+/** One X budget in dollars, with what was read for the money. */
+const budgetLine = (budget: XBudget): string =>
+  `${usd(spentThisMonth(db, budget))} of ${usd(budgetCap(budget))} spent this month, ${usd(spentToday(db, budget))} of ${usd(dayShare(budget))} today ` +
+  `(${fmt(tweetsReadThisMonth(db, budget))} posts, ${fmt(usersReadThisMonth(db, budget))} profiles, ${fmt(countsReadThisMonth(db, budget))} counts this month)`;
+console.log(`X social budget: ${budgetLine("social")}${config.xBearerToken ? "" : "; X_BEARER_TOKEN not set, so nothing is collected"}.`);
+console.log(`(The runner research counts apart: ${budgetLine("research")}.)`);
+const refusal = xRefusal(db);
+if (refusal) console.log(`X refuses reads (${refusal.why === "credits" ? "out of credits" : "over the usage cap"}) since ${refusal.since}; last tried ${refusal.last}.`);
 if (!socialTablesExist(db)) {
   console.log("No social data yet: the collector creates its tables on its first run.");
   process.exit(0);

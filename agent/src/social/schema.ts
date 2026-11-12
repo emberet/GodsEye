@@ -85,6 +85,14 @@ CREATE TABLE IF NOT EXISTS social_visits (
   mentions INTEGER NOT NULL DEFAULT 0
 );
 
+-- A wallet whose mention count or search failed: left out of the queue until retry_at, later after each failure in a
+-- row. The row goes when a visit is recorded. (social_visits is not touched: its time is where the next search starts.)
+CREATE TABLE IF NOT EXISTS social_retries (
+  wallet TEXT PRIMARY KEY,
+  retry_at TEXT NOT NULL,
+  failures INTEGER NOT NULL DEFAULT 1
+);
+
 -- A LABEL, NOT PROOF (social/labels.ts). What X says about a wallet, boiled down to one word:
 --   claimed = an account's own bio carries the address (that account's word; nobody has checked it);
 --   named   = an account posted the address (named BY that account, never owned by it).
