@@ -43,6 +43,7 @@ import { loadOrCreateWallet, walletBalanceAt, walletHoldings, walletTokenBalance
 import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } from "./copy/recovery";
 import { riskLook } from "./copy/risk";
 import { BrainSleeve } from "./brain/sleeve";
+import { snapshotHistory } from "./learning/history";
 import { scanFlows, walletFlowSource } from "./funding/ledger";
 import { runRewards } from "./creator/rewards";
 import { copyConnection } from "./rpc";
@@ -244,6 +245,8 @@ async function main() {
     if (!cron.validate(expr)) throw new Error(`${name}="${expr}" in .env is not a valid schedule`);
   }
   every(config.positionCron, positions);
+  // Rug, organic, skill and cluster values as they were when made (learning/history.ts), for the brain to learn from later.
+  every("40 * * * *", () => void job("feature history", async () => void snapshotHistory(db), false));
   if (config.creatorRewards !== "off") every(config.creatorCron, creator);
   if (shadow) every("* * * * *", followShadow);
   every(config.analyzeCron, analyze);

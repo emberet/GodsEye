@@ -21,6 +21,7 @@
  */
 import { type DB, envBool, envNum } from "@godseye/shared";
 import type { ParsedSwap } from "../chain/parse";
+import { recordHistory } from "../learning/history";
 
 export const organicSettings = {
   enabled: envBool("ORGANIC_ENABLED", true),
@@ -337,6 +338,7 @@ export function saveAssessment(db: DB, mint: string, a: Assessment, st: MintStat
      ON CONFLICT(mint) DO UPDATE SET verdict = excluded.verdict, tally_verdict = excluded.tally_verdict, score = excluded.score, source = excluded.source,
        reasons = excluded.reasons, stats = excluded.stats, assessed_at = excluded.assessed_at`,
   ).run(mint, verdict, a.verdict, a.score, source, JSON.stringify(reasons), st ? JSON.stringify(st) : null, ts, prev?.first_assessed_at ?? ts);
+  recordHistory(db, "organic", mint, ts, { verdict, tally_verdict: a.verdict, score: a.score, source, reasons });
 }
 
 /** Verdicts for tokens smart wallets traded in the last day that have none yet, from the tracked wallets' stored swaps. */

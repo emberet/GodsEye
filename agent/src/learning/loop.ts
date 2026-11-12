@@ -13,6 +13,7 @@ import { recordEvaluations } from "../audit/evaluations";
 import { FOLLOW_MIN_WIN_RATE, getParam } from "./adaptive";
 import { botCfg, botReason, botSigns, copyReason, junkReason, replayCfg, storedReplays } from "../smart/copy-check";
 import { copyableOf } from "./copyable";
+import { recordLateWeights } from "./late-weights";
 
 /** Research wallets (runner-catchers, runners/score.ts) are watched, never copied, until the owner clears this flag. */
 export const SHADOW_REASON = "shadow only: a research wallet, watched but not copied";
@@ -101,6 +102,12 @@ export function runLearning(db: DB): string[] {
   db.prepare("UPDATE wallets SET copy_weight = 0, weight_reason = ? WHERE shadow_only = 1 AND (copy_weight != 0 OR weight_reason IS NOT ?)").run(SHADOW_REASON, SHADOW_REASON);
   // Why each wallet is where it is, for every one that changed (audit/evaluations.ts). Observation only.
   recordEvaluations(db, { inputs, results: result, cfg: cutoffs, mode: config.copyMode });
+  // In shadow: the weights a late copier's outcomes would give (late-weights.ts). Nothing trades on them.
+  try {
+    recordLateWeights(db, inputs, result, cutoffs);
+  } catch (e) {
+    console.warn(`[learn] late-copier weights: ${(e as Error).message.slice(0, 160)}`);
+  }
   setMeta(db, "last_learning_at", ts);
   setMeta(db, "copy_budget_sol", config.copyBudgetSol);
   const leaders = [...result.entries()].filter(([, v]) => v.weight > 0).map(([a]) => a);

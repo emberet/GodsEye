@@ -522,4 +522,29 @@ CREATE TABLE IF NOT EXISTS wallet_flows (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_wallet_flows_unpriced ON wallet_flows(slot) WHERE units IS NULL;
+-- Values the agent keeps only as "the latest" elsewhere, appended as they were when made, so the brain can learn from
+-- their past without reading the future (agent/src/learning/history.ts): rug_check (each saved rug verdict), organic
+-- (each organic verdict), wallet_skill (each new quant skill verdict), cluster (a daily snapshot of the copy candidates'
+-- funder groups). "at" is when the value was made, "value" the row as JSON. Append-only; the Mac pulls it.
+CREATE TABLE IF NOT EXISTS feature_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL CHECK (kind IN ('rug_check','organic','wallet_skill','cluster')),
+  key TEXT NOT NULL,
+  at TEXT NOT NULL,
+  value TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feature_history_kind_key ON feature_history(kind, key, at);
+-- Shadow only (learning/late-weights.ts): each learning run, the weight every leader would get if judged by what a late
+-- copier of it earned (the mirror ledger's last 7 days), next to the weight it got. Nothing reads it to trade; the Mac
+-- pulls it to test blending it in.
+CREATE TABLE IF NOT EXISTS weight_shadow (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  wallet TEXT NOT NULL,
+  weight REAL NOT NULL,
+  late_weight REAL NOT NULL,
+  cp_n_7d INTEGER NOT NULL,
+  cp_lrshr_7d REAL
+);
+CREATE INDEX IF NOT EXISTS idx_weight_shadow_at ON weight_shadow(at);
 `;

@@ -35,6 +35,7 @@ import { type DB, nowIso, SOL_MINT } from "@godseye/shared";
 import { config } from "../config";
 import { fetchJson } from "../http";
 import { copyRpcUrl } from "../config";
+import { recordHistory } from "../learning/history";
 import { say } from "../log";
 import { describeHolders, type HolderMetrics, insiderPctFromReport, judgeHolders, measureHolders } from "./holders";
 import { profileMint, tradeTraits } from "./mint-profile";
@@ -282,6 +283,7 @@ export function saveVerdict(db: DB, mint: string, symbol: string, v: RugVerdict,
      ON CONFLICT(mint) DO UPDATE SET symbol=excluded.symbol, verdict=excluded.verdict, blocks=excluded.blocks, warnings=excluded.warnings,
        rugcheck_score=excluded.rugcheck_score, checked_at=excluded.checked_at`,
   ).run(mint, symbol, v.verdict, JSON.stringify(v.blocks), JSON.stringify(v.warnings), v.rugcheckScore, nowIso());
+  recordHistory(db, "rug_check", mint, nowIso(), { verdict: v.verdict, blocks: v.blocks, warnings: v.warnings, rugcheck_score: v.rugcheckScore });
   if (announce && v.verdict === "blocked" && before?.verdict !== "blocked") say("warn", `Rug check: won't trade ${symbol} — ${v.blocks.join("; ")}.`);
 }
 

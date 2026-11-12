@@ -54,6 +54,9 @@ TABLES: list[Table] = [
     Table("runner_early_counts", False),
     Table("brain_transitions", True),
     Table("brain_paper_positions", False),
+    Table("brain_shadow_quotes", True),  # sell quotes after leader buys: the simulator's fill check (brain.sim.quotes)
+    Table("feature_history", True),
+    Table("weight_shadow", True),  # late-copier weights next to the real ones (agent/src/learning/late-weights.ts)  # rug, organic, skill and cluster values as they were when made (agent/src/learning/history.ts)
     Table("x_accounts", False, private=True),
     Table("x_posts", False, private=True),
     Table("x_wallet_links", False, private=True),
