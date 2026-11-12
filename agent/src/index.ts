@@ -46,6 +46,7 @@ import { ShadowLogger } from "./shadow/log";
 import { sampleDue } from "./shadow/sampler";
 import { notBots, refreshCopyReplays } from "./smart/copy-check";
 import { every } from "./schedule";
+import { lockEnvFile, modeLine, openRealPositions, secretsFileNote, settingsReport, startupWarnings } from "./startup";
 import { createJobRunner, type JobOpts } from "./jobs";
 import { initSolPrices, refreshHourlySolPrices, refreshLiveSolPrice, solUsdAt } from "./market/solprice";
 
@@ -198,9 +199,13 @@ async function main() {
   console.log(BANNER);
   heartbeat();
   say("info", `Waking up. Agent wallet ${keypair.publicKey.toBase58()}${created ? " (just created — back up data/wallet/!)" : ""}.`);
-  if (config.copyMode === "real") {
-    say("warn", `COPY_MODE=real — copy trades spend REAL SOL: up to ${config.copyMaxTradeSol} SOL per trade, ${config.copyBudgetSol} SOL in total, stop for the day after ${config.dailyLossLimitSol} SOL of losses. Pause any time with "npm run pause".`);
-  } else say("info", "COPY_MODE=paper — copy trades are simulated with live Jupiter quotes. No real funds move.");
+  const mode = modeLine(config);
+  say(mode.level, mode.message);
+  // Console only (the owner's terminal, the server's journal), never the public feed: every limit and safety switch
+  // in effect, what is switched off, and whether .env was open to other users.
+  for (const line of [...settingsReport(config, isPaused(db)), ...startupWarnings(config, openRealPositions(db))]) console.log(line);
+  const envNote = secretsFileNote(".env", lockEnvFile());
+  if (envNote) console.warn(envNote);
   if (!config.heliusApiKey && !config.solanaRpcUrl) say("warn", "TODO: add HELIUS_API_KEY (or SOLANA_RPC_URL) to .env. The public Solana RPC is slow, rate-limited and often refuses the history reads analysis needs.");
   if (!live) say("info", "TODO: set GRPC_URL + GRPC_TOKEN in .env (Shyft, Triton, Helius or QuickNode gRPC) to watch every DEX swap live. Sampling busy pools meanwhile.");
   if (snapshotStoreConfigured()) say("info", "Publishing dashboard data to Turso after every job (for the hosted website).");
