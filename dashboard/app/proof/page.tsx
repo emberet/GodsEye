@@ -21,6 +21,7 @@ export default function ProofPage() {
   const [checked, setChecked] = useState<Record<number, boolean>>({});
 
   const verify = async (e: ProofRow) => {
+    if (e.payload === null) return; // withheld: nothing to recompute from
     const h = await sha256Hex(`${e.prev_hash}|${e.payload}`);
     setChecked((c) => ({ ...c, [e.id]: h === e.hash }));
   };
@@ -50,25 +51,31 @@ export default function ProofPage() {
                 <Badge variant="outline">{e.kind.replace("_", " ")}</Badge>
                 <span className="text-muted-foreground">{dt(e.committed_at)}</span>
                 <code className="min-w-0 flex-1 truncate font-mono text-xs text-accent">{e.hash}</code>
-                <button
-                  type="button"
-                  aria-label={`Check entry #${e.id}`}
-                  className="btn min-h-[36px] px-4"
-                  onClick={(ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    void verify(e);
-                  }}
-                >
-                  Check
-                </button>
+                {e.payload !== null && (
+                  <button
+                    type="button"
+                    aria-label={`Check entry #${e.id}`}
+                    className="btn min-h-[36px] px-4"
+                    onClick={(ev) => {
+                      ev.preventDefault();
+                      ev.stopPropagation();
+                      void verify(e);
+                    }}
+                  >
+                    Check
+                  </button>
+                )}
                 {checked[e.id] !== undefined && <Badge variant={checked[e.id] ? "win" : "loss"}>{checked[e.id] ? "Matches" : "Doesn't match"}</Badge>}
               </summary>
               <div className="mt-2 space-y-1 text-xs">
                 <p className="text-muted-foreground">
                   prev_hash: <code className="break-all">{e.prev_hash}</code>
                 </p>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-[12px] border-2 border-ink bg-panel p-3 font-mono text-foreground">{e.payload}</pre>
+                {e.payload !== null ? (
+                  <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-[12px] border-2 border-ink bg-panel p-3 font-mono text-foreground">{e.payload}</pre>
+                ) : (
+                  <p className="text-muted-foreground">The details of this entry are kept private. Its fingerprint is still part of the chain, so it can&apos;t be changed later.</p>
+                )}
               </div>
             </details>
           ))}

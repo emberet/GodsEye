@@ -18,3 +18,4 @@ export const getLiveWallets = (q: import("@godseye/shared/dashboard-types").Live
 export const getSmartMoney = () => data.getSmartMoney(db());
 export const getRunners = () => data.getRunners(db());
 export const getPaper = () => data.getPaper(db());
+export const ownWallet = () => data.ownWallet(db());

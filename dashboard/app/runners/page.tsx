@@ -48,31 +48,33 @@ export default function RunnersPage() {
                   {c.x_handle ? ` · @${c.x_handle}` : ""}
                 </p>
               </div>
-              <span className="tag">{LABELS[c.label] ?? c.label}</span>
+              {c.label && <span className="tag">{LABELS[c.label] ?? c.label}</span>}
               <p className="w-[110px] text-right text-2xl font-extrabold num" title={`at least ${pctOf(c.hit_rate_lb)} (base rate ${pctOf(c.base_rate, 2)})`}>{c.early_buys ? pctOf(c.hit_rate) : "—"}</p>
             </div>
           ))}
         </div>
       </Window>
 
-      <Window title="Who posts them on X first">
-        <p className="text-sm text-muted-foreground">Accounts that posted a coin before it reached 3x, judged against the coins they posted that didn&apos;t run.</p>
-        <div className="mt-2">
-          {!data?.callers.length && <Empty img="eye" title="Nobody yet">{data ? "Accounts appear once runners have been searched on X." : "Loading…"}</Empty>}
-          {data?.callers.map((c, i) => (
-            <div key={c.username ?? i} className="line">
-              <div className="min-w-0 flex-1">
-                {c.username ? <a href={`https://x.com/${c.username}`} target="_blank" rel="noreferrer" className="font-extrabold underline-offset-2 hover:underline">@{c.username}</a> : "—"}
-                <p className="k mt-0.5">
-                  {c.early_runner_calls} of {c.runner_calls} runners posted early · {c.control_calls} non-runners · {c.median_lead_min !== null ? `${Math.round(c.median_lead_min)} min ahead` : "—"} · {c.days} days
-                  {c.followers !== null ? ` · ${c.followers.toLocaleString("en-US")} followers` : ""}
-                </p>
+      {/* The public feed never carries this list, so the section only shows on the owner's own full feed. */}
+      {!!data?.callers.length && (
+        <Window title="Who posts them on X first">
+          <p className="text-sm text-muted-foreground">Accounts that posted a coin before it reached 3x, judged against the coins they posted that didn&apos;t run.</p>
+          <div className="mt-2">
+            {data.callers.map((c, i) => (
+              <div key={c.username ?? i} className="line">
+                <div className="min-w-0 flex-1">
+                  {c.username ? <a href={`https://x.com/${c.username}`} target="_blank" rel="noreferrer" className="font-extrabold underline-offset-2 hover:underline">@{c.username}</a> : "—"}
+                  <p className="k mt-0.5">
+                    {c.early_runner_calls} of {c.runner_calls} runners posted early · {c.control_calls} non-runners · {c.median_lead_min !== null ? `${Math.round(c.median_lead_min)} min ahead` : "—"} · {c.days} days
+                    {c.followers !== null ? ` · ${c.followers.toLocaleString("en-US")} followers` : ""}
+                  </p>
+                </div>
+                <p className="w-[110px] text-right text-2xl font-extrabold num" title="Hit rate, lower bound">≥{pctOf(c.hit_rate_lb)}</p>
               </div>
-              <p className="w-[110px] text-right text-2xl font-extrabold num" title="Hit rate, lower bound">≥{pctOf(c.hit_rate_lb)}</p>
-            </div>
-          ))}
-        </div>
-      </Window>
+            ))}
+          </div>
+        </Window>
+      )}
 
       <Window title="Recent runners">
         {!data?.runners.length && <Empty img="eye" title="None yet">{data ? "Runners appear as the live stream watches launches." : "Loading…"}</Empty>}

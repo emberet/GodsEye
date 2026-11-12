@@ -357,7 +357,8 @@ export interface Performance {
 export interface ProofEntryRow {
   id: number;
   kind: string;
-  payload: string;
+  /** What was committed, word for word. Null where the public feed withholds it: the fingerprint and its place still show. */
+  payload: string | null;
   prev_hash: string;
   hash: string;
   committed_at: string;
@@ -494,7 +495,8 @@ export interface RunnerCatcherRow {
   median_x_to_peak: number | null;
   capture: number | null;
   copyable_share: number | null;
-  label: string;
+  /** Null where the public feed withholds it. */
+  label: string | null;
   x_handle: string | null;
   qualifies: number;
 }

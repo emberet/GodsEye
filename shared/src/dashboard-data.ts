@@ -9,6 +9,7 @@ import { type DB, getMeta } from "./db";
 import { HEARTBEAT_STALE_MINUTES, isNonMemecoinSymbol, TIERS, WALLET_KINDS, type Tier, type WalletKind } from "./constants";
 import { equityCurve, maxDrawdown, monthlyReturns, rollingWinRate, winRate, type ClosedTrade } from "./stats";
 import { verifyProofChain, type ProofEntry } from "./proof";
+import { hideOwnWallet, hideSignatures } from "./public-view";
 import type {
   LearnedParam, ParamChange, SignalScore, SmartFlowRow, SmartMoneyData, SmartSignalRow, SmartWalletRow,
   RunnerCatcherRow, RunnerDefinitionInfo, RunnersData, RunnerTokenRow, XCallerRow,
@@ -24,6 +25,9 @@ export const LIKELY_EXCHANGE_GROUP_SIZE = 25;
 
 /** Bots and wallets copying lost on (set by the agent's learning loop) are left out of every public list and count. */
 const NOT_JUNK = "w.junk_reason IS NULL";
+
+/** The agent's own address: left out of every wallet list, so the site can never show it. Null until it has a wallet. */
+export const ownWallet = (d: DB): string | null => getMeta(d, "wallet_pubkey");
 
 const WALLET_ROW_SQL = `
   SELECT w.address, w.tier, w.tier_reason, w.tier_changed_at, w.kind, w.ai_score, w.copy_weight, w.is_fresh, w.funder,
@@ -184,14 +188,16 @@ export function getLiveWallets(d: DB, q: LiveQuery = {}): LiveWalletRow[] {
   return d
     .prepare(
       `SELECT a.*, w.tier FROM wallet_activity a LEFT JOIN wallets w ON w.address = a.address
-        WHERE (? IS NULL OR a.live_kind = ?) AND ${NOT_JUNK} ORDER BY ${LIVE_SORT[q.sort ?? "pnl"]} LIMIT ?`,
+        WHERE (? IS NULL OR a.live_kind = ?) AND a.address IS NOT ? AND ${NOT_JUNK} ORDER BY ${LIVE_SORT[q.sort ?? "pnl"]} LIMIT ?`,
     )
-    .all(kind, kind, Math.min(2000, Math.max(1, q.limit ?? 200))) as LiveWalletRow[];
+    .all(kind, kind, ownWallet(d), Math.min(2000, Math.max(1, q.limit ?? 200))) as LiveWalletRow[];
 }
 
 /** Every wallet row (newest analysis first), capped so a published copy stays small. */
 export function getAllWalletRows(d: DB, cap = 20_000): WalletRow[] {
-  return d.prepare(`${WALLET_ROW_SQL} WHERE ${NOT_JUNK} ORDER BY w.last_analyzed_at IS NULL, w.last_analyzed_at DESC LIMIT ?`).all(cap) as WalletRow[];
+  return d
+    .prepare(`${WALLET_ROW_SQL} WHERE ${NOT_JUNK} AND w.address IS NOT ? ORDER BY w.last_analyzed_at IS NULL, w.last_analyzed_at DESC LIMIT ?`)
+    .all(ownWallet(d), cap) as WalletRow[];
 }
 
 /** Search / filter / sort / page the wallet database. Pure, so the hosted site can run it on a published copy. */
@@ -225,6 +231,8 @@ export function listWallets(d: DB, q: WalletQuery): WalletList {
 }
 
 export function getWalletDetail(d: DB, address: string): WalletDetail | null {
+  const own = ownWallet(d);
+  if (address === own) return null;
   const wallet = d.prepare(`${WALLET_ROW_SQL} WHERE w.address = ?`).get(address) as WalletRow | undefined;
   if (!wallet) return null;
   const raw = d.prepare("SELECT kind_reasons FROM wallets WHERE address = ?").get(address) as { kind_reasons: string };
@@ -235,8 +243,9 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
                 FROM wallet_swaps s LEFT JOIN token_info t ON t.mint = s.mint WHERE s.wallet = ? ORDER BY s.ts DESC LIMIT 100`)
     .all(address) as SwapRow[];
   const weightHistory = d.prepare("SELECT * FROM weight_history WHERE wallet = ? ORDER BY ts DESC LIMIT 50").all(address) as WeightChange[];
-  const group = wallet.funder
-    ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address) as WalletRow[])
+  // A wallet the agent itself funded shows no group: the list would point at their shared funder.
+  const group = wallet.funder && wallet.funder !== own
+    ? (d.prepare(`${WALLET_ROW_SQL} WHERE w.funder = ? AND w.address != ? AND w.address IS NOT ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 50`).all(wallet.funder, address, own) as WalletRow[])
     : [];
   const mode = tradingMode(d);
   const since = sinceOf(d);
@@ -262,23 +271,24 @@ export function getWalletDetail(d: DB, address: string): WalletDetail | null {
 
 /** Wallets grouped by who funded them — how GodsEye spots one person running many fresh wallets. */
 export function getWalletGroups(d: DB, limit = 100): WalletGroup[] {
+  const own = ownWallet(d);
   const groups = d
     .prepare(
       `SELECT w.funder, COUNT(*) size,
               SUM(w.kind='ai') ai, SUM(w.kind='human') human, SUM(w.kind='unknown') unknown, SUM(w.is_fresh) fresh,
               MAX(w.chain_created_at) newest_at, f.tier funder_tier
          FROM wallets w LEFT JOIN wallets f ON f.address = w.funder
-        WHERE w.funder IS NOT NULL AND ${NOT_JUNK}
+        WHERE w.funder IS NOT NULL AND w.funder IS NOT ? AND w.address IS NOT ? AND ${NOT_JUNK}
         GROUP BY w.funder
        HAVING COUNT(*) >= 2 OR SUM(w.is_fresh) >= 1
         ORDER BY newest_at DESC LIMIT ?`,
     )
-    .all(limit) as Omit<WalletGroup, "members" | "likely_exchange">[];
+    .all(own, own, limit) as Omit<WalletGroup, "members" | "likely_exchange">[];
   const members = d.prepare(
     `SELECT w.address, w.tier, w.kind, w.ai_score, w.is_fresh, w.chain_created_at, s.pnl_30d_sol, s.pnl_30d_usd
-       FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address WHERE w.funder = ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 30`,
+       FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address WHERE w.funder = ? AND w.address IS NOT ? AND ${NOT_JUNK} ORDER BY w.chain_created_at DESC LIMIT 30`,
   );
-  return groups.map((g) => ({ ...g, likely_exchange: g.size >= LIKELY_EXCHANGE_GROUP_SIZE, members: members.all(g.funder) as WalletGroup["members"] }));
+  return groups.map((g) => ({ ...g, likely_exchange: g.size >= LIKELY_EXCHANGE_GROUP_SIZE, members: members.all(g.funder, own) as WalletGroup["members"] }));
 }
 
 const followBar = (d: DB): LearnedParam | null =>
@@ -286,6 +296,7 @@ const followBar = (d: DB): LearnedParam | null =>
 
 export function getLeaders(d: DB): LeadersData {
   const mode = tradingMode(d);
+  const own = ownWallet(d);
   const leaders = d
     .prepare(
       `SELECT w.address, w.tier, w.kind, w.copy_weight, w.weight_reason, w.last_activity_at, w.history_from,
@@ -294,11 +305,12 @@ export function getLeaders(d: DB): LeadersData {
               (SELECT CASE WHEN SUM(pnl_usd IS NULL) > 0 THEN NULL ELSE COALESCE(SUM(pnl_usd),0) END FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode AND p.closed_at >= @since) copy_pnl_usd,
               (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = @mode AND p.closed_at >= @since) copy_closed
          FROM wallets w LEFT JOIN wallet_stats s ON s.wallet = w.address
-        WHERE w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions WHERE mode = @mode AND (status = 'open' OR closed_at >= @since))
+        WHERE (w.copy_weight > 0 OR w.address IN (SELECT DISTINCT leader FROM positions WHERE mode = @mode AND (status = 'open' OR closed_at >= @since)))
+          AND w.address IS NOT @own
         ORDER BY w.copy_weight DESC, copy_pnl_sol DESC LIMIT 100`,
     )
-    .all({ mode, since: sinceOf(d) }) as Leader[];
-  const changes = d.prepare("SELECT * FROM weight_history ORDER BY ts DESC LIMIT 100").all() as WeightChange[];
+    .all({ mode, since: sinceOf(d), own }) as Leader[];
+  const changes = d.prepare("SELECT * FROM weight_history WHERE wallet IS NOT ? ORDER BY ts DESC LIMIT 100").all(own) as WeightChange[];
   return {
     leaders, changes, budgetSol: num(getMeta(d, "copy_budget_sol"), 0),
     followBar: followBar(d),
@@ -352,9 +364,12 @@ export function getProof(d: DB, limit = 50, offset = 0): ProofData {
   return { entries, total: all.length, chain: verifyProofChain(all) };
 }
 
-/** Strip what a public page must not show from a log line: IP addresses, API keys in URLs, local file paths. */
+/**
+ * Strip what a page must not show from a log line or an error text: IP addresses, API keys in URLs, local file paths,
+ * and transaction signatures (the only ones that get into such text are the agent's own, which lead to its wallet).
+ */
 export function redactLog(message: string): string {
-  return message
+  return hideSignatures(message)
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[IP hidden]")
     .replace(/\b(?:[0-9a-f]{1,4}:){3,7}[0-9a-f]{1,4}\b/gi, "[IP hidden]")
     .replace(/(api[_-]?key|token|secret)=[^\s&"']+/gi, "$1=[hidden]")
@@ -362,8 +377,9 @@ export function redactLog(message: string): string {
 }
 
 export function getLogs(d: DB, limit = 40): LogRow[] {
+  const own = ownWallet(d);
   const rows = d.prepare("SELECT * FROM agent_log ORDER BY id DESC LIMIT ?").all(limit) as LogRow[];
-  return rows.map((r) => ({ ...r, message: redactLog(r.message) }));
+  return rows.map((r) => ({ ...r, message: redactLog(hideOwnWallet(r.message, own)) }));
 }
 
 /** The latest rug checks, newest first (passed and blocked alike: ordering blocked first hid every pass once 60 were blocked). */
@@ -433,10 +449,10 @@ export function getSmartMoney(d: DB): SmartMoneyData {
   const wallets = d
     .prepare(
       `SELECT sw.*, w.tier, w.kind FROM smart_wallets sw LEFT JOIN wallets w ON w.address = sw.address
-        WHERE ${NOT_JUNK} AND sw.reason NOT LIKE 'bot:%' AND sw.reason NOT LIKE 'copy replay: copying%'
+        WHERE ${NOT_JUNK} AND sw.address IS NOT ? AND sw.reason NOT LIKE 'bot:%' AND sw.reason NOT LIKE 'copy replay: copying%'
         ORDER BY sw.active DESC, sw.lead_n >= 10 DESC, sw.lead_median_6h DESC, sw.pnl_usd DESC LIMIT 100`,
     )
-    .all() as SmartWalletRow[];
+    .all(ownWallet(d)) as SmartWalletRow[];
   const counts = d.prepare("SELECT SUM(active = 1) a, SUM(active = 0 AND reason LIKE 'its buys%') dr FROM smart_wallets").get() as { a: number | null; dr: number | null };
   return {
     followBar: followBar(d),
@@ -505,8 +521,8 @@ export function getRunners(d: DB): RunnersData {
     catchers: has("runner_catchers")
       ? (d.prepare(
           `SELECT wallet, hits, early_buys, hit_rate, hit_rate_lb, base_rate, days, median_entry_x, median_x_to_peak, capture, copyable_share, label, x_handle, qualifies
-             FROM runner_catchers ORDER BY qualifies DESC, score DESC LIMIT 50`,
-        ).all() as RunnerCatcherRow[])
+             FROM runner_catchers WHERE wallet IS NOT ? ORDER BY qualifies DESC, score DESC LIMIT 50`,
+        ).all(ownWallet(d)) as RunnerCatcherRow[])
       : [],
     callers: has("x_callers")
       ? (d.prepare(
@@ -566,7 +582,7 @@ export function getPaper(d: DB, now = Date.now()): PaperData {
 
   const hasPositions = has("brain_paper_positions");
   const hasEquity = has("brain_paper_equity");
-  const own = getMeta(d, "wallet_pubkey");
+  const own = ownWallet(d);
   const rows = d.prepare("SELECT account, bankroll_sol, started_at FROM brain_paper_accounts").all() as { account: string; bankroll_sol: number; started_at: string | null }[];
   const accounts: PaperAccount[] = [];
   const equity = emptyPaperEquity();
