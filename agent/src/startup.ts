@@ -48,6 +48,8 @@ export function settingsReport(c: Config, paused: boolean): string[] {
       COPY_MAX_PRICE_IMPACT_PCT: c.maxPriceImpactPct,
       COPY_EXIT_MAX_SLIPPAGE_BPS: c.exitMaxSlippageBps,
       PRIORITY_FEE_MAX_LAMPORTS: c.priorityFeeMaxLamports,
+      COPY_SEND_VIA: c.sendVia,
+      JITO_TIP_LAMPORTS: c.jitoTipLamports,
     }),
     row("leaders", {
       COPY_MAX_LEADERS: c.maxLeaders,

@@ -252,6 +252,14 @@ export const readConfig = () => ({
   /** Most slippage a stop-loss / trailing-stop sell may allow after slippage failures (it steps 3% → 10% → 25%). */
   exitMaxSlippageBps: envNum("COPY_EXIT_MAX_SLIPPAGE_BPS", 2500),
   priorityFeeMaxLamports: envNum("PRIORITY_FEE_MAX_LAMPORTS", 1_000_000),
+  /**
+   * How a signed trade is sent. "jito": to Jito's block engine with a tip in place of the priority fee, so it isn't seen
+   * in the public queue first (harder to sandwich); if Jito refuses it, the usual RPC. "rpc": the usual RPC only.
+   */
+  sendVia: envOneOf("COPY_SEND_VIA", ["jito", "rpc"], "jito"),
+  /** The tip a trade sent through Jito pays, in lamports (200,000 = 0.0002 SOL). Also the most the transaction check lets it tip. */
+  jitoTipLamports: envNum("JITO_TIP_LAMPORTS", 200_000),
+  jitoUrl: envStr("JITO_URL", "https://mainnet.block-engine.jito.wtf"),
   positionCron: envStr("POSITION_CRON", "* * * * *"),
   /** Safety net for missed live events: re-read leaders' newest transactions this often. */
   pollSeconds: envNum("LEADER_POLL_SECONDS", 30),

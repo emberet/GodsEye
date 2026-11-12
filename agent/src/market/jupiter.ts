@@ -3,7 +3,8 @@
  * (an optional key from portal.jup.ag uses the pro host).
  *  - jupiterPrices(): current USD prices for many tokens at once
  *  - jupiterQuote():  "if I swapped X for Y right now, what would I get?"
- *  - jupiterSwapTx(): an unsigned swap transaction for a quote (GodsEye checks it before signing)
+ *  - jupiterSwapTx(): an unsigned swap transaction for a quote (GodsEye checks it before signing); with a Jito tip, the
+ *    tip replaces the priority fee (Jupiter takes one or the other)
  */
 import { config } from "../config";
 import { fetchJson } from "../http";
@@ -66,7 +67,7 @@ export interface JupSwapTx {
   lastValidBlockHeight: number;
 }
 
-export async function jupiterSwapTx(quote: JupQuote, userPublicKey: string): Promise<JupSwapTx> {
+export async function jupiterSwapTx(quote: JupQuote, userPublicKey: string, jitoTipLamports = 0): Promise<JupSwapTx> {
   return fetchJson<JupSwapTx>(`${host()}/swap/v1/swap`, {
     method: "POST",
     headers: { ...headers(), "content-type": "application/json" },
@@ -75,7 +76,8 @@ export async function jupiterSwapTx(quote: JupQuote, userPublicKey: string): Pro
       userPublicKey,
       wrapAndUnwrapSol: true,
       dynamicComputeUnitLimit: true,
-      prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: config.priorityFeeMaxLamports, priorityLevel: "veryHigh" } },
+      prioritizationFeeLamports:
+        jitoTipLamports > 0 ? { jitoTipLamports } : { priorityLevelWithMaxLamports: { maxLamports: config.priorityFeeMaxLamports, priorityLevel: "veryHigh" } },
     }),
     retries: 1,
   });

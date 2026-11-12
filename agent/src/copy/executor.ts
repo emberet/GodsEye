@@ -14,7 +14,8 @@ import { fetchParsedOne } from "../chain/history";
 import { noteCopyRpc } from "../chain/rpc-budget";
 import { parseSwap, tradeCostSol } from "../chain/parse";
 import { solUsdAt } from "../market/solprice";
-import { simulateCheck, staticCheck } from "./verify";
+import { jitoSend } from "./jito";
+import { overheadLamports, simulateCheck, staticCheck } from "./verify";
 
 /**
  * SPL Token CloseAccount (instruction 9, the same in Token-2022): an empty token account's rent (~0.002 SOL) goes back to
@@ -205,16 +206,19 @@ export class RealExecutor implements Executor {
   private async execute(side: "buy" | "sell", mint: string, quote: JupQuote, onSigned?: OnSigned): Promise<Fill> {
     const conn = copyConnection();
     const wallet = this.keypair.publicKey;
-    const built = await jupiterSwapTx(quote, wallet.toBase58());
+    const viaJito = config.sendVia === "jito";
+    const tip = viaJito ? config.jitoTipLamports : 0;
+    const built = await jupiterSwapTx(quote, wallet.toBase58(), tip);
     const tx = VersionedTransaction.deserialize(Buffer.from(built.swapTransaction, "base64"));
 
-    const problem = staticCheck(tx, wallet, config.priorityFeeMaxLamports);
+    const problem = staticCheck(tx, wallet, config.priorityFeeMaxLamports, tip);
     if (problem) throw new Error(`refused to sign: ${problem}`);
     await simulateCheck(
       conn, tx, wallet,
       side === "buy"
         ? { side, mint, inLamports: BigInt(quote.inAmount), minTokensOut: BigInt(quote.otherAmountThreshold) }
-        : { side, minLamportsOut: BigInt(quote.otherAmountThreshold) },
+        : { side, mint, minLamportsOut: BigInt(quote.otherAmountThreshold) },
+      { overheadLamports: overheadLamports(config.priorityFeeMaxLamports, tip) },
     );
 
     tx.sign([this.keypair]);
@@ -224,14 +228,19 @@ export class RealExecutor implements Executor {
     const signature = bs58.encode(tx.signatures[0]);
     const lastValid = built.lastValidBlockHeight;
     onSigned?.(signature, lastValid);
-    noteCopyRpc();
-    try {
-      await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 3 });
-    } catch (e) {
-      // The node refused it outright: nothing was sent. Any other failure (a timeout, a dropped connection) may have got
-      // through, so carry on: the re-sends below try again and the chain says what happened.
-      if (e instanceof SendTransactionError) throw e;
+    // Through Jito first when set: it isn't seen in the public queue there. If Jito doesn't take it, the RPC does.
+    const jito = viaJito && (await jitoSend(raw).then(() => true, () => false));
+    if (!jito) {
+      noteCopyRpc();
+      try {
+        await conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 3 });
+      } catch (e) {
+        // The node refused it outright: nothing was sent. Any other failure (a timeout, a dropped connection) may have got
+        // through, so carry on: the re-sends below try again and the chain says what happened.
+        if (e instanceof SendTransactionError) throw e;
+      }
     }
+    let resends = 0;
     // Until it lands or its blockhash expires, the same signed transaction is sent again every second: a single send that
     // a busy leader dropped left buys "expired: block height exceeded". Re-sending costs nothing; it can only land once.
     const landing = await awaitLanding(lastValid, {
@@ -245,6 +254,9 @@ export class RealExecutor implements Executor {
         return conn.getBlockHeight("confirmed");
       },
       resend: () => {
+        // Jito allows about one send a second from this address: every other re-send goes there. After about ten seconds
+        // without landing, the RPC takes the re-sends too (landing beats staying out of the public queue).
+        if (jito && ++resends <= 10) return resends % 2 === 0 ? jitoSend(raw) : Promise.resolve();
         noteCopyRpc();
         return conn.sendRawTransaction(raw, { skipPreflight: true, maxRetries: 0 });
       },

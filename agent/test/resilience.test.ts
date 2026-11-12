@@ -9,7 +9,7 @@ import { retryTiming } from "../src/backoff";
 import { fetchParsed, fetchParsedOne } from "../src/chain/history";
 import { fetchJson, HttpError } from "../src/http";
 import { rpcUsage } from "../src/chain/rpc-budget";
-import { simulateCheck } from "../src/copy/verify";
+import { overheadLamports, simulateCheck } from "../src/copy/verify";
 import { stubFetch } from "./helpers";
 import { config } from "../src/config";
 
@@ -128,12 +128,27 @@ const tokenData = (amount: bigint) => {
   b.writeBigUInt64LE(amount, 64);
   return b.toString("base64");
 };
-function conn(sim: { err?: unknown; postLamports: number; postTokens?: bigint }, preLamports = 10e9): Connection {
+/** Another token the wallet holds: its balance before, and after the simulated swap (null = the account is gone). */
+type Held = { account: PublicKey; mint: string; pre: bigint; post: bigint | null };
+function conn(sim: { err?: unknown; postLamports: number; postTokens?: bigint }, preLamports = 10e9, held: Held[] | "fail" = []): Connection {
   return {
     getAccountInfo: async (k: PublicKey) => (k.equals(MINT) ? { owner: TOKEN_PROGRAM, data: Buffer.alloc(82) } : null),
     getBalance: async () => preLamports,
-    simulateTransaction: async () => ({
-      value: { err: sim.err ?? null, accounts: [{ lamports: sim.postLamports }, sim.postTokens === undefined ? null : { data: [tokenData(sim.postTokens), "base64"] }] },
+    getParsedTokenAccountsByOwner: async (_owner: PublicKey, f: { programId: PublicKey }) => {
+      if (held === "fail") throw new Error("rpc down");
+      const mine = f.programId.equals(TOKEN_PROGRAM) ? held : [];
+      return { value: mine.map((h) => ({ pubkey: h.account, account: { data: { parsed: { info: { mint: h.mint, tokenAmount: { amount: String(h.pre) } } } } } })) };
+    },
+    simulateTransaction: async (_tx: unknown, o: { accounts: { addresses: string[] } }) => ({
+      value: {
+        err: sim.err ?? null,
+        accounts: o.accounts.addresses.map((a, i) => {
+          if (i === 0) return { lamports: sim.postLamports };
+          const h = held === "fail" ? undefined : held.find((x) => x.account.toBase58() === a);
+          if (h) return h.post === null ? null : { data: [tokenData(h.post), "base64"] };
+          return sim.postTokens === undefined ? null : { data: [tokenData(sim.postTokens), "base64"] };
+        }),
+      },
     }),
   } as unknown as Connection;
 }
@@ -150,6 +165,27 @@ test("simulate: refuses a buy that would spend more than planned, or return fewe
 
 test("simulate: refuses a failing simulation, and a sell that returns too little SOL", async () => {
   await assert.rejects(simulateCheck(conn({ err: { InstructionError: [0, "Custom"] }, postLamports: 0 }), tx, wallet, buyPlan), /simulation failed/);
-  await assert.rejects(simulateCheck(conn({ postLamports: 10e9 + 1_000 }), tx, wallet, { side: "sell", minLamportsOut: 50_000_000n }), /would receive/);
-  await simulateCheck(conn({ postLamports: 10e9 + 60_000_000 }), tx, wallet, { side: "sell", minLamportsOut: 50_000_000n });
+  await assert.rejects(simulateCheck(conn({ postLamports: 10e9 + 1_000 }), tx, wallet, { side: "sell", mint: MINT.toBase58(), minLamportsOut: 50_000_000n }), /would receive/);
+  await simulateCheck(conn({ postLamports: 10e9 + 60_000_000 }), tx, wallet, { side: "sell", mint: MINT.toBase58(), minLamportsOut: 50_000_000n });
+});
+
+test("simulate: the SOL slack is rent and fees at their caps, not a flat 0.01 SOL", async () => {
+  const room = overheadLamports(1_000_000);
+  assert.ok(room < 5_000_000, `${room}`);
+  await simulateCheck(conn({ postLamports: 10e9 - 100_000_000 - 3_000_000, postTokens: 5_000n }), tx, wallet, buyPlan);
+  await assert.rejects(simulateCheck(conn({ postLamports: 10e9 - 100_000_000 - 8_000_000, postTokens: 5_000n }), tx, wallet, buyPlan), /would spend/);
+  // A tip is part of the room only when one is allowed.
+  await simulateCheck(conn({ postLamports: 10e9 - 100_000_000 - 4_300_000, postTokens: 5_000n }), tx, wallet, buyPlan, { overheadLamports: overheadLamports(1_000_000, 200_000) });
+});
+
+test("simulate: every other token the wallet holds is watched; a swap that takes any of them, or an unreadable wallet, is refused", async () => {
+  const other = { account: Keypair.generate().publicKey, mint: Keypair.generate().publicKey.toBase58(), pre: 700n };
+  const ok = { postLamports: 10e9 - 100_000_000, postTokens: 5_000n };
+  await simulateCheck(conn(ok, 10e9, [{ ...other, post: 700n }]), tx, wallet, buyPlan);
+  await assert.rejects(simulateCheck(conn(ok, 10e9, [{ ...other, post: 100n }]), tx, wallet, buyPlan), /another of the wallet's holdings/);
+  await assert.rejects(simulateCheck(conn(ok, 10e9, [{ ...other, post: null }]), tx, wallet, buyPlan), /another of the wallet's holdings/);
+  await assert.rejects(simulateCheck(conn(ok, 10e9, "fail"), tx, wallet, buyPlan), /couldn't read the wallet's other tokens/);
+  // The coin being sold is the one that goes down: it isn't counted against the sell.
+  const sold = { account: Keypair.generate().publicKey, mint: MINT.toBase58(), pre: 5_000n, post: 0n };
+  await simulateCheck(conn({ postLamports: 10e9 + 60_000_000 }, 10e9, [sold]), tx, wallet, { side: "sell", mint: MINT.toBase58(), minLamportsOut: 50_000_000n });
 });

@@ -236,3 +236,25 @@ test("engine: a buy refused for its price impact is a skip, not a failed buy, an
   assert.match(row.reason, /^price impact: the quote moves the price 8\.0%/);
   assert.equal((db.prepare("SELECT COUNT(*) n FROM positions").get() as { n: number }).n, 0);
 });
+
+test("verify: a tip to a known Jito tip account is allowed up to the limit; any other transfer is not", async () => {
+  const { JITO_TIP_ACCOUNTS } = await import("../src/chain/programs");
+  const tipAccount = new PublicKey([...JITO_TIP_ACCOUNTS][0]!);
+  const tipped = (lamports: number) => build([SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: tipAccount, lamports }), jupIx]);
+  assert.equal(staticCheck(tipped(200_000), owner.publicKey, 1_000_000, 200_000), null);
+  assert.match(staticCheck(tipped(200_001), owner.publicKey, 1_000_000, 200_000)!, /tips Jito 200001 lamports/);
+  assert.match(staticCheck(tipped(1_000), owner.publicKey, 1_000_000)!, /tips Jito/, "no tip allowed unless sending through Jito");
+  // Two tips add up.
+  const twice = build([
+    SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: tipAccount, lamports: 150_000 }),
+    SystemProgram.transfer({ fromPubkey: owner.publicKey, toPubkey: tipAccount, lamports: 150_000 }),
+    jupIx,
+  ]);
+  assert.match(staticCheck(twice, owner.publicKey, 1_000_000, 200_000)!, /tips Jito 300000/);
+});
+
+test("verify: the priority fee may not pass its cap by more than rounding", () => {
+  const fee = (microLamports: number) => build([ComputeBudgetProgram.setComputeUnitLimit({ units: 1_000_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports }), jupIx]);
+  assert.equal(staticCheck(fee(1_050_000), owner.publicKey, 1_000_000), null); // 1,050,000 lamports
+  assert.match(staticCheck(fee(1_500_000), owner.publicKey, 1_000_000)!, /priority fee/); // 1.5x the cap: refused (was allowed up to 2x)
+});
