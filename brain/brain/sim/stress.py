@@ -47,7 +47,11 @@ def selection_days() -> tuple[str, ...]:
 def test_days() -> tuple[str, ...]:
     """Test days with signals: a buy's 24 h window must end before the label end (crosses_outage), so the day after is empty."""
     from brain.sim.evaluate import data_end_ts
-    last = (data_end_ts() - pd.Timedelta(hours=24) - pd.Timedelta(seconds=1)).normalize()
+    try:
+        end = data_end_ts()
+    except FileNotFoundError:  # no data build here (a fresh data dir, CI): no test day known
+        return ()
+    last = (end - pd.Timedelta(hours=24) - pd.Timedelta(seconds=1)).normalize()
     return tuple(d.strftime("%Y-%m-%d") for d in pd.date_range(splits.test_start(), last, freq="D"))
 
 
