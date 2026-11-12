@@ -123,10 +123,10 @@ async function adoptHeld(db: DB, r: PendingRow, held: HeldTokens, t: AdoptTexts)
     if (!db.prepare("SELECT 1 FROM copy_trades WHERE id=? AND status='pending'").get(r.id) || isOpen()) return false;
     const pos = db
       .prepare(
-        `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at)
-         VALUES (?, ?, ?, 'real', 'open', ?, ?, ?, NULL, NULL, ?, ?, ?, ?)`,
+        `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at, decider)
+         VALUES (?, ?, ?, 'real', 'open', ?, ?, ?, NULL, NULL, ?, ?, ?, ?, COALESCE((SELECT decider FROM copy_trades WHERE id = ?), 'rules'))`,
       )
-      .run(r.mint, r.symbol, r.leader, amount, amount, cost, price, price, now, now);
+      .run(r.mint, r.symbol, r.leader, amount, amount, cost, price, price, now, now, r.id);
     db.prepare("UPDATE copy_trades SET status='filled', token_amount=?, price_sol=?, position_id=?, filled_at=?, error=? WHERE id=?").run(amount, price, Number(pos.lastInsertRowid), now, t.note, r.id);
     return true;
   })();

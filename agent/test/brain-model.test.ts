@@ -114,6 +114,10 @@ test("manifest: the shape is checked against the contract", () => {
   assert.equal(with_((m) => (m.entry.margin_c = 0.5)).entry.margin_c, 0.5);
   assert.deepEqual(with_((m) => (m.entry.categories = { venue_group: ["pumpswap", "other"] })).entry.categories, { venue_group: ["pumpswap", "other"] });
   bad((m) => (m.brain_enabled = "yes"), /brain_enabled: must be true or false/);
+  // real_test (default false): the Brain sleeve's licence, set only by a real-test or a real-test-passing promoted push
+  assert.equal(v.real_test, false);
+  assert.equal(with_((m) => (m.real_test = true)).real_test, true);
+  bad((m) => (m.real_test = "true"), /real_test: must be true or false/);
   bad((m) => (m.entry.margin_c = -1), /margin_c: must be a number ≥ 0/);
   bad((m) => (m.entry.margin_c = "0.5"), /margin_c/);
   bad((m) => (m.entry.categories = ["pumpswap"]), /entry\.categories: not an object/);

@@ -96,7 +96,7 @@ export function getParam(db: DB, key: string, fallback: number): number {
 export function gatherOutcomes(db: DB, minSamples: number): { outcomes: Outcome[]; source: string } {
   const since = new Date(Date.now() - 14 * 86_400_000).toISOString();
   const copies = db
-    .prepare("SELECT leader_win_rate w, pnl_pct r FROM positions WHERE status = 'closed' AND closed_at >= ? AND leader_win_rate IS NOT NULL AND pnl_pct IS NOT NULL")
+    .prepare("SELECT leader_win_rate w, pnl_pct r FROM positions WHERE status = 'closed' AND decider = 'rules' AND closed_at >= ? AND leader_win_rate IS NOT NULL AND pnl_pct IS NOT NULL")
     .all(since) as { w: number; r: number }[];
   if (copies.length >= minSamples) return { outcomes: copies.map((c) => ({ winRate: c.w, ret: c.r })), source: "copy trades" };
   // Shadow copies: 6-hour results; while there are too few of those, 1-hour results so learning can start sooner.

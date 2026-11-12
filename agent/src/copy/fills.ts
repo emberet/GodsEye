@@ -34,6 +34,9 @@ export interface PositionRow {
   peak_pct: number | null;
   /** 1 once the ladder's first part was sold. */
   partial_done: number;
+  /** Who chose the trade: the leader-copy rules, or the Brain sleeve (brain/sleeve.ts). */
+  decider?: "rules" | "brain";
+  brain_paper_id?: number | null;
 }
 
 /** SOL → USD at `atMs` (default: this moment); null if the price is unknown. */
@@ -87,10 +90,11 @@ export function openPositionFromFill(db: DB, o: FillRecord & { mint: string; sym
       Number(
         db
           .prepare(
-            `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate)
-             VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?))`,
+            `INSERT INTO positions (mint, symbol, leader, mode, status, token_amount, tokens_bought, cost_sol, cost_usd, fee_sol, entry_price_sol, last_price_sol, last_price_ts, opened_at, leader_win_rate, decider)
+             VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT win_rate_30d FROM wallet_stats WHERE wallet = ?),
+                     COALESCE((SELECT decider FROM copy_trades WHERE id = ?), 'rules'))`,
           )
-          .run(o.mint, o.symbol, o.leader, o.mode, f.tokenAmount, f.tokenAmount, f.solAmount, usd, f.feeSol ?? null, f.priceSol, f.priceSol, at, at, o.leader).lastInsertRowid,
+          .run(o.mint, o.symbol, o.leader, o.mode, f.tokenAmount, f.tokenAmount, f.solAmount, usd, f.feeSol ?? null, f.priceSol, f.priceSol, at, at, o.leader, o.copyId).lastInsertRowid,
       );
     db.prepare(
       "UPDATE copy_trades SET status='filled', size_sol=?, token_amount=?, price_sol=?, fee_sol=?, signature=COALESCE(?, signature), position_id=?, latency_ms=?, filled_at=?, error=? WHERE id=?",

@@ -81,6 +81,25 @@ export function exitSlippageBps(slipFails: number): number {
 /** Wait before retrying a failed sell: 15 s, 30 s, 60 s … up to 5 min. */
 export const sellRetryMs = (failures: number): number => Math.min(300, 15 * 2 ** Math.max(0, failures - 1)) * 1000;
 
+/** Who a buy is for: the leader-copy rules, or the Brain sleeve with its stake and model. */
+interface BuyCtx {
+  decider: "rules" | "brain";
+  stakeFrac?: number;
+  model?: string | null;
+  audit: DecisionAudit | null | undefined;
+  shadow: ShadowLogger | null;
+}
+
+/** What the engine asks of the Brain sleeve (brain/sleeve.ts). */
+export interface EngineSleeve {
+  /** This leader signal is the sleeve's to decide: the rules leave it alone. */
+  takes(leaderSignature: string): boolean;
+  /** The sleeve's buy of this signal landed (its paper twin may link to the position now). */
+  bought(leaderSignature: string): void;
+  /** The Brain still runs this position (its twin is open and the model licensed): only the hard stops apply. */
+  follows(pos: PositionRow): boolean;
+}
+
 export function isPaused(db: DB): boolean {
   return getMeta(db, "copy_paused") === "1" || fs.existsSync(dataPath("PAUSE"));
 }
@@ -103,6 +122,8 @@ export class CopyEngine {
   /** Throttle for repeated skip messages: key → when it may be shown again, and how many were held back. */
   private quiet = new Map<string, { until: number; held: number }>();
   private balance: { sol: number; at: number } | null = null;
+  /** The Brain sleeve (brain/sleeve.ts), once the runtime has one: which signals it takes, and its positions' exits. */
+  sleeve: EngineSleeve | null = null;
   /** Reads the wallet's SOL (tests put a fake in its place). */
   balanceOf: (wallet: PublicKey) => Promise<number> = walletBalanceSol;
   /** Tokens already reported as not-memecoins today. */
@@ -162,19 +183,20 @@ export class CopyEngine {
    *   key     — what kind of skip (e.g. "balance", "late"); repeats within SKIP_QUIET_MS are held back
    *   account — the reason is GodsEye's own state (no SOL, paused, limits): the copy-log row is throttled too
    */
-  private skip(swap: ParsedSwap, weight: number, symbol: string, key: string, reason: string, account = false): void {
-    this.shadow?.setOutcome(swap, key.split(":")[0]);
-    this.audit?.skipped(swap, key, reason);
+  private skip(swap: ParsedSwap, weight: number, symbol: string, key: string, reason: string, account = false, ctx: BuyCtx = this.rulesCtx()): void {
+    ctx.shadow?.setOutcome(swap, key.split(":")[0]);
+    ctx.audit?.skipped(swap, key, reason);
+    if (ctx.decider === "brain") key = `brain:${key}`; // the sleeve's skips are throttled apart from the rules'
     const now = Date.now();
     const q = this.quiet.get(key);
     const quiet = !!q && now < q.until;
     if (!account || !quiet) {
       this.db
         .prepare(
-          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?)`,
+          `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, created_at, decider)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'skipped', ?, ?, ?, ?)`,
         )
-        .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, swap.side, this.executor.mode, reason, weight, nowIso());
+        .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, swap.side, this.executor.mode, reason, weight, nowIso(), ctx.decider);
     }
     if (quiet) {
       q!.held++;
@@ -182,7 +204,12 @@ export class CopyEngine {
     }
     const held = q?.held ? ` (+${q.held} similar skips in the last ${SKIP_QUIET_MS / 60_000} min)` : "";
     this.quiet.set(key, { until: now + SKIP_QUIET_MS, held: 0 });
-    say("info", `Skipped copying ${short(swap.wallet)}'s ${swap.side} of ${symbol}: ${reason}${held}.`);
+    say("info", `${ctx.decider === "brain" ? "Brain sleeve skipped" : "Skipped copying"} ${short(swap.wallet)}'s ${swap.side} of ${symbol}: ${reason}${held}.`);
+  }
+
+  /** The leader-copy rules' context: the decision audit and the shadow log record their buys. */
+  private rulesCtx(): BuyCtx {
+    return { decider: "rules", audit: this.audit, shadow: this.shadow };
   }
 
   /** Why this token isn't a memecoin, or null if it is one (as far as names and known addresses tell). */
@@ -203,15 +230,15 @@ export class CopyEngine {
 
   /** How much this buy may spend under GodsEye's own limits, or null (skip recorded) if it may not. Counts only
    *  positions and in-flight buys in the current mode. */
-  private async roomFor(swap: ParsedSwap, weight: number, symbol: string): Promise<number | null> {
+  private async roomFor(swap: ParsedSwap, weight: number, symbol: string, ctx: BuyCtx = this.rulesCtx()): Promise<number | null> {
     const mode = this.executor.mode;
-    if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true), null;
+    if (isPaused(this.db)) return this.skip(swap, weight, symbol, "paused", "copying is paused", true, ctx), null;
     // Real money under the risk governor (./risk.ts): size, budget and the day's stop follow what the wallet holds.
     const governed = mode === "real" && !!this.wallet && config.riskGovernor;
     let lim: Limits = { copyMaxTradeSol: config.copyMaxTradeSol, copyBudgetSol: config.copyBudgetSol, copyMinTradeSol: config.copyMinTradeSol };
     if (governed) {
       const l = effectiveLimits(this.db, config, await this.walletSol());
-      if (!l.ok) return this.skip(swap, weight, symbol, l.key, l.reason, true), null;
+      if (!l.ok) return this.skip(swap, weight, symbol, l.key, l.reason, true, ctx), null;
       lim = l;
     }
     const today = new Date().toISOString().slice(0, 10);
@@ -219,62 +246,63 @@ export class CopyEngine {
     // Under the governor the fixed SOL limit stays a ceiling only when it is written in .env.
     if ((!governed || config.fixedInEnv.dailyLoss) && lossToday <= -config.dailyLossLimitSol) {
       void alert(this.db, "daily_stop", `Daily loss limit reached in ${mode} mode (${fmtSol(lossToday)} today). No new buys until tomorrow (UTC); sells and exits keep running.`, today);
-      return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true), null;
+      return this.skip(swap, weight, symbol, "loss-limit", `daily loss limit reached (${fmtSol(lossToday)})`, true, ctx), null;
     }
     const held = this.db
       .prepare("SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN tokens_bought > 0 THEN cost_sol * token_amount / tokens_bought ELSE cost_sol END),0) c FROM positions WHERE status='open' AND mode = ?")
       .get(mode) as { n: number; c: number };
     const flying = this.db.prepare("SELECT COUNT(*) n, COALESCE(SUM(size_sol),0) c FROM copy_trades WHERE side='buy' AND status='pending' AND mode = ?").get(mode) as { n: number; c: number };
     // COPY_MAX_POSITIONS=0: no count limit; the copy budget and the wallet balance below decide how many can be open.
-    if (config.maxPositions > 0 && held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true), null;
+    if (config.maxPositions > 0 && held.n + flying.n >= config.maxPositions) return this.skip(swap, weight, symbol, "max-positions", `already at ${config.maxPositions} open positions`, true, ctx), null;
 
-    let size = copySize(weight, lim);
-    if (size > 0) {
+    // The Brain sleeve stakes its share of the per-trade size, as its paper twin does (stake_frac × the trade size).
+    let size = ctx.stakeFrac !== undefined ? (ctx.stakeFrac * lim.copyMaxTradeSol >= lim.copyMinTradeSol ? Number((ctx.stakeFrac * lim.copyMaxTradeSol).toFixed(6)) : 0) : copySize(weight, lim);
+    if (size > 0 && ctx.decider === "rules") {
       // optional offline quant sizing: off by default, can only reduce the size (see ./quant.ts)
       const q = applyQuantSizing(this.db, swap.wallet, size, weight, lim);
       if (q.log) {
         say("info", `${short(swap.wallet)}: ${q.log}`);
-        this.audit?.check(swap, "quant-size", "pass", q.log);
+        ctx.audit?.check(swap, "quant-size", "pass", q.log);
       }
       size = Math.min(size, q.size);
     }
     if (size <= 0) {
-      this.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${lim.copyMinTradeSol} SOL`);
-      this.audit?.finish(swap, "skipped:size");
+      ctx.audit?.check(swap, "size", "fail", `weight ${(weight * 100).toFixed(1)}% gives less than the minimum trade of ${lim.copyMinTradeSol} SOL`);
+      ctx.audit?.finish(swap, "skipped:size");
       return null;
     }
     size = Math.min(size, lim.copyBudgetSol - held.c - flying.c);
-    if (size < lim.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true), null;
+    if (size < lim.copyMinTradeSol) return this.skip(swap, weight, symbol, "budget", "copy budget fully in use", true, ctx), null;
     if (mode === "real" && this.wallet) {
       const sol = await this.walletSol();
-      if (sol === null) return this.skip(swap, weight, symbol, "risk-unread", "the wallet's balance can't be read right now", true), null;
+      if (sol === null) return this.skip(swap, weight, symbol, "risk-unread", "the wallet's balance can't be read right now", true, ctx), null;
       const balance = sol - flying.c;
       if (balance - config.walletReserveSol < size) {
-        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to the agent's wallet to start copying`, true), null;
+        return this.skip(swap, weight, symbol, "balance", `wallet has ${balance.toFixed(3)} SOL, needs ${(size + config.walletReserveSol).toFixed(3)} — send SOL to the agent's wallet to start copying`, true, ctx), null;
       }
     }
     return size;
   }
 
-  private async copyBuy(swap: ParsedSwap, seenAt: number): Promise<void> {
+  private async copyBuy(swap: ParsedSwap, seenAt: number, ctx: BuyCtx = this.rulesCtx()): Promise<void> {
     const leader = this.db.prepare("SELECT copy_weight FROM wallets WHERE address = ?").get(swap.wallet) as { copy_weight: number } | undefined;
     // QUANT_SKILL_GATE=on (default off): a 'luck' verdict from the quant job zeroes the weight
     const weight = skillGateBlocks(this.db, swap.wallet) ? 0 : (leader?.copy_weight ?? 0);
     if (weight <= 0 || swap.solAmount < config.minLeaderBuySol) return;
-    this.audit?.begin(swap, seenAt, weight); // from here on this buy is a candidate and gets a row in copy_decisions
+    ctx.audit?.begin(swap, seenAt, weight); // from here on this buy is a candidate and gets a row in copy_decisions
     // Never its own coin: buying it would trade on what the agent itself makes happen.
     if (swap.mint === ownCoin(this.db, config)) {
-      this.audit?.check(swap, "not_own_coin", "fail", "this is the agent's own coin");
-      return this.audit?.finish(swap, "ignored:own_coin");
+      ctx.audit?.check(swap, "not_own_coin", "fail", "this is the agent's own coin");
+      return ctx.audit?.finish(swap, "ignored:own_coin");
     }
     if (this.db.prepare("SELECT 1 FROM positions WHERE status='open' AND mint = ?").get(swap.mint)) {
-      this.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
-      return this.audit?.finish(swap, "ignored:holding");
+      ctx.audit?.check(swap, "not_holding", "fail", "a position in this token is already open (a second leader's buy adds nothing)");
+      return ctx.audit?.finish(swap, "ignored:holding");
     }
     // A buy of this coin whose outcome isn't known yet may already hold it: a second one would double the position.
     if (this.db.prepare("SELECT 1 FROM copy_trades WHERE side='buy' AND status='pending' AND mint = ?").get(swap.mint)) {
-      this.audit?.check(swap, "not_holding", "fail", "an earlier buy of this token is still being settled");
-      return this.audit?.finish(swap, "ignored:holding");
+      ctx.audit?.check(swap, "not_holding", "fail", "an earlier buy of this token is still being settled");
+      return ctx.audit?.finish(swap, "ignored:holding");
     }
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([tokenInfo(this.db, swap.mint).catch(() => null), new Promise((r) => (timer = setTimeout(r, NAME_WAIT_MS)))]);
@@ -289,81 +317,92 @@ export class CopyEngine {
         this.notMemeLogged.set(swap.mint, day);
         say("info", `Not copying ${short(swap.wallet)}'s buy of ${symbol}: ${notMeme}.`);
       }
-      return this.audit?.discard(swap);
+      return ctx.audit?.discard(swap);
     }
-    this.audit?.candidate(swap, symbol);
-    this.shadow?.observe(swap, seenAt, weight, symbol); // from here on it is a copyable buy: log it and rug-screen it, whatever happens next
-    noteSocialWarning(this.db, swap, seenAt); // SOCIAL_WARNING=shadow (default off): a private "would have skipped" row, and the copy goes on unchanged
+    ctx.audit?.candidate(swap, symbol);
+    ctx.shadow?.observe(swap, seenAt, weight, symbol); // from here on it is a copyable buy: log it and rug-screen it, whatever happens next
+    if (ctx.decider === "rules") noteSocialWarning(this.db, swap, seenAt); // SOCIAL_WARNING=shadow (default off): a private "would have skipped" row, and the copy goes on unchanged
+    // A signal the Brain sleeve decides (brain/sleeve.ts): the rules leave it to the sleeve, so the two never fight over one
+    // coin and are compared on the same kind of signals.
+    if (ctx.decider === "rules" && this.sleeve?.takes(swap.signature)) {
+      ctx.audit?.check(swap, "sleeve", "fail", "the Brain sleeve decides this signal");
+      return ctx.audit?.finish(swap, "ignored:brain_sleeve");
+    }
     // 2) This trade: too late?
     const lateSec = (seenAt - Date.parse(swap.ts)) / 1000;
-    if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`);
-    this.audit?.check(swap, "lateness", "pass", `${Math.round(lateSec)}s after the leader traded (limit ${config.maxCopyDelaySeconds}s)`);
+    if (lateSec > config.maxCopyDelaySeconds) return this.skip(swap, weight, symbol, "late", `seen ${Math.round(lateSec)}s after the leader traded`, false, ctx);
+    ctx.audit?.check(swap, "lateness", "pass", `${Math.round(lateSec)}s after the leader traded (limit ${config.maxCopyDelaySeconds}s)`);
     // 2b) The Brain's hard gates (COPY_BRAIN_GATES, owner-approved): a pumpswap coin priced ≥ 1e-4 SOL a token, an AMM coin
     // first seen under 10 min ago. The screen gate is left to the rug check below (stricter: LP_MIN_LOCKED_PCT, fail closed).
     if (config.copyBrainGates) {
       const signal = { solAmount: swap.solAmount, priceSol: swap.priceSol, venue: swap.venue, t: Date.parse(swap.ts) };
-      const ctx = { now: seenAt, firstSeenAt: firstSeenAt(this.db, swap.mint, seenAt), screen: null, minLeaderBuySol: config.minLeaderBuySol, maxLateSec: config.maxCopyDelaySeconds };
-      const g = gate(signal, ctx);
-      if (g) return this.skip(swap, weight, symbol, `gate:${g}`, `brain gate ${g}: ${gateReason(g, signal, ctx)}`);
-      this.audit?.check(swap, "brain_gates", "pass", "no hard gate (pumpswap price, young AMM coin) fires");
+      const gctx = { now: seenAt, firstSeenAt: firstSeenAt(this.db, swap.mint, seenAt), screen: null, minLeaderBuySol: config.minLeaderBuySol, maxLateSec: config.maxCopyDelaySeconds };
+      const g = gate(signal, gctx);
+      if (g) return this.skip(swap, weight, symbol, `gate:${g}`, `brain gate ${g}: ${gateReason(g, signal, gctx)}`, false, ctx);
+      ctx.audit?.check(swap, "brain_gates", "pass", "no hard gate (pumpswap price, young AMM coin) fires");
     }
     // 3) GodsEye's own state (a quick look first, so the rug check isn't spent on a buy that can't happen)
-    if ((await this.roomFor(swap, weight, symbol)) === null) return;
-    this.audit?.check(swap, "limits", "pass", "budget, positions, daily loss, balance and pause all allow it");
+    if ((await this.roomFor(swap, weight, symbol, ctx)) === null) return;
+    ctx.audit?.check(swap, "limits", "pass", "budget, positions, daily loss, balance and pause all allow it");
     // 4) The token itself (also blocks tokens that can still be minted — most bridged tokens)
     if (config.rugCheckEnabled) {
       const look = await rugLook(this.db, swap.mint, symbol);
-      this.audit?.rug(swap, look.verdict, look.why ? UNFINISHED_TEXT[look.why] : undefined);
+      ctx.audit?.rug(swap, look.verdict, look.why ? UNFINISHED_TEXT[look.why] : undefined);
       // Fail closed: a look that couldn't be finished is no buy, whatever it had found so far.
-      if (!look.verdict) return this.skip(swap, weight, symbol, `unverified:${look.why}`, `rug check not finished: ${UNFINISHED_TEXT[look.why]}`);
-      if (look.verdict.verdict !== "pass") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${look.verdict.blocks.join("; ")}`);
+      if (!look.verdict) return this.skip(swap, weight, symbol, `unverified:${look.why}`, `rug check not finished: ${UNFINISHED_TEXT[look.why]}`, false, ctx);
+      if (look.verdict.verdict !== "pass") return this.skip(swap, weight, symbol, `rug:${swap.mint}`, `rug check: ${look.verdict.blocks.join("; ")}`, false, ctx);
     }
 
     // 5) Check the limits again and reserve the buy, under the buy gate.
     const reserved = await this.withBuyGate(async () => {
       if (this.stopping) return "stopping" as const;
-      const size = await this.roomFor(swap, weight, symbol);
+      const size = await this.roomFor(swap, weight, symbol, ctx);
       if (size === null) return null;
       // The pending row, its proof entry and the link between them are written in one step: a crash never leaves one without the other.
       return this.db.transaction(() => {
         const row = this.db
           .prepare(
-            `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, created_at)
-             VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?)`,
+            `INSERT OR IGNORE INTO copy_trades (leader, leader_signature, leader_ts, mint, symbol, side, mode, status, reason, weight, size_sol, created_at, decider)
+             VALUES (?, ?, ?, ?, ?, 'buy', ?, 'pending', ?, ?, ?, ?, ?)`,
           )
-          .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode, `leader bought ${swap.solAmount.toFixed(3)} SOL`, weight, size, nowIso());
+          .run(swap.wallet, swap.signature, swap.ts, swap.mint, symbol, this.executor.mode,
+            ctx.decider === "brain" ? `Brain sleeve: stake ${Math.round((ctx.stakeFrac ?? 0) * 100)}% of a trade (model ${ctx.model ?? "?"})` : `leader bought ${swap.solAmount.toFixed(3)} SOL`,
+            weight, size, nowIso(), ctx.decider);
         if (row.changes === 0) return null; // already handled this leader trade
         const copyId = Number(row.lastInsertRowid);
-        const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode });
+        const proof = commitProof(this.db, "copy_buy", { leader: swap.wallet, leader_signature: swap.signature, mint: swap.mint, symbol, size_sol: size, weight, mode: this.executor.mode, ...(ctx.decider === "brain" ? { decider: "brain", stake_frac: ctx.stakeFrac, model: ctx.model ?? null } : {}) });
         this.db.prepare("UPDATE copy_trades SET proof_id=? WHERE id=?").run(proof.id, copyId);
         return { size, copyId };
       })();
     });
     if (reserved === "stopping") {
-      this.audit?.check(swap, "reserve", "fail", "the agent is stopping");
-      return this.audit?.finish(swap, "ignored:stopping");
+      ctx.audit?.check(swap, "reserve", "fail", "the agent is stopping");
+      return ctx.audit?.finish(swap, "ignored:stopping");
     }
     if (!reserved) {
-      this.audit?.check(swap, "reserve", "fail", "this leader trade was already handled");
-      return this.audit?.finish(swap, "ignored:duplicate");
+      ctx.audit?.check(swap, "reserve", "fail", "this leader trade was already handled");
+      return ctx.audit?.finish(swap, "ignored:duplicate");
     }
     const { size, copyId } = reserved;
     try {
       const fill = await this.executor.buy(swap.mint, size, this.onSigned(copyId));
       openPositionFromFill(this.db, { copyId, fill, latencyMs: Date.now() - Date.parse(swap.ts), mint: swap.mint, symbol, leader: swap.wallet, mode: this.executor.mode });
-      this.shadow?.setOutcome(swap, "bought");
-      this.audit?.check(swap, "execution", "pass", `${this.executor.mode} fill at ${fill.priceSol}`);
-      this.audit?.finish(swap, "bought", { sizeSol: fill.solAmount });
+      ctx.shadow?.setOutcome(swap, "bought");
+      ctx.audit?.check(swap, "execution", "pass", `${this.executor.mode} fill at ${fill.priceSol}`);
+      ctx.audit?.finish(swap, "bought", { sizeSol: fill.solAmount });
       this.balance = null; // the wallet just spent SOL
       this.openMints = null; // the stream now prices this coin too
-      say("trade", `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
+      if (ctx.decider === "brain") this.sleeve?.bought(swap.signature);
+      say("trade", ctx.decider === "brain"
+        ? `Brain sleeve bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL after ${short(swap.wallet)}'s buy (${this.executor.mode}, ${Math.round((ctx.stakeFrac ?? 0) * 100)}% stake).`
+        : `Copied ${short(swap.wallet)}: bought ${symbol} for ${fill.solAmount.toFixed(4)} SOL (${this.executor.mode}, weight ${(weight * 100).toFixed(0)}%).`);
     } catch (e) {
       if (e instanceof RouteRefused) {
         // Refused before anything was signed: a skip, not a failed buy.
         this.db.prepare("UPDATE copy_trades SET status='skipped', reason=? WHERE id=? AND status='pending'").run(e.message, copyId);
-        this.shadow?.setOutcome(swap, e.kind);
-        this.audit?.check(swap, e.kind === "impact" ? "price_impact" : "route_pools", "fail", e.message);
-        this.audit?.finish(swap, `skipped:${e.kind}`, { sizeSol: size });
+        ctx.shadow?.setOutcome(swap, e.kind);
+        ctx.audit?.check(swap, e.kind === "impact" ? "price_impact" : "route_pools", "fail", e.message);
+        ctx.audit?.finish(swap, `skipped:${e.kind}`, { sizeSol: size });
         say("info", `Skipped copying ${short(swap.wallet)}'s buy of ${symbol}: ${e.message}.`);
         return;
       }
@@ -371,23 +410,47 @@ export class CopyEngine {
         // Sent, but not seen to land or to expire. The row stays pending (its size stays reserved) and the settle step
         // reads the outcome from the chain: calling it failed here is how a buy that landed was once lost.
         this.keepPending(copyId, e);
-        this.shadow?.setOutcome(swap, "unsettled");
-        this.audit?.check(swap, "execution", "error", "sent, outcome not known yet");
-        this.audit?.finish(swap, "unsettled", { sizeSol: size });
+        ctx.shadow?.setOutcome(swap, "unsettled");
+        ctx.audit?.check(swap, "execution", "error", "sent, outcome not known yet");
+        ctx.audit?.finish(swap, "unsettled", { sizeSol: size });
         this.balance = null; // it may have spent SOL
         say("warn", `Copy buy of ${symbol}: sent, but its outcome isn't known yet. Settling it from the chain.`);
         return;
       }
       this.db.prepare("UPDATE copy_trades SET status='failed', error=? WHERE id=? AND status='pending'").run((e as Error).message.slice(0, 500), copyId);
-      this.shadow?.setOutcome(swap, "buy_failed");
-      this.audit?.check(swap, "execution", "error", (e as Error).message.slice(0, 200));
-      this.audit?.finish(swap, "buy_failed", { sizeSol: size });
+      ctx.shadow?.setOutcome(swap, "buy_failed");
+      ctx.audit?.check(swap, "execution", "error", (e as Error).message.slice(0, 200));
+      ctx.audit?.finish(swap, "buy_failed", { sizeSol: size });
       say("error", `Copy buy of ${symbol} failed: ${(e as Error).message.slice(0, 200)}`);
     }
   }
 
+  /**
+   * The Brain sleeve's buy (brain/sleeve.ts): the leader's buy the paper Brain account just took, staked at `stakeFrac` of
+   * the per-trade size. Every check of a copy applies (the governor's limits, the rug screen, the checks before signing);
+   * only the leader's weight doesn't size it. Resolves once it is done; never throws.
+   */
+  async brainBuy(swap: ParsedSwap, seenAt: number, stakeFrac: number, model: string | null): Promise<void> {
+    if (!(stakeFrac > 0)) return;
+    const ctx: BuyCtx = { decider: "brain", stakeFrac: Math.min(1, stakeFrac), model, audit: null, shadow: null };
+    await this.withLock(swap.mint, () => this.copyBuy(swap, seenAt, ctx)).catch((e: Error) => say("error", `Brain sleeve buy failed: ${e.message.slice(0, 200)}`));
+  }
+
+  /** The Brain sleeve's sell: the same share of the real position as its paper twin just sold (1 = all of it). */
+  async brainSell(positionId: number, fraction: number, reason: string): Promise<boolean> {
+    const pos = this.db.prepare("SELECT * FROM positions WHERE id = ? AND status='open' AND decider = 'brain'").get(positionId) as PositionRow | undefined;
+    if (!pos) return false;
+    return this.withLock(pos.mint, async () => {
+      const fresh = this.db.prepare("SELECT * FROM positions WHERE id = ? AND status='open'").get(positionId) as PositionRow | undefined;
+      if (!fresh) return false;
+      const all = fraction >= 0.99;
+      return this.sellPosition(fresh, all ? fresh.token_amount : fresh.token_amount * fraction, all, `Brain sleeve: ${reason}`);
+    });
+  }
+
   private async copySell(swap: ParsedSwap): Promise<void> {
-    const pos = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mint = ? AND leader = ?").get(swap.mint, swap.wallet) as PositionRow | undefined;
+    // A leader's sell is mirrored by the rules' positions only: a Brain position follows its paper twin.
+    const pos = this.db.prepare("SELECT * FROM positions WHERE status='open' AND mint = ? AND leader = ? AND decider = 'rules'").get(swap.mint, swap.wallet) as PositionRow | undefined;
     if (!pos) return;
     const fraction = swap.tokenBalanceBefore > 0 ? Math.min(1, swap.tokenAmount / swap.tokenBalanceBefore) : 1;
     const all = fraction >= 0.9;
@@ -581,8 +644,22 @@ export class CopyEngine {
    * The same rule for the minute job (price API, or a sell quote for a coin it has no price for) and the live stream.
    * A price exit is confirmed by a sell quote first.
    */
-  private async checkExit(pos: PositionRow, price: number, exits: Exits, source: "feed" | "stream" | "quote"): Promise<void> {
+  /**
+   * A Brain position the Brain still runs (its paper twin open, the model licensed: EngineSleeve.follows) gets only the hard
+   * stops, as its twin does (BRAIN_HARD_STOP_PCT, BRAIN_MAX_HOLD_HOURS): its twin's sells do the rest. One the Brain has
+   * gone quiet on falls back to the rules' exits.
+   */
+  private exitsFor(pos: PositionRow, exits: Exits): { exits: Exits; maxHoldH: number } {
+    if (pos.decider !== "brain" || !this.sleeve?.follows(pos)) return { exits, maxHoldH: config.maxHoldHours };
+    return {
+      exits: { ...exits, stopLossPct: config.brainHardStopPct, takeProfitPct: Infinity, partialTpPct: 0, trailStopPct: 0, trailArmPct: 0, reason: "Brain sleeve: hard stops only" },
+      maxHoldH: config.brainMaxHoldHours,
+    };
+  }
+
+  private async checkExit(pos: PositionRow, price: number, rulesExits: Exits, source: "feed" | "stream" | "quote"): Promise<void> {
     if (!(pos.tokens_bought > 0) || !Number.isFinite(price) || price <= 0) return;
+    const { exits, maxHoldH } = this.exitsFor(pos, rulesExits);
     if (this.checking.has(pos.id)) return; // a check of this position (and its sell) is already under way
     this.checking.add(pos.id);
     try {
@@ -601,7 +678,7 @@ export class CopyEngine {
         : null;
       const label = { stop: "stop-loss", trail: `trailing stop (${exits.trailStopPct}% below its best, +${peak.toFixed(0)}%)`, take: "take-profit", ladder: `took ${Math.round(exits.partialFraction * 100)}% off` };
       let kind = exitAt(pct);
-      let reason: string | null = kind ? `${label[kind]} at ${fmtPct(pct)}${source === "stream" ? " (stream)" : ""}` : ageH >= config.maxHoldHours ? `held ${config.maxHoldHours}h without the leader selling` : null;
+      let reason: string | null = kind ? `${label[kind]} at ${fmtPct(pct)}${source === "stream" ? " (stream)" : ""}` : ageH >= maxHoldH ? `held ${maxHoldH}h without ${pos.decider === "brain" ? "the Brain selling" : "the leader selling"}` : null;
       if (!reason) return;
       const backoff = this.sellFailures.get(pos.id);
       if (backoff && Date.now() < backoff.until) return;

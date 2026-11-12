@@ -225,8 +225,20 @@ export interface PaperDeps {
   lastTracked?(mint: string, t: number): { price: number; at: number } | null;
   /** The one Jupiter bucket (default the process's quotes.ts jupiterBucket). */
   bucket?: JupiterBucket;
+  /** The Brain sleeve (brain/sleeve.ts): told of the Brain account's entries, opens and sells. Nothing here waits for it. */
+  sleeve?: PaperSleeve;
   /** The mark model for prices with no fresh quote (default quotes.ts quoteModel(): BRAIN_DIR/quote_model.json or the default). */
   quoteModel?(now: number): QuoteModel;
+}
+
+/** What the paper Brain account tells the Brain sleeve, which follows it with real money (brain/sleeve.ts). */
+export interface PaperSleeve {
+  /** The Brain account took this signal at `stakeFrac` (before the copy delay: the real buy shouldn't wait it out). */
+  entry(signal: LeaderBuy, stakeFrac: number, modelVersion: string | null): void;
+  /** Its paper position for this signal opened. */
+  opened(paperId: number, leaderSignature: string): void;
+  /** It sold `fraction` of what the position still held (1 = all; `closed` = the position is closed now). */
+  sold(paperId: number, fraction: number, closed: boolean, reason: string): void;
 }
 
 /** An entry waiting out the copy delay: it holds its budget, cash and coin, and collects the leader's sells meanwhile. */
@@ -474,6 +486,7 @@ export class PaperBook {
         for (const p of go) if (p.tid) closeEntryUnfilled(this.db, p.tid, "rug check");
         return;
       }
+      for (const p of go) if (p.account === "brain") this.deps.sleeve?.entry(s, p.frac, p.decision?.modelVersion ?? null);
       const wait = s.t + this.delayMs(now) - this.deps.now();
       if (wait > 0) await this.deps.wait(wait);
       for (const p of go) await this.fill(s, p);
@@ -532,6 +545,7 @@ export class PaperBook {
     })();
     // In the same synchronous step as the insert: from here on a leader sell finds the open position, not the reservation.
     this.unpend(s.mint, p);
+    if (p.account === "brain") this.deps.sleeve?.opened(id, s.signature);
     this.openMints = null;
     // The leader's buy is the coin's latest tracked price: it starts the filter when nothing else has.
     if (!this.filters.has(s.mint)) {
@@ -981,6 +995,7 @@ export class PaperBook {
       if (o.transition) recordTransition(this.db, o.transition);
       if (closed) this.close(pos, pnl, reason, now);
     })();
+    if (pos.account === "brain") this.deps.sleeve?.sold(pos.id, closed || all ? 1 : tokens / pos.tokens_left, closed, reason);
     return true;
   }
 
@@ -1002,6 +1017,7 @@ export class PaperBook {
       if (transition) recordTransition(this.db, { ...transition, info: { ...transition.info, forced } });
       this.close(pos, pnl, reason, now);
     })();
+    if (pos.account === "brain") this.deps.sleeve?.sold(pos.id, 1, true, reason);
   }
 
   private close(pos: PaperPosition, pnl: number, reason: string, now: number): void {

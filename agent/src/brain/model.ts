@@ -44,6 +44,9 @@ export interface BrainManifest {
   exit: BrainNetSpec & { file: string; actions: string[] };
   /** false = an explore-only bundle (the gate's exit 3): the Brain account skips every signal. Default true. */
   brain_enabled: boolean;
+  /** true = the bundle passed the gate's real-test check (exit 5, or a promotion that passed it): the Brain sleeve may
+   *  follow it with real money (brain/sleeve.ts). Default false. */
+  real_test: boolean;
   explore: { rate: number; curiosity: number };
   metrics: Record<string, unknown>;
   sha256: Record<string, string>;
@@ -169,6 +172,7 @@ export function validateManifest(raw: unknown, opts: ManifestChecks = {}): Brain
   if (!isStrArr(x.actions) || x.actions.join() !== EXIT_ACTIONS.join()) throw new Error(`exit.actions: must be ${EXIT_ACTIONS.join(", ")}`);
   if (opts.exitColumns && !sameList(exit.features, opts.exitColumns)) throw new Error(`exit.features: not the ${opts.exitColumns.length} columns this runtime computes (features.yaml)`);
   if (raw.brain_enabled !== undefined && typeof raw.brain_enabled !== "boolean") throw new Error("brain_enabled: must be true or false");
+  if (raw.real_test !== undefined && typeof raw.real_test !== "boolean") throw new Error("real_test: must be true or false");
 
   const ex = raw.explore;
   if (!isObj(ex) || typeof ex.rate !== "number" || !(ex.rate >= 0 && ex.rate <= 1)) throw new Error("explore.rate: must be in [0, 1]");
@@ -187,6 +191,7 @@ export function validateManifest(raw: unknown, opts: ManifestChecks = {}): Brain
     entry: { ...entry, members: e.members, actions: acts, margin_c: marginC, categories: cats },
     exit: { ...exit, file: x.file, actions: x.actions },
     brain_enabled: raw.brain_enabled !== false,
+    real_test: raw.real_test === true,
     explore: { rate: ex.rate, curiosity: ex.curiosity },
     metrics: isObj(raw.metrics) ? raw.metrics : {},
     sha256: sha as Record<string, string>,

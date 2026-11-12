@@ -130,14 +130,14 @@ const SMART_WALLET: ShapeOf<SmartWalletRow> = {
 
 /** A copy decision reduced to its outcome. `signature` is the agent's own transaction: it would give its wallet away. */
 const TRADE: ShapeOf<CopyTrade> = {
-  id: 1, leader: 1, leader_ts: 1, mint: 1, symbol: 1, side: 1, mode: 1, status: 1, size_sol: 1, token_amount: 1,
+  id: 1, decider: 1, leader: 1, leader_ts: 1, mint: 1, symbol: 1, side: 1, mode: 1, status: 1, size_sol: 1, token_amount: 1,
   price_sol: 1, fee_sol: 1, position_id: 1, created_at: 1, filled_at: 1, proof_hash: 1,
   reason: (t) => (t.status === "skipped" ? "Skipped by GodsEye's safety checks" : null),
   error: (t) => (t.status === "failed" ? "The trade did not go through" : null),
   weight: HIDDEN, latency_ms: HIDDEN, signature: 0, leader_signature: 0,
 };
 const POSITION: ShapeOf<Position> = {
-  id: 1, mint: 1, symbol: 1, leader: 1, mode: 1, status: 1, token_amount: 1, tokens_bought: 1, cost_sol: 1, proceeds_sol: 1,
+  id: 1, decider: 1, mint: 1, symbol: 1, leader: 1, mode: 1, status: 1, token_amount: 1, tokens_bought: 1, cost_sol: 1, proceeds_sol: 1,
   cost_usd: 1, proceeds_usd: 1, pnl_usd: 1, fee_sol: 1, entry_price_sol: 1, last_price_sol: 1, last_price_ts: 1, opened_at: 1,
   closed_at: 1, exit_reason: exitReason, pnl_sol: 1, pnl_pct: 1, unrealized_sol: 1, unrealized_pct: 1, unrealized_usd: 1,
 };

@@ -42,6 +42,7 @@ import { runXResearch } from "./x/calls";
 import { loadOrCreateWallet, walletBalanceAt, walletHoldings, walletTokenBalance } from "./wallet/wallet";
 import { reconcile, recoverPending, settleMissing, settleSigned, sweepWallet } from "./copy/recovery";
 import { riskLook } from "./copy/risk";
+import { BrainSleeve } from "./brain/sleeve";
 import { scanFlows, walletFlowSource } from "./funding/ledger";
 import { runRewards } from "./creator/rewards";
 import { copyConnection } from "./rpc";
@@ -335,7 +336,21 @@ async function main() {
     // The Brain (brain/): paper money only. Its paper accounts trade every streamed signal and pick up each model the Mac
     // pushes; nothing reaches the real engine, and the real pause doesn't stop them.
     if (config.brainMode !== "off") {
-      const brain = new BrainRuntime(db);
+      // The Brain sleeve (brain/sleeve.ts): real copies the Brain decides, only while the loaded model is licensed
+      // (real_test). Off with REAL_DECIDER=rules.
+      let brainRef: BrainRuntime | null = null;
+      const sleeve = new BrainSleeve(db, engine, {
+        licensed: () => {
+          const m = brainRef?.models.model;
+          return m && m.manifest.brain_enabled && m.manifest.real_test ? { version: m.version } : null;
+        },
+        decider: config.realDecider,
+        maxDelaySeconds: config.brainSleeveMaxDelaySeconds,
+      });
+      const brain = new BrainRuntime(db, { sleeve });
+      brainRef = brain;
+      engine.sleeve = sleeve;
+      every("*/5 * * * *", () => void job("brain sleeve", async () => sleeve.step(), false));
       live.brain = brain;
       // Brain jobs log to the server console only (never say(): its inputs include the private social score).
       const quiet = (name: string, fn: () => Promise<void>) => () =>

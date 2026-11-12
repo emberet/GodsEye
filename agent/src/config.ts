@@ -245,6 +245,13 @@ export const readConfig = () => ({
   riskMinEquitySol: envNum("RISK_MIN_EQUITY_SOL", 0.5),
   /** SOL leaving the wallet that no trade explains and the owner didn't announce: above this the agent pauses itself. */
   fundingOutflowPauseSol: envNum("FUNDING_OUTFLOW_PAUSE_SOL", 0.02),
+  // ---- The Brain sleeve (brain/sleeve.ts): real copies the Brain decides, once a model passed the real-test check ----
+  /** auto (default) = the sleeve takes its share of signals while the loaded model is licensed (real_test), else rules
+   *  only · rules = never · split = as auto · brain = every signal to the sleeve while licensed. */
+  realDecider: envOneOf("REAL_DECIDER", ["auto", "rules", "split", "brain"], "auto"),
+  /** The sleeve buys only this soon after the leader traded: a slow decision is no trade (the rules never wait on it). */
+  brainSleeveMaxDelaySeconds: envNum("BRAIN_SLEEVE_MAX_DELAY_SECONDS", 20),
+
   // ---- Creator rewards (creator/rewards.ts): GodsEye's own pump.fun coin, launched from the agent's wallet ----
   /** off (default) · dry = works out and simulates what it would do, signs nothing · on. */
   creatorRewards: envOneOf("CREATOR_REWARDS", ["off", "dry", "on"], "off"),

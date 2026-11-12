@@ -24,8 +24,8 @@ function weightInputs(db: DB, gates = true) {
   const rows = db
     .prepare(
       `SELECT w.address, w.tier, w.is_fresh, w.copy_weight, s.pnl_7d_sol, s.pnl_30d_sol, s.pnl_7d_usd, s.pnl_30d_usd, s.closed_30d, s.win_rate_30d,
-              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?), 0) copy_pnl,
-              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.mode = ? AND p.closed_at >= ?) copy_closed,
+              COALESCE((SELECT SUM(pnl_sol) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.decider = 'rules' AND p.mode = ? AND p.closed_at >= ?), 0) copy_pnl,
+              (SELECT COUNT(*) FROM positions p WHERE p.leader = w.address AND p.status='closed' AND p.decider = 'rules' AND p.mode = ? AND p.closed_at >= ?) copy_closed,
               sw.lead_n, sw.lead_median_6h
          FROM wallets w JOIN wallet_stats s ON s.wallet = w.address LEFT JOIN smart_wallets sw ON sw.address = w.address
         WHERE w.shadow_only = 0`,

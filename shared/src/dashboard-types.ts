@@ -219,6 +219,7 @@ export interface WeightChange {
 
 export interface CopyTrade {
   id: number;
+  decider?: "rules" | "brain";
   leader: string;
   leader_signature: string;
   leader_ts: string;
@@ -246,6 +247,8 @@ export interface CopyTrade {
 
 export interface Position {
   id: number;
+  /** Who chose the trade: the leader-copy rules, or the Brain sleeve. */
+  decider?: "rules" | "brain";
   mint: string;
   symbol: string | null;
   leader: string;

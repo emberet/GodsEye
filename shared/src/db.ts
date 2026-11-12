@@ -46,8 +46,10 @@ const ADDED_COLUMNS: Record<string, Record<string, string>> = {
   wallet_swaps: { quote: "TEXT NOT NULL DEFAULT 'SOL'", quote_amount: "REAL", sol_usd: "REAL", usd_amount: "REAL", ins_ms: "INTEGER" },
   token_info: { pool_address: "TEXT", launch_checked_at: "TEXT" },
   wallet_stats: { pnl_7d_usd: "REAL", pnl_30d_usd: "REAL", pnl_all_usd: "REAL", avg_buy_usd: "REAL", median_hold_sec: "REAL", same_block_round_trips: "INTEGER NOT NULL DEFAULT 0" },
-  positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL", fee_sol: "REAL", peak_pct: "REAL", partial_done: "INTEGER NOT NULL DEFAULT 0" },
-  copy_trades: { fee_sol: "REAL", last_valid_height: "INTEGER" },
+  // decider: who chose the trade, 'rules' (the leader-copy rules) or 'brain' (the Brain sleeve, brain/sleeve.ts);
+  // brain_paper_id: a Brain position's paper twin (brain_paper_positions.id), whose sells it follows.
+  positions: { cost_usd: "REAL", proceeds_usd: "REAL NOT NULL DEFAULT 0", pnl_usd: "REAL", leader_win_rate: "REAL", fee_sol: "REAL", peak_pct: "REAL", partial_done: "INTEGER NOT NULL DEFAULT 0", decider: "TEXT NOT NULL DEFAULT 'rules'", brain_paper_id: "INTEGER" },
+  copy_trades: { fee_sol: "REAL", last_valid_height: "INTEGER", decider: "TEXT NOT NULL DEFAULT 'rules'" },
   wallet_activity: { live_pnl_usd: "REAL NOT NULL DEFAULT 0" },
   smart_flows: { wallet_win_rate: "REAL", returns_cleaned: "INTEGER NOT NULL DEFAULT 1" },
 };

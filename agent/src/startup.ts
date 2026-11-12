@@ -96,6 +96,7 @@ export function settingsReport(c: Config, paused: boolean): string[] {
     }),
     // The payout wallet: whether it is filled in, never what it holds.
     row("creator", { CREATOR_REWARDS: c.creatorRewards, CREATOR_TRADING_SHARE: c.creatorTradingShare, CREATOR_PAYOUT_WALLET: c.creatorPayoutWallet ? "set" : "empty", CREATOR_MINT: c.creatorMint ? "set" : "empty", CREATOR_MIN_CLAIM_SOL: c.creatorMinClaimSol }),
+    row("brain", { BRAIN_MODE: c.brainMode, REAL_DECIDER: c.realDecider, BRAIN_SLEEVE_MAX_DELAY_SECONDS: c.brainSleeveMaxDelaySeconds }),
     row("research", { SHADOW_ENABLED: c.shadowEnabled, QUANT_SIZING: c.quantSizing, QUANT_SKILL_GATE: c.quantSkillGate, SOCIAL_WARNING: c.socialWarning }),
     // Whether each is filled in, never what it holds.
     row("alerts", { TELEGRAM_BOT_TOKEN: c.telegramBotToken ? "set" : "empty", TELEGRAM_CHAT_ID: c.telegramChatId ? "set" : "empty" }),
