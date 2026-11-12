@@ -3,7 +3,8 @@ import { openDb, setMeta } from "@godseye/shared";
 import { loadOrCreateWallet, walletBalanceSol, walletFile } from "./wallet";
 
 const db = openDb();
-const { keypair, created } = loadOrCreateWallet(db);
+// The owner asked for the wallet, so this command may make one in any mode (the agent itself never does in real mode).
+const { keypair, created } = loadOrCreateWallet(db, false);
 console.log(created ? "New GodsEye wallet created!" : "GodsEye wallet:");
 console.log(`   Address (public, safe to share): ${keypair.publicKey.toBase58()}`);
 console.log(`   Secret key file (NEVER share):   ${walletFile()}`);
