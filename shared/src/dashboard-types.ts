@@ -16,7 +16,54 @@ export interface RiskLimits {
   fromHighPct: number;
   stoppedToday: boolean;
   selfPaused: boolean;
-  rails: { maxTradePct: number; dailyStopPct: number; drawdownPausePct: number };
+  /** Why the next trade is 0: too little to trade with, the day's stop, or another hold. null = it may buy. */
+  blocked: "small" | "day" | "other" | null;
+  rails: { maxTradePct: number; dailyStopPct: number; drawdownPausePct: number; minEquitySol: number };
+}
+
+/** Real-money results of the copies one side decided (positions.decider), over the P&L period. */
+export interface DeciderResult {
+  decider: "rules" | "brain";
+  closed: number;
+  won: number;
+  pnlSol: number;
+  /** null when a closed copy has no dollar value. */
+  pnlUsd: number | null;
+  open: number;
+}
+
+/**
+ * The Brain sleeve (agent/src/brain/sleeve.ts). on = a model passed the real-money check and decides its share of the
+ * signals · waiting = no such model yet, the rules decide every copy · off = the owner set the rules to decide all.
+ */
+export interface SleeveInfo {
+  state: "on" | "waiting" | "off";
+  /** The share of signals the Brain decides while on (0–100). */
+  sharePct: number | null;
+}
+
+/** What changed over the last 7 days. */
+export interface WeekLearned {
+  /** Wallets it started copying, stopped copying, and backed more or less. */
+  started: number;
+  stopped: number;
+  raised: number;
+  lowered: number;
+  /** Times a learned rule moved. */
+  ruleChanges: number;
+  /** Copies that closed (current mode). */
+  closedCopies: number;
+  /** The Brain's model in use, and when it was trained. */
+  modelVersion: string | null;
+  modelTrainedAt: string | null;
+}
+
+/** SOL that moved in and out of the wallet without a trade (wallet_flows), all time. Never trading profit. */
+export interface FundingTotals {
+  depositsSol: number;
+  withdrawalsSol: number;
+  rewardsInSol: number;
+  payoutsSol: number;
 }
 
 export interface Summary {
@@ -59,6 +106,13 @@ export interface Summary {
   lastDiscoveryAt: string | null;
   /** The risk governor's limits right now (agent/src/copy/risk.ts); null in paper mode or before its first look. */
   limits: RiskLimits | null;
+  /** Real money only: results by who decided, and the Brain sleeve's state. null in paper mode. */
+  real: { deciders: DeciderResult[]; sleeve: SleeveInfo } | null;
+  week: WeekLearned;
+  /** null until the first deposit, withdrawal or reward is recorded. */
+  funding: FundingTotals | null;
+  /** The same totals with no start date, when the money figures count from pnlSince; null when they already are all-time. */
+  allTime: { closedPositions: number; realizedPnlSol: number; realizedPnlUsd: number | null } | null;
   stream: {
     enabled: boolean;
     status: StreamStatus | null;
@@ -580,12 +634,13 @@ export interface PaperTradeRow {
   closed_at: string;
 }
 
-/** The model the Brain account trades with. Only the trainer's validation, stress and baseline numbers are shown. */
+/** The model the Brain account trades with: when it was made and whether it may trade real money. No scores, inputs or thresholds. */
 export interface PaperModelInfo {
   version: string;
   createdAt: string | null;
   loadedAt: string | null;
-  metrics: { validation: Record<string, number>; stress: Record<string, number>; baseline: Record<string, number> };
+  /** It passed the real-money check (manifest real_test and brain_enabled): the Brain sleeve may follow it. */
+  realMoney: boolean;
 }
 
 export interface PaperData {

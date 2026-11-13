@@ -128,7 +128,7 @@ With the split set, pump.fun pays each share straight to its wallet. Without one
 
 ## Public feed
 
-The local site is `npm run dashboard` (Next.js on port 3000). The nav is Home, Wallets (All wallets, New wallets by funder at `/groups`), Copying (Trades, Who it copies, Results, Proof, Paper AI at `/paper`), and Live (Live trades, Runners). It reads `data/godseye.db` while the agent writes (WAL).
+The local site is `npm run dashboard` (Next.js on port 3000). The nav is Home, Wallets (All wallets, New wallets by funder at `/groups`), Copying (Trades, Who it copies, Results, Proof, Brain at `/brain` (the old `/paper` link redirects there), How it works at `/how`), and Live (Live trades, Runners). It reads `data/godseye.db` while the agent writes (WAL).
 
 Every public API answer goes through `shared/src/public-view.ts`. It lists the fields each feed may show, so a new column stays private until it is added there. Left out: the hot-wallet address and the agent's own transaction signatures, raw logs, copy-decision internals (reason text, weight, latency), learned tuning, X handles and the list of X accounts, and anything named social. The insider tier is shown as Early-entry pattern. The wallet balance is shown; the address is not. `GODSEYE_FULL_FEED=1` shows the full feed on a local development run (`npm run dashboard`) only; a production build and Vercel ignore it.
 

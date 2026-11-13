@@ -5,6 +5,7 @@ import { ArrowUpRight, Check, ChevronLeft, Minus, Plus } from "lucide-react";
 import { TIER_DESCRIPTIONS } from "@godseye/shared/constants";
 import { PageHeader } from "@/components/page-header";
 import { CopyButton } from "@/components/copy-button";
+import { SkeletonRows } from "@/components/skeleton";
 import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { Addr, KindBadge, kindLabel, TierBadge, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
@@ -59,7 +60,7 @@ export default function WalletPage({ params }: { params: { address: string } }) 
       </>
     );
   }
-  if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  if (!data) return <div className="card"><SkeletonRows rows={5} /></div>;
   const { wallet: w, stats: s } = data;
   const sm = data.smart;
   const swaps = allSwaps ? data.swaps : data.swaps.slice(0, 8);

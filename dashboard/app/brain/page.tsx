@@ -5,9 +5,10 @@ import { Empty, Window } from "@/components/window";
 import { WalletLink } from "@/components/wallet-badges";
 import { DataState } from "@/components/data-state";
 import { PaperEquityChart } from "@/components/charts/perf-charts";
+import { SkeletonRows } from "@/components/skeleton";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dexscreenerToken, pct, pnlClass, shortAddr, signedSol, sol } from "@/lib/format";
-import type { PaperAccount, PaperAccountName, PaperData, PaperModelInfo } from "@/lib/types";
+import { ago, dexscreenerToken, pct, pnlClass, pnlPeriod, shortAddr, signedSol, signedUsd, sol } from "@/lib/format";
+import type { PaperAccount, PaperAccountName, PaperData, PaperModelInfo, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const NAMES: Record<PaperAccountName, string> = { brain: "Brain", baseline: "Baseline", explore: "Explore" };
@@ -19,7 +20,6 @@ const ABOUT: Record<PaperAccountName, string> = {
 };
 const winPct = (n: number | null | undefined) => (n === null || n === undefined ? "—" : `${n.toFixed(0)}%`);
 const words = (s: string) => s.replace(/[._]+/g, " ").trim();
-const metric = (v: number) => (Math.abs(v) >= 100 ? v.toLocaleString("en-US", { maximumFractionDigits: 1 }) : Number(v.toFixed(3)).toString());
 
 function PaperTag() {
   return <span className="tag bg-sun text-ink">Paper money · no real SOL</span>;
@@ -56,46 +56,46 @@ function AccountTile({ a, small }: { a: PaperAccount; small?: boolean }) {
   );
 }
 
-function ModelPanel({ m }: { m: PaperModelInfo | null }) {
-  if (!m) return <Empty img="eye" title="No model yet">The Brain trades once its first trained model is loaded.</Empty>;
-  const groups = [
-    ["Validation", "on weeks it never trained on", m.metrics.validation],
-    ["Stress", "on crash and rug-wave scenarios", m.metrics.stress],
-    ["Baseline", "today's rules on the same weeks", m.metrics.baseline],
-  ] as const;
+/** The model in plain words: when it was made, since when it trades, and whether it may trade real money. */
+function ModelPanel({ m, sleeve }: { m: PaperModelInfo | null; sleeve: NonNullable<Summary["real"]>["sleeve"] | null }) {
+  if (!m) return <Empty img="eye" title="No model yet">The Brain starts paper trading once its first trained model is loaded.</Empty>;
+  const real = !m.realMoney
+    ? "Paper only. This model hasn't passed the safety check that real money needs, so the rules decide every real copy."
+    : sleeve?.state === "off"
+      ? "Passed the safety check, but the owner has set the rules to decide every real copy for now."
+      : sleeve?.state === "on"
+        ? `Passed the safety check: it decides ${sleeve.sharePct ?? 50}% of real copies, with every safety rule of the rules' trades.`
+        : "Passed the safety check: it starts on real copies within minutes.";
   return (
-    <>
-      <p className="k">
-        Version <span className="font-mono text-foreground">{m.version}</span>
-        {m.createdAt ? ` · trained ${ago(m.createdAt)}` : ""}
-        {m.loadedAt ? ` · in use since ${ago(m.loadedAt)}` : ""}
-      </p>
-      <div className="mt-3 grid gap-4 sm:grid-cols-3">
-        {groups.map(([title, sub, vals]) => (
-          <div key={title} className="min-w-0">
-            <p className="text-sm font-extrabold">{title}</p>
-            <p className="k">{sub}</p>
-            {Object.keys(vals).length === 0 ? (
-              <p className="mt-2 text-sm text-muted-foreground">—</p>
-            ) : (
-              <dl className="mt-2">
-                {Object.entries(vals).map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-3 border-t-2 border-ink/70 py-1.5 text-sm first:border-t-0">
-                    <dt className="min-w-0 truncate text-muted-foreground">{words(k)}</dt>
-                    <dd className="font-bold num">{metric(v)}</dd>
-                  </div>
-                ))}
-              </dl>
-            )}
-          </div>
-        ))}
+    <dl className="grid gap-4 sm:grid-cols-3">
+      <div className="min-w-0">
+        <dt className="k">Trained</dt>
+        <dd className="mt-1 text-lg font-extrabold">{m.createdAt ? ago(m.createdAt) : "—"}</dd>
       </div>
-    </>
+      <div className="min-w-0">
+        <dt className="k">Trading on paper since</dt>
+        <dd className="mt-1 text-lg font-extrabold">{m.loadedAt ? ago(m.loadedAt) : "—"}</dd>
+      </div>
+      <div className="min-w-0 sm:col-span-3">
+        <dt className="k">Real money</dt>
+        <dd className="mt-1 text-sm font-bold">{real}</dd>
+      </div>
+    </dl>
   );
 }
 
-export default function PaperPage() {
+const HOW = [
+  ["It looks at a buy", "When a wallet GodsEye follows buys a coin, one network estimates whether copying it would make money once fees and delay are paid, and how much to put in."],
+  ["It watches the trade", "A second network keeps checking the open trade and picks: hold, sell half, or sell all."],
+  ["It learns from the past", "Both learn by replaying millions of stored trades in a simulator that charges real fees and the delay a copy really has. Every night they train again on the newest days."],
+  ["It has to pass a check", "Before a new model is used, it is tested on days it never trained on and next to today's rules. Real money needs a stricter safety check on top."],
+] as const;
+
+export default function BrainPage() {
   const { data, error, stale, updatedAt } = usePoll<PaperData>("/api/paper", 30_000);
+  const { data: s } = usePoll<Summary>("/api/summary", 30_000);
+  const realBrain = s?.real?.deciders.find((r) => r.decider === "brain");
+  const realRules = s?.real?.deciders.find((r) => r.decider === "rules");
   const acct = (n: PaperAccountName) => data?.accounts.find((a) => a.account === n);
   const brain = acct("brain");
   const baseline = acct("baseline");
@@ -105,9 +105,9 @@ export default function PaperPage() {
   return (
     <>
       <PageHeader
-        title="Paper AI"
+        title="Brain"
         back="/copies"
-        kicker="A neural network learning to copy trades better, practising with paper money next to today's rules. No real SOL is spent; real copying stays paused."
+        kicker="A neural network learning to copy trades better. It practises with paper money next to today's rules, and trades real money only after passing a safety check."
       >
         <SubNav links={COPYING_LINKS} />
       </PageHeader>
@@ -129,6 +129,37 @@ export default function PaperPage() {
         </p>
       )}
 
+      <section className="card">
+        <h2 className="text-xl font-extrabold tracking-[-0.02em]">What it is</h2>
+        <ol className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {HOW.map(([t, d], i) => (
+            <li key={t} className="min-w-0">
+              <p className="flex items-center gap-2 font-extrabold">
+                <span className="dot h-7 w-7 bg-sun text-sm text-ink" aria-hidden>{i + 1}</span>
+                {t}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">{d}</p>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {realBrain && realRules && (realBrain.closed > 0 || realBrain.open > 0) && (
+        <section className="card">
+          <h2 className="text-xl font-extrabold tracking-[-0.02em]">Real money, {pnlPeriod(s?.pnlSince)}</h2>
+          <div className="mt-3 grid grid-cols-2 gap-4">
+            {[realBrain, realRules].map((r) => (
+              <div key={r.decider} className="min-w-0">
+                <p className="k">{r.decider === "brain" ? "Brain" : "Rules"}</p>
+                <p className={cn("mt-1 text-2xl font-extrabold num", pnlClass(r.pnlUsd))}>{signedUsd(r.pnlUsd)}</p>
+                <p className="text-xs text-muted-foreground">{r.closed ? `${r.won} of ${r.closed} won` : "none closed"} · {r.open} open</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <h2 className="-mb-2 text-2xl font-black tracking-[-0.02em]">Three paper accounts, side by side</h2>
       {data && !data.accounts.length ? (
         <div className="card">
           <Empty img="radar" title="No paper accounts yet">The Brain&apos;s paper accounts open with the first live trades.</Empty>
@@ -138,7 +169,7 @@ export default function PaperPage() {
           <section className="grid gap-4 md:grid-cols-2">
             {brain && <AccountTile a={brain} />}
             {baseline && <AccountTile a={baseline} />}
-            {!data && <p className="k">Loading…</p>}
+            {!data && <div className="card md:col-span-2"><SkeletonRows rows={2} /></div>}
           </section>
           {explore && (
             <section className="grid gap-4 md:grid-cols-2">
@@ -152,13 +183,14 @@ export default function PaperPage() {
         {hasCurve ? (
           <PaperEquityChart equity={data!.equity} startingSol={brain?.startingSol ?? baseline?.startingSol ?? null} />
         ) : (
-          <Empty img="wallet" title={data ? "No curve yet" : "Loading…"}>{data ? "The lines appear once the accounts have traded." : "Fetching the paper accounts."}</Empty>
+          data ? <Empty img="wallet" title="No curve yet">The lines appear once the accounts have traded.</Empty> : <SkeletonRows rows={2} />
         )}
         <p className="mt-3 text-xs text-muted-foreground">Equity in SOL after every fee and rent, open trades at their last price. The dashed line is the starting bankroll.</p>
       </Window>
 
       <Window title="Recent paper trades">
-        {!data?.trades.length && <Empty img="eye" title={data ? "None yet" : "Loading…"}>{data ? "Closed paper trades appear here." : "Fetching paper trades."}</Empty>}
+        {!data && <SkeletonRows />}
+        {data && !data.trades.length && <Empty img="eye" title="None yet">Closed paper trades appear here.</Empty>}
         {data?.trades.map((t, i) => (
           <div key={`${t.account}-${t.mint}-${t.closed_at}-${i}`} className="line">
             <span className={cn("tag shrink-0 text-ink", TILES[t.account])}>{NAMES[t.account]}</span>
@@ -179,8 +211,8 @@ export default function PaperPage() {
         ))}
       </Window>
 
-      <Window title="The model">
-        <ModelPanel m={data?.model ?? null} />
+      <Window title="The model in use">
+        {data ? <ModelPanel m={data.model} sleeve={s?.real?.sleeve ?? null} /> : <SkeletonRows rows={1} />}
       </Window>
     </>
   );

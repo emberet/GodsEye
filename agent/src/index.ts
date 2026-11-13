@@ -87,6 +87,7 @@ function heartbeat(status = "live"): void {
   setMeta(db, "heartbeat", nowIso());
   setMeta(db, "agent_status", status);
   setMeta(db, "copy_mode", config.copyMode);
+  setMeta(db, "real_decider", config.realDecider);
   setMeta(db, "copy_paused_effective", isPaused(db) ? "1" : "0");
   setMeta(db, "max_positions", config.maxPositions);
   setMeta(db, "copy_budget_sol", config.copyBudgetSol);

@@ -255,7 +255,9 @@ export interface PublicLimits {
   fromHighPct: number;
   stoppedToday: boolean;
   selfPaused: boolean;
-  rails: { maxTradePct: number; dailyStopPct: number; drawdownPausePct: number };
+  /** Why the next trade is 0: too little to trade with, the day's stop, or another hold (unread wallet, stale look). */
+  blocked: "small" | "day" | "other" | null;
+  rails: { maxTradePct: number; dailyStopPct: number; drawdownPausePct: number; minEquitySol: number };
 }
 
 /**
@@ -306,7 +308,8 @@ export function riskLook(db: DB, c: Config, balanceSol: number, slot: number, no
     fromHighPct: Number(((s.nav / s.high - 1) * 100).toFixed(2)),
     stoppedToday: s.stoppedDay === s.day,
     selfPaused: getMeta(db, "copy_paused") === "1" && getMeta(db, "copy_paused_by") === "drawdown",
-    rails: { maxTradePct: rails.maxTradePct, dailyStopPct: rails.dailyStopPct, drawdownPausePct: rails.drawdownPausePct },
+    blocked: l.ok ? null : l.key === "risk-small" ? "small" : l.key === "risk-day" ? "day" : "other",
+    rails: { maxTradePct: rails.maxTradePct, dailyStopPct: rails.dailyStopPct, drawdownPausePct: rails.drawdownPausePct, minEquitySol: rails.minEquitySol },
   };
   setMeta(db, "risk_limits", JSON.stringify(pub));
   return step;

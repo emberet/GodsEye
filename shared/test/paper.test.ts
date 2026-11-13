@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDb, setMeta, type DB } from "../src/db";
-import { buildDashboardSnapshot, downsampleSeries, getPaper, publicModelMetrics } from "../src/dashboard-data";
+import { buildDashboardSnapshot, downsampleSeries, getPaper } from "../src/dashboard-data";
 import { publicView } from "../src/public-view";
 import { SNAPSHOT_KEYS } from "../src/snapshot-store";
 
@@ -115,21 +115,21 @@ test("paper: recent trades newest first, symbol from token_info, stake is cost, 
   assert.ok(!JSON.stringify(p).includes("COWOWNWALLET"));
 });
 
-test("paper: the model panel keeps only validation/stress/baseline numbers, nothing social, no feature names", () => {
-  const p = getPaper(seed());
+test("paper: the model shows when it was made and whether it may trade real money, no scores or inputs", () => {
+  const db = seed();
+  const p = getPaper(db);
   assert.equal(p.model?.version, "v1");
   assert.equal(p.model?.createdAt, "2026-11-07T12:00:00Z");
-  assert.deepEqual(p.model?.metrics, {
-    validation: { pnl_sol: 1.5, win_rate: 0.55, "by_week.w1": 0.1 },
-    stress: { worst_drawdown_pct: -12 },
-    baseline: { pnl_sol: 0.4 },
-  });
+  assert.equal(p.model?.realMoney, false);
+  assert.deepEqual(Object.keys(p.model ?? {}).sort(), ["createdAt", "loadedAt", "realMoney", "version"]);
   const json = JSON.stringify(p);
   assert.ok(!/social/i.test(json));
   assert.ok(!json.includes("leader_n_prior"));
+  assert.ok(!json.includes("pnl_sol\":1.5"));
   assert.ok(!json.includes("/secret/path"));
-  assert.deepEqual(publicModelMetrics(null), { validation: {}, stress: {}, baseline: {} });
-  assert.deepEqual(publicModelMetrics({ metrics: { validation: [1, 2] } }).validation, {});
+  // A manifest that passed the real-money check.
+  db.prepare("UPDATE brain_models SET manifest = ? WHERE version = 'v1'").run(JSON.stringify({ created_at: "2026-11-07T12:00:00Z", real_test: true, brain_enabled: true }));
+  assert.equal(getPaper(db).model?.realMoney, true);
 });
 
 test("paper: live only while the stream delivers", () => {

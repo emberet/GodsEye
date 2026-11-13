@@ -5,6 +5,7 @@ import { Search } from "lucide-react";
 import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import { PageHeader } from "@/components/page-header";
 import { SubNav, WALLET_LINKS } from "@/components/nav";
+import { SkeletonRows } from "@/components/skeleton";
 import { Empty } from "@/components/window";
 import { KindBadge, TierBadge, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
@@ -30,7 +31,7 @@ const PAGE = 30;
 
 export default function WalletsPage() {
   return (
-    <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>
+    <Suspense fallback={<div className="card"><SkeletonRows rows={6} /></div>}>
       <WalletDatabase />
     </Suspense>
   );
@@ -138,9 +139,14 @@ function WalletDatabase() {
 
       <section className="flex flex-col gap-2.5" aria-label="Wallets">
         {error && <p className="card text-sm text-loss">{error}</p>}
-        {!error && rows.length === 0 && (
+        {!error && !data && (
           <div className="card">
-            <Empty img="wallet" title={data ? "No wallets match" : "Loading…"}>{data ? "Try another filter, or clear the search." : "Fetching wallets."}</Empty>
+            <SkeletonRows rows={6} />
+          </div>
+        )}
+        {!error && data && rows.length === 0 && (
+          <div className="card">
+            <Empty img="wallet" title="No wallets match">Try another filter, or clear the search.</Empty>
           </div>
         )}
         {rows.map((w) => (

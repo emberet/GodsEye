@@ -34,7 +34,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Nav />
           </header>
           <main className="mt-6 flex flex-col gap-6">{children}</main>
-          <footer className="mt-10 text-xs text-muted-foreground">Not financial advice. Wallet labels are pattern heuristics from public on-chain data, not accusations. Leader results are other wallets&apos; trades, not GodsEye&apos;s, and past results do not predict future ones.</footer>
+          <footer className="mt-10 text-xs text-muted-foreground">
+            <Link href="/how" className="font-bold text-foreground underline-offset-2 hover:underline">How GodsEye works</Link> ·{" "}
+            Not financial advice. Wallet labels are pattern heuristics from public on-chain data, not accusations. Leader results are other wallets&apos; trades, not GodsEye&apos;s, and past results do not predict future ones.
+          </footer>
         </div>
         <BottomNav />
       </body>

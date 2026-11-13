@@ -36,6 +36,9 @@ const nextConfig = {
   // The public site builds into its own folder so it doesn't clobber the dev server's .next.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   poweredByHeader: false,
+  async redirects() {
+    return [{ source: "/paper", destination: "/brain", permanent: true }];
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

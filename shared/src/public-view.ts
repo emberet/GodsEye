@@ -150,9 +150,16 @@ const SUMMARY: ShapeOf<Summary> = {
   maxPositions: 1, copiesToday: 1, walletsTracked: 1, leaders: 1, freshWallets24h: 1, tierCounts: NUMBERS,
   kindCounts: NUMBERS, lastLearningAt: 1, lastDiscoveryAt: 1,
   limits: {
-    at: 1, tradeSol: 1, tradePct: 1, equitySol: 1, dayChangePct: 1, fromHighPct: 1, stoppedToday: 1, selfPaused: 1,
-    rails: { maxTradePct: 1, dailyStopPct: 1, drawdownPausePct: 1 },
+    at: 1, tradeSol: 1, tradePct: 1, equitySol: 1, dayChangePct: 1, fromHighPct: 1, stoppedToday: 1, selfPaused: 1, blocked: 1,
+    rails: { maxTradePct: 1, dailyStopPct: 1, drawdownPausePct: 1, minEquitySol: 1 },
   },
+  real: {
+    deciders: [{ decider: 1, closed: 1, won: 1, pnlSol: 1, pnlUsd: 1, open: 1 }],
+    sleeve: { state: 1, sharePct: 1 },
+  },
+  week: { started: 1, stopped: 1, raised: 1, lowered: 1, ruleChanges: 1, closedCopies: 1, modelVersion: 1, modelTrainedAt: 1 },
+  funding: { depositsSol: 1, withdrawalsSol: 1, rewardsInSol: 1, payoutsSol: 1 },
+  allTime: { closedPositions: 1, realizedPnlSol: 1, realizedPnlUsd: 1 },
   stream: {
     enabled: 1, status: 1, healthy: 1, ipTries: 1, ipDistinct: 1, lastAt: 1, txPerSec: 1, swapsPerSec: 1,
     walletsInMemory: 1, walletsSeen24h: 1, walletsSeenTotal: 1,
@@ -255,7 +262,7 @@ const PAPER: ShapeOf<PaperData> = {
   }],
   equity: { brain: EQUITY, baseline: EQUITY, explore: EQUITY },
   trades: [{ account: 1, symbol: 1, mint: 1, leader: 1, stake_sol: 1, exit_reason: 1, pnl_pct: 1, pnl_sol: 1, closed_at: 1 }],
-  model: { version: 1, createdAt: 1, loadedAt: 1, metrics: { validation: NUMBERS, stress: NUMBERS, baseline: NUMBERS } },
+  model: { version: 1, createdAt: 1, loadedAt: 1, realMoney: 1 },
   live: { streaming: 1, status: 1, lastAt: 1, heartbeat: 1, agentStatus: 1 },
 };
 

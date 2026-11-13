@@ -1,16 +1,18 @@
 "use client";
 import Link from "next/link";
-import { ArrowRight, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, Brain, Scale, TrendingDown, TrendingUp } from "lucide-react";
 import { TIERS, TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
 import { TopAlert } from "@/components/alert";
 import { Empty } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { TerminalFeed } from "@/components/terminal-feed";
+import { SkeletonRows } from "@/components/skeleton";
+import { Tip } from "@/components/tip";
 import { TIER_STYLE, TokenLink, WalletDot, WalletLink, WalletPageLink } from "@/components/wallet-badges";
 import { usePoll } from "@/lib/use-poll";
-import { ago, dexscreenerToken, pct, pnlClass, pnlPeriod, shortAddr, signedUsd, streamStatusLabel, weekLabel } from "@/lib/format";
+import { ago, dexscreenerToken, pct, pnlClass, pnlPeriod, shortAddr, signedSol, signedUsd, sol, streamStatusLabel, weekLabel } from "@/lib/format";
 import { DataState } from "@/components/data-state";
-import type { CopiesData, LeadersData, RiskLimits, SmartMoneyData, Summary } from "@/lib/types";
+import type { CopiesData, DeciderResult, FundingTotals, LeadersData, RiskLimits, SmartMoneyData, Summary, WeekLearned } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** Card with a title and a "see all" link: every Home panel uses it. */
@@ -32,13 +34,23 @@ function Panel({ title, href, children, className }: { title: string; href?: str
 
 /** What the agent lets itself do with real money right now. It sets these itself from what it holds, inside the owner's rails. */
 function LimitsNow({ l }: { l: RiskLimits }) {
-  const sol = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 3 });
+  const next =
+    l.tradeSol > 0
+      ? { value: sol(l.tradeSol, 3), unit: "SOL", sub: `${l.tradePct.toFixed(1)}% of what it has (never over ${l.rails.maxTradePct}%)` }
+      : l.blocked === "small"
+        ? { value: "No buys", unit: undefined, sub: `it trades once it has ${sol(l.rails.minEquitySol, 1)} SOL or more` }
+        : l.blocked === "day"
+          ? { value: "No buys", unit: undefined, sub: "the day's stop: buying starts again tomorrow (UTC)" }
+          : { value: "On hold", unit: undefined, sub: "it can't size a trade right now (for example, the wallet can't be read)" };
   return (
     <section className="card">
-      <p className="k">Limits right now · set by the agent from what it holds</p>
+      <div className="flex items-center gap-1.5">
+        <p className="k">Limits right now · set by the agent from what it holds</p>
+        <Tip text={`The owner sets the outer rails: at most ${l.rails.maxTradePct}% of the wallet on one trade, stop buying for the day after a ${l.rails.dailyStopPct}% fall, pause itself ${l.rails.drawdownPausePct}% below its high. Inside them, the agent picks its own trade size from how its recent trades went.`} />
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <Stat label="Next trade" value={sol(l.tradeSol)} unit="SOL" sub={`${l.tradePct.toFixed(1)}% of what it has (never over ${l.rails.maxTradePct}%)`} />
-        <Stat label="To trade with" value={sol(l.equitySol)} unit="SOL" sub="deposits and withdrawals never count as profit" />
+        <Stat label="Next trade" value={next.value} unit={next.unit} sub={next.sub} />
+        <Stat label="To trade with" value={sol(l.equitySol, 3)} unit="SOL" sub="deposits and withdrawals never count as profit" />
         <Stat
           label="Today"
           value={pct(l.dayChangePct, 1)}
@@ -56,6 +68,105 @@ function LimitsNow({ l }: { l: RiskLimits }) {
   );
 }
 
+const SIDE = {
+  rules: { name: "Rules", tile: "bg-lilac", icon: Scale, about: "Copies the wallets with a real track record, by fixed rules that tune themselves." },
+  brain: { name: "Brain", tile: "bg-lime", icon: Brain, about: "A neural network that learned from millions of past trades. It trades real money only after passing a safety check." },
+} as const;
+
+/** Real money, side by side: the copies the rules decided and the ones the Brain decided. */
+function RulesVsBrain({ real, since }: { real: NonNullable<Summary["real"]>; since: string | null }) {
+  const { sleeve } = real;
+  const line =
+    sleeve.state === "on"
+      ? `The Brain decides ${sleeve.sharePct ?? 50}% of real copies; the rules decide the rest. The split moves towards whichever side makes more.`
+      : sleeve.state === "off"
+        ? "The owner has set the rules to decide every real copy. The Brain keeps practising on paper."
+        : "The rules decide every real copy for now. The Brain joins on its own once a model passes its safety check; until then it practises on paper.";
+  return (
+    <section className="card">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-extrabold tracking-[-0.02em]">Real money · Rules vs Brain</h2>
+        <Link href="/brain" className="pill">About the Brain</Link>
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">{line}</p>
+      <div className="mt-3 grid gap-4 sm:grid-cols-2">
+        {real.deciders.map((r: DeciderResult) => {
+          const side = SIDE[r.decider];
+          const idle = r.decider === "brain" && sleeve.state !== "on" && r.closed === 0 && r.open === 0;
+          return (
+            <div key={r.decider} className={cn("tile min-w-0", side.tile)}>
+              <div className="flex items-center gap-2 text-ink">
+                <side.icon size={18} strokeWidth={2.6} aria-hidden />
+                <p className="text-sm font-extrabold">{side.name}</p>
+                <p className="ml-auto text-xs font-bold text-ink/75">{pnlPeriod(since)}</p>
+              </div>
+              <p className="big mt-2 truncate num text-ink">{idle ? "Not trading yet" : signedUsd(r.pnlUsd)}</p>
+              <p className="mt-2 text-xs font-bold text-ink/75">
+                {idle ? side.about : `${signedSol(r.pnlSol, 3)} SOL after fees · ${r.closed ? `${r.won} of ${r.closed} won` : "none closed"} · ${r.open} open`}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** The last 7 days in plain sentences. */
+function ThisWeek({ w }: { w: WeekLearned }) {
+  const n = (k: number, one: string, many = `${one}s`) => `${k} ${k === 1 ? one : many}`;
+  const lines = [
+    w.started || w.stopped ? `Started copying ${n(w.started, "wallet")} and stopped copying ${w.stopped}.` : "No wallet started or stopped being copied.",
+    w.raised || w.lowered ? `Backed ${n(w.raised, "wallet")} more and ${w.lowered} less, from how their copies went.` : null,
+    w.ruleChanges ? `Adjusted its own rules ${n(w.ruleChanges, "time")}, from what its trades taught it.` : "Its rules held steady: not enough new trades to move them.",
+    `${n(w.closedCopies, "copy", "copies")} closed.`,
+    w.modelTrainedAt ? `The Brain's current model was trained ${ago(w.modelTrainedAt)}.` : "The Brain has no trained model loaded yet.",
+  ].filter((x): x is string => !!x);
+  return (
+    <section className="card">
+      <h2 className="text-xl font-extrabold tracking-[-0.02em]">What it learned this week</h2>
+      <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+        {lines.map((l) => (
+          <li key={l} className="flex gap-2">
+            <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full border-2 border-ink bg-sun" aria-hidden />
+            {l}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Money in and out that isn't trading: never counted as profit or loss. */
+function Funding({ f }: { f: FundingTotals }) {
+  return (
+    <section className="card">
+      <div className="flex items-center gap-1.5">
+        <h2 className="text-xl font-extrabold tracking-[-0.02em]">Funding</h2>
+        <Tip text="SOL put in or taken out by the owner, and creator rewards from GodsEye's own coin. None of it counts as trading profit or loss." />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Stat label="Deposits" value={sol(f.depositsSol, 3)} unit="SOL" />
+        <Stat label="Withdrawals" value={sol(f.withdrawalsSol, 3)} unit="SOL" />
+        <Stat label="Creator rewards in" value={sol(f.rewardsInSol, 3)} unit="SOL" />
+        <Stat label="Rewards paid out" value={sol(f.payoutsSol, 3)} unit="SOL" sub="the owner's share" />
+      </div>
+    </section>
+  );
+}
+
+/** One sentence on what GodsEye is doing right now. */
+function story(s: Summary | null): string {
+  if (!s) return "Loading…";
+  const money = s.copyMode === "real" ? "with real money" : s.copyMode === "paper" ? "on paper" : "";
+  const watched = s.stream.walletsSeen24h || s.walletsTracked;
+  const count = watched ? watched.toLocaleString("en-US") : "every";
+  if (!s.live) return `Offline${s.heartbeat ? ` since ${ago(s.heartbeat)}` : ""}. Nothing is being watched or copied right now.`;
+  if (s.paused) return `Copying is paused. It keeps studying ${count} wallets, and open trades still sell on their exits.`;
+  if (!s.stream.healthy) return `Waiting for live trades. Meanwhile it keeps studying ${count} wallets, ready to copy the ones that keep winning ${money}.`.replace(/ \.$/, ".");
+  return `Watching ${count} wallets live and copying the ones that keep winning ${money}.`.replace(/ \.$/, ".");
+}
+
 export default function Home() {
   const { data: s, error, stale, updatedAt } = usePoll<Summary>("/api/summary", 10_000);
   const { data: leaders } = usePoll<LeadersData>("/api/leaders", 30_000);
@@ -66,7 +177,6 @@ export default function Home() {
   const copying = (leaders?.leaders ?? []).filter((l) => l.copy_weight > 0).slice(0, 4);
   const open = copies?.open ?? [];
   const st = s?.stream;
-  const bar = leaders?.followBar?.value ?? smart?.followBar?.value ?? null;
   // Unknown if any open trade can't be valued in USD (never shown as $0).
   const openPnl = s?.unrealizedPnlUsd ?? null;
 
@@ -78,20 +188,14 @@ export default function Home() {
       <section className="card flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-6 lg:py-5">
         <div className="min-w-0">
           <p className="k">Right now</p>
-          <p className="mt-1 text-2xl font-extrabold leading-tight tracking-[-0.02em] lg:text-[26px]">
-            {!s
-              ? "Loading…"
-              : st?.walletsSeen24h
-              ? `${s.live ? "Watching" : "Offline. Last watched"} ${st.walletsSeen24h.toLocaleString("en-US")} wallets and copying the ones that keep winning.`
-              : `${s.live ? "Studying" : "Offline. Last studied"} ${s.walletsTracked ? s.walletsTracked.toLocaleString("en-US") : "every"} wallets and copying the ones that keep winning.`}
-          </p>
+          <p className="mt-1 text-2xl font-extrabold leading-tight tracking-[-0.02em] lg:text-[26px]">{story(s)}</p>
+          <Link href="/how" className="mt-2 inline-block text-sm font-bold text-accent underline-offset-2 hover:underline">How GodsEye works</Link>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 lg:justify-end">
           <span className="tag min-h-[30px] px-2.5">
             <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", st?.healthy ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
             {st?.healthy ? `${st.swapsPerSec ?? "—"} trades/sec` : !st?.enabled ? "stream off" : !s?.live ? "stream offline" : st.status === "connected" ? "stream quiet" : streamStatusLabel(st.status).toLowerCase()}
           </span>
-          <span className="tag min-h-[30px] px-2.5">{bar === null ? "Follow bar: default 50% wins" : `Follow bar ${Math.round(bar * 100)}% wins`}</span>
           <span className="tag min-h-[30px] px-2.5">{s?.walletsTracked.toLocaleString("en-US") ?? "—"} studied</span>
         </div>
       </section>
@@ -101,7 +205,12 @@ export default function Home() {
           tile="bg-lime"
           label={`Realized profit${s?.copyMode === "paper" ? " (paper)" : ""}`}
           value={signedUsd(s?.realizedPnlUsd ?? null)}
-          sub={s ? `${pnlPeriod(s.pnlSince)}, ${s.feesUnrecorded ? `fees not recorded on ${s.feesUnrecorded}` : "after fees"} · ${s.wins} won · ${s.losses} lost` : undefined}
+          sub={
+            s
+              ? `${pnlPeriod(s.pnlSince)}, ${s.feesUnrecorded ? `fees not recorded on ${s.feesUnrecorded}` : "after fees"} · ${s.wins} won · ${s.losses} lost`
+              : undefined
+          }
+          foot={s?.allTime ? `All time: ${signedUsd(s.allTime.realizedPnlUsd)} over ${s.allTime.closedPositions} trades` : undefined}
         />
         <Stat tile="bg-lilac" label="Copying" value={s?.leaders ?? "—"} unit="wallets" sub="with a real track record" />
         <Stat tile="bg-sun" label="Smart money" value={smart?.activeWallets ?? "—"} unit="wallets" sub={smart ? `${smart.trades24h.toLocaleString("en-US")} trades, last 24h` : undefined} />
@@ -110,11 +219,21 @@ export default function Home() {
 
       <TopAlert s={s} />
 
+      {s?.real && <RulesVsBrain real={s.real} since={s.pnlSince} />}
+
       {s?.limits && <LimitsNow l={s.limits} />}
+
+      {s && (
+        <section className={cn("grid gap-5", s.funding && "lg:grid-cols-2")}>
+          <ThisWeek w={s.week} />
+          {s.funding && <Funding f={s.funding} />}
+        </section>
+      )}
 
       <section className="grid gap-5 lg:grid-cols-12">
         <Panel title="Who it copies" href="/leaders" className="lg:col-span-5">
-          {copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
+          {!leaders && <SkeletonRows />}
+          {leaders && copying.length === 0 && <Empty>Nobody yet. A wallet qualifies with a real track record and a win rate above the follow bar.</Empty>}
           {copying.map((l) => (
             <div key={l.address} className="line">
               <WalletDot address={l.address} tier={l.tier} className="h-10 w-10" />
@@ -138,8 +257,9 @@ export default function Home() {
             </Link>
           )}
         </Panel>
-        <Panel title="Smart money flows · net 24h" href="/leaders" className="lg:col-span-4">
-          {flows.length === 0 && <Empty>Nothing yet. Coins appear here as winning wallets trade them.</Empty>}
+        <Panel title="Smart money flows · net 24h" className="lg:col-span-4">
+          {!smart && <SkeletonRows />}
+          {smart && flows.length === 0 && <Empty>Nothing yet. Coins appear here as winning wallets trade them.</Empty>}
           {flows.map((f) => {
             const net = f.buy_usd_24h - f.sell_usd_24h;
             const up = net >= 0;
@@ -161,7 +281,9 @@ export default function Home() {
           })}
         </Panel>
         <Panel title="Signals" href="/leaders" className="lg:col-span-3">
-          {signals.length === 0 ? (
+          {!smart ? (
+            <SkeletonRows rows={2} />
+          ) : signals.length === 0 ? (
             <Empty img="radar" title="Quiet">A signal fires when 3+ smart wallets buy, or dump, the same coin within an hour.</Empty>
           ) : (
             signals.map((g) => {

@@ -1,7 +1,12 @@
-export const sol = (n: number | null | undefined, d = 4) => (n === null || n === undefined ? "—" : `${n.toFixed(d)}`);
-export const signedSol = (n: number | null | undefined, d = 4) =>
-  n === null || n === undefined ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(d)}`;
-export const pct = (n: number | null | undefined, d = 2) => (n === null || n === undefined ? "—" : `${n >= 0 ? "+" : ""}${n.toFixed(d)}%`);
+// One number format everywhere: thousands separated, a fixed number of decimals, a true minus sign (−) on losses.
+const fixed = (n: number, d: number) => Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const signOf = (n: number, d: number) => (Number(Math.abs(n).toFixed(d)) === 0 ? "" : n > 0 ? "+" : "−");
+/** SOL with `d` decimals: 1,234.5000. */
+export const sol = (n: number | null | undefined, d = 4) => (n === null || n === undefined || !Number.isFinite(n) ? "—" : `${n < 0 && signOf(n, d) ? "−" : ""}${fixed(n, d)}`);
+/** Signed SOL: +0.0120 / −0.0050. */
+export const signedSol = (n: number | null | undefined, d = 4) => (n === null || n === undefined || !Number.isFinite(n) ? "—" : `${signOf(n, d)}${fixed(n, d)}`);
+/** Signed percent: +12.5% / −3.0%. */
+export const pct = (n: number | null | undefined, d = 2) => (n === null || n === undefined || !Number.isFinite(n) ? "—" : `${signOf(n, d)}${fixed(n, d)}%`);
 export const usd = (n: number | null | undefined) => {
   if (n === null || n === undefined) return "—";
   if (n >= 1) return `$${n.toLocaleString("en-US", { maximumFractionDigits: 4 })}`;
@@ -56,7 +61,7 @@ export const dexscreenerToken = (mint: string) => `https://dexscreener.com/solan
 
 /** Plain words for the live stream's status (the meta value the agent writes). */
 export const streamStatusLabel = (status: string | null | undefined) =>
-  status === "connected" ? "Connected" : status === "waiting_for_ip" ? "Waiting for an allowlisted IP" : status === "reconnecting" ? "Reconnecting" : status ?? "Starting";
+  status === "connected" ? "Connected" : status === "waiting_for_ip" ? "Connecting" : status === "reconnecting" ? "Reconnecting" : status ?? "Starting";
 
 /** Copy-trade statuses in plain words (same everywhere a trade is listed). */
 export const COPY_STATUS_LABEL: Record<string, string> = { filled: "Done", failed: "Failed", pending: "Sending", skipped: "Skipped" };

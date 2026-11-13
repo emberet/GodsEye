@@ -243,7 +243,7 @@ test("the public summary holds figures only: no address, no signature", () => {
   const text = getMeta(db, "risk_limits")!;
   assert.doesNotMatch(text, /[1-9A-HJ-NP-Za-km-z]{32,}/);
   const pub = JSON.parse(text) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(pub).sort(), ["at", "dayChangePct", "equitySol", "fromHighPct", "rails", "selfPaused", "stoppedToday", "tradePct", "tradeSol"]);
+  assert.deepEqual(Object.keys(pub).sort(), ["at", "blocked", "dayChangePct", "equitySol", "fromHighPct", "rails", "selfPaused", "stoppedToday", "tradePct", "tradeSol"]);
 });
 
 // ---------------------------------------------------------------- the engine's buy check under the governor

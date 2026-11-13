@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 export const NAV = [
   { href: "/", label: "Home", icon: House, tile: "bg-sun", match: ["/"] },
   { href: "/wallets", label: "Wallets", icon: WalletCards, tile: "bg-lime", match: ["/wallets", "/groups"] },
-  { href: "/copies", label: "Copying", icon: Copy, tile: "bg-lilac", match: ["/copies", "/leaders", "/performance", "/proof", "/paper"] },
+  { href: "/copies", label: "Copying", icon: Copy, tile: "bg-lilac", match: ["/copies", "/leaders", "/performance", "/proof", "/brain", "/how"] },
   { href: "/stream", label: "Live", icon: Activity, tile: "bg-coral", match: ["/stream", "/runners"] },
 ];
 
@@ -91,7 +91,8 @@ export const COPYING_LINKS = [
   { href: "/leaders", label: "Who it copies" },
   { href: "/performance", label: "Results" },
   { href: "/proof", label: "Proof" },
-  { href: "/paper", label: "Paper AI" },
+  { href: "/brain", label: "Brain" },
+  { href: "/how", label: "How it works" },
 ];
 export const LIVE_LINKS = [
   { href: "/stream", label: "Live trades" },

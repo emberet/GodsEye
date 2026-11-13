@@ -1,6 +1,7 @@
 "use client";
 import { PageHeader } from "@/components/page-header";
 import { LIVE_LINKS, SubNav } from "@/components/nav";
+import { SkeletonRows } from "@/components/skeleton";
 import { Empty, Window } from "@/components/window";
 import { Stat } from "@/components/stat";
 import { WalletLink } from "@/components/wallet-badges";
@@ -36,7 +37,8 @@ export default function RunnersPage() {
         </p>
         <div className="mt-2">
           <DataState error={error} stale={stale} updatedAt={updatedAt} what="runner-catchers" />
-          {(!error || stale) && !data?.catchers.length && <Empty img="radar" title={data ? "Nobody yet" : "Loading…"}>{data ? "Wallets appear once runners have been watched from launch." : "Fetching runner-catchers."}</Empty>}
+          {!data && !error && <SkeletonRows rows={4} />}
+          {data && !data.catchers.length && <Empty img="radar" title="Nobody yet">Wallets appear once runners have been watched from launch.</Empty>}
           {data?.catchers.map((c) => (
             <div key={c.wallet} className="line">
               <span className={cn("w-7 shrink-0 text-xl font-extrabold", c.qualifies ? "text-lime" : "text-muted-foreground")} aria-label={c.qualifies ? "Beats the base rate" : undefined}>{c.qualifies ? "✔" : "·"}</span>
@@ -77,7 +79,8 @@ export default function RunnersPage() {
       )}
 
       <Window title="Recent runners">
-        {!data?.runners.length && <Empty img="eye" title="None yet">{data ? "Runners appear as the live stream watches launches." : "Loading…"}</Empty>}
+        {!data && <SkeletonRows rows={3} />}
+        {data && !data.runners.length && <Empty img="eye" title="None yet">Runners appear as the live stream watches launches.</Empty>}
         {data?.runners.map((r) => (
           <div key={r.mint} className="line">
             <div className="min-w-0 flex-1">

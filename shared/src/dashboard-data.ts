@@ -15,7 +15,7 @@ import type {
   RunnerCatcherRow, RunnerDefinitionInfo, RunnersData, RunnerTokenRow, XCallerRow,
   PaperAccount, PaperAccountName, PaperData, PaperEquityPoint, PaperModelInfo, PaperTradeRow,
   LiveQuery, LiveWalletRow, CopiesData, CopyTrade, Evidence, KindReason, Leader, LeadersData, LogRow, Performance, Position, ProofData, RugCheckEntry,
-  RiskLimits, Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange,
+  DeciderResult, FundingTotals, RiskLimits, Summary, SwapRow, WalletDetail, WalletGroup, WalletList, WalletQuery, WalletRow, WalletStats, WeightChange, WeekLearned,
 } from "./dashboard-types";
 
 const num = (v: string | null, d: number) => (v === null || v === "" || !Number.isFinite(Number(v)) ? d : Number(v));
@@ -103,6 +103,73 @@ function riskLimits(d: DB): RiskLimits | null {
   }
 }
 
+const hasTable = (d: DB, t: string) => !!d.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(t);
+const DAY_MS = 86_400_000;
+
+/** Real copies by who decided them, over the P&L period, and the Brain sleeve's state. */
+function realSide(d: DB, since: string | null, solUsd: number | null): NonNullable<Summary["real"]> {
+  const deciders = (["rules", "brain"] as const).map((decider): DeciderResult => {
+    const rows = d
+      .prepare("SELECT pnl_sol, pnl_usd FROM positions WHERE status = 'closed' AND mode = 'real' AND COALESCE(decider, 'rules') = ? AND closed_at >= ?")
+      .all(decider, since ?? "") as { pnl_sol: number; pnl_usd: number | null }[];
+    const usd = rows.map((r) => r.pnl_usd ?? (solUsd ? r.pnl_sol * solUsd : null));
+    const open = (d.prepare("SELECT COUNT(*) n FROM positions WHERE status = 'open' AND mode = 'real' AND COALESCE(decider, 'rules') = ?").get(decider) as { n: number }).n;
+    return {
+      decider,
+      closed: rows.length,
+      won: rows.filter((r) => (r.pnl_usd ?? r.pnl_sol) > 0).length,
+      pnlSol: rows.reduce((a, r) => a + r.pnl_sol, 0),
+      pnlUsd: usd.some((u) => u === null) ? null : usd.reduce((a: number, u) => a + (u as number), 0),
+      open,
+    };
+  });
+  let st: { share?: unknown; model?: unknown } | null = null;
+  try {
+    st = JSON.parse(getMeta(d, "brain_sleeve") || "null");
+  } catch {
+    st = null;
+  }
+  const decider = getMeta(d, "real_decider");
+  const on = decider !== "rules" && typeof st?.model === "string" && st.model !== "";
+  const share = decider === "brain" ? 1 : typeof st?.share === "number" ? st.share : null;
+  return {
+    deciders,
+    sleeve: { state: decider === "rules" ? "off" : on ? "on" : "waiting", sharePct: on && share !== null ? Math.round(share * 100) : null },
+  };
+}
+
+/** The last 7 days' changes: copy weights moved, learned rules moved, copies closed, the Brain's model. */
+function weekLearned(d: DB, mode: string, own: string | null, now = Date.now()): WeekLearned {
+  const from = new Date(now - 7 * DAY_MS).toISOString();
+  const w = d
+    .prepare(
+      `SELECT SUM(old_weight <= 0 AND new_weight > 0) started, SUM(old_weight > 0 AND new_weight <= 0) stopped,
+              SUM(old_weight > 0 AND new_weight > old_weight) raised, SUM(new_weight > 0 AND new_weight < old_weight) lowered
+         FROM weight_history WHERE ts >= ? AND wallet IS NOT ?`,
+    )
+    .get(from, own) as { started: number | null; stopped: number | null; raised: number | null; lowered: number | null };
+  const ruleChanges = (d.prepare("SELECT COUNT(*) n FROM param_history WHERE ts >= ?").get(from) as { n: number }).n;
+  const closedCopies = (d.prepare("SELECT COUNT(*) n FROM positions WHERE status = 'closed' AND mode = ? AND closed_at >= ?").get(mode, from) as { n: number }).n;
+  const model = hasTable(d, "brain_models") ? paperModel(d) : null;
+  return {
+    started: w.started ?? 0, stopped: w.stopped ?? 0, raised: w.raised ?? 0, lowered: w.lowered ?? 0, ruleChanges, closedCopies,
+    modelVersion: model?.version ?? null, modelTrainedAt: model?.createdAt ?? null,
+  };
+}
+
+/** Deposits, withdrawals and creator rewards (agent/src/funding/ledger.ts), in SOL; null before the first one. */
+function fundingTotals(d: DB): FundingTotals | null {
+  if (!hasTable(d, "wallet_flows")) return null;
+  const r = d
+    .prepare(
+      `SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN kind = 'deposit' THEN sol END), 0) dep, COALESCE(SUM(CASE WHEN kind = 'withdrawal' THEN -sol END), 0) wd,
+              COALESCE(SUM(CASE WHEN kind = 'creator_claim' THEN sol END), 0) cl, COALESCE(SUM(CASE WHEN kind = 'payout' THEN -sol END), 0) po
+         FROM wallet_flows WHERE kind <> 'swap'`,
+    )
+    .get() as { n: number; dep: number; wd: number; cl: number; po: number };
+  return r.n ? { depositsSol: r.dep, withdrawalsSol: r.wd, rewardsInSol: r.cl, payoutsSol: r.po } : null;
+}
+
 export function getSummary(d: DB): Summary {
   const hb = getMeta(d, "heartbeat");
   const status = getMeta(d, "agent_status");
@@ -127,6 +194,9 @@ export function getSummary(d: DB): Summary {
   const streamStatus = getMeta(d, "stream_status") as Summary["stream"]["status"];
   const streamLast = getMeta(d, "stream_last_at");
   const closedToday = closed.filter((t) => t.closed_at.startsWith(today));
+  const allClosed = pnlSince
+    ? (d.prepare("SELECT pnl_sol, pnl_usd FROM positions WHERE status='closed' AND mode = ?").all(mode) as { pnl_sol: number; pnl_usd: number | null }[])
+    : null;
   return {
     live,
     heartbeat: hb,
@@ -163,6 +233,16 @@ export function getSummary(d: DB): Summary {
     lastLearningAt: getMeta(d, "last_learning_at"),
     lastDiscoveryAt: getMeta(d, "last_discovery_at"),
     limits: modeOf(d) === "real" ? riskLimits(d) : null,
+    real: modeOf(d) === "real" ? realSide(d, pnlSince, solUsd) : null,
+    week: weekLearned(d, mode, ownWallet(d)),
+    funding: fundingTotals(d),
+    allTime: allClosed
+      ? {
+          closedPositions: allClosed.length,
+          realizedPnlSol: allClosed.reduce((a, t) => a + t.pnl_sol, 0),
+          realizedPnlUsd: allClosed.some((t) => usdOf(t) === null) ? null : allClosed.reduce((a, t) => a + (usdOf(t) as number), 0),
+        }
+      : null,
     stream: {
       enabled: getMeta(d, "stream_enabled") === "1",
       status: streamStatus,
@@ -547,9 +627,6 @@ export function getRunners(d: DB): RunnersData {
 const PAPER_ACCOUNTS: readonly PaperAccountName[] = ["brain", "baseline", "explore"];
 /** Most points an account's equity series keeps in a feed. */
 export const PAPER_EQUITY_POINTS = 500;
-/** Most numbers shown per model-metrics group. */
-const PAPER_METRICS_PER_GROUP = 24;
-
 const emptyPaperEquity = (): Record<PaperAccountName, PaperEquityPoint[]> => ({ brain: [], baseline: [], explore: [] });
 
 /** At most `max` points, evenly spaced, always keeping the first and the last. */
@@ -557,30 +634,6 @@ export function downsampleSeries<T>(rows: T[], max = PAPER_EQUITY_POINTS): T[] {
   if (rows.length <= max) return rows;
   const step = (rows.length - 1) / (max - 1);
   return Array.from({ length: max }, (_, i) => rows[Math.round(i * step)]);
-}
-
-/**
- * The numbers the site may show from a model manifest: finite numbers in metrics.validation / stress / baseline
- * (one level of nesting flattened as "a.b"). Never feature names, never anything social.
- */
-export function publicModelMetrics(manifest: unknown): PaperModelInfo["metrics"] {
-  const out: PaperModelInfo["metrics"] = { validation: {}, stress: {}, baseline: {} };
-  const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-  const allowed = (k: string) => !/social|feature/i.test(k);
-  const metrics = isObj(manifest) && isObj(manifest.metrics) ? manifest.metrics : {};
-  for (const group of ["validation", "stress", "baseline"] as const) {
-    const src = metrics[group];
-    if (!isObj(src)) continue;
-    const add = (k: string, v: unknown) => {
-      if (Object.keys(out[group]).length < PAPER_METRICS_PER_GROUP && typeof v === "number" && Number.isFinite(v)) out[group][k] = v;
-    };
-    for (const [k, v] of Object.entries(src)) {
-      if (!allowed(k)) continue;
-      if (isObj(v)) for (const [k2, v2] of Object.entries(v)) allowed(k2) && add(`${k}.${k2}`, v2);
-      else add(k, v);
-    }
-  }
-  return out;
 }
 
 /** The Brain's paper accounts (agent/src/brain/paper.ts). Its tables are created by the agent, so older databases have none. */
@@ -642,8 +695,8 @@ export function getPaper(d: DB, now = Date.now()): PaperData {
 /** The active model (or the newest loaded one), with only its public numbers. */
 function paperModel(d: DB): PaperModelInfo | null {
   const row = d
-    .prepare("SELECT version, loaded_at, manifest FROM brain_models WHERE status IN ('active', 'previous') ORDER BY status = 'active' DESC, loaded_at DESC LIMIT 1")
-    .get() as { version: string; loaded_at: string | null; manifest: string | null } | undefined;
+    .prepare("SELECT version, loaded_at, manifest, status FROM brain_models WHERE status IN ('active', 'previous') ORDER BY status = 'active' DESC, loaded_at DESC LIMIT 1")
+    .get() as { version: string; loaded_at: string | null; manifest: string | null; status: string } | undefined;
   if (!row) return null;
   let manifest: unknown = null;
   try {
@@ -651,6 +704,11 @@ function paperModel(d: DB): PaperModelInfo | null {
   } catch {
     manifest = null;
   }
-  const createdAt = typeof manifest === "object" && manifest !== null && typeof (manifest as { created_at?: unknown }).created_at === "string" ? (manifest as { created_at: string }).created_at : null;
-  return { version: String(row.version), createdAt, loadedAt: row.loaded_at, metrics: publicModelMetrics(manifest) };
+  const m = typeof manifest === "object" && manifest !== null ? (manifest as { created_at?: unknown; real_test?: unknown; brain_enabled?: unknown }) : {};
+  return {
+    version: String(row.version),
+    createdAt: typeof m.created_at === "string" ? m.created_at : null,
+    loadedAt: row.loaded_at,
+    realMoney: row.status === "active" && m.real_test === true && m.brain_enabled !== false,
+  };
 }

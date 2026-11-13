@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { TIER_DESCRIPTIONS, TIER_LABELS } from "@godseye/shared/constants";
+import { Tip } from "@/components/tip";
 import type { Tier, WalletKind } from "@/lib/types";
 import { dexscreenerToken, shortAddr, solscanAccount } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -26,20 +27,25 @@ export const TIER_DOT: Record<Tier, string> = {
 
 export function TierBadge({ tier, className }: { tier: Tier; className?: string }) {
   return (
-    <span title={TIER_DESCRIPTIONS[tier]} className={cn("tag", TIER_STYLE[tier], className)}>
-      {TIER_LABELS[tier]}
-    </span>
+    <Tip text={TIER_DESCRIPTIONS[tier]}>
+      <span title={TIER_DESCRIPTIONS[tier]} className={cn("tag", TIER_STYLE[tier], className)}>
+        {TIER_LABELS[tier]}
+      </span>
+    </Tip>
   );
 }
 
 export const kindLabel = (kind: WalletKind) => (kind === "ai" ? "Bot" : kind === "human" ? "Human" : "Undecided");
 
 export function KindBadge({ kind, score, className }: { kind: WalletKind; score: number | null; className?: string }) {
+  const tip = score === null ? "Not enough trades to judge yet." : `Bot score ${Math.round(score)} out of 100: 65 or more trades like a bot, 35 or less like a person.`;
   return (
-    <span title={score === null ? "Not enough swaps to judge" : `Bot score ${Math.round(score)}/100 (65+ bot, 35 or less human)`} className={cn("tag", kind === "unknown" && "text-muted-foreground", className)}>
-      {kindLabel(kind)}
-      {score !== null && <span className="font-normal text-muted-foreground num">{Math.round(score)}</span>}
-    </span>
+    <Tip text={tip}>
+      <span title={tip} className={cn("tag", kind === "unknown" && "text-muted-foreground", className)}>
+        {kindLabel(kind)}
+        {score !== null && <span className="font-normal text-muted-foreground num">{Math.round(score)}</span>}
+      </span>
+    </Tip>
   );
 }
 

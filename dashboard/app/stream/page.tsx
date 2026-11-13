@@ -9,6 +9,7 @@ import { ago, pnlClass, signedSol, signedUsd, streamStatusLabel } from "@/lib/fo
 import type { LiveWalletRow, Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { LIVE_LINKS, SubNav } from "@/components/nav";
+import { SkeletonRows } from "@/components/skeleton";
 
 const SORTS = [
   { v: "pnl", label: "Most profit" },
@@ -44,7 +45,7 @@ export default function StreamPage() {
 
       {st && !st.enabled && (
         <section role="status" className="rounded-[18px] border-[3px] border-ink bg-sun px-5 py-4 text-sm font-bold text-ink shadow-hard">
-          The live stream is off. Add GRPC_URL and GRPC_TOKEN to .env and restart GodsEye. Until then it checks the busiest pools every 30 minutes.
+          The live stream is off for now. Until it is back, GodsEye checks the busiest markets every 30 minutes.
         </section>
       )}
 
@@ -55,12 +56,12 @@ export default function StreamPage() {
           value={
             <span className="flex items-center gap-3">
               <span className={cn("h-4 w-4 shrink-0 rounded-full border-[3px] border-ink", connected ? "animate-pulsedot bg-lime" : "bg-coral")} aria-hidden />
-              {!st?.enabled ? "Off" : !s?.live ? "Agent offline" : st.status === "connected" && !connected ? "Quiet" : st.status === "waiting_for_ip" ? "Waiting for IP" : streamStatusLabel(st.status)}
+              {!st?.enabled ? "Off" : !s?.live ? "Agent offline" : st.status === "connected" && !connected ? "Quiet" : st.status === "waiting_for_ip" ? "Connecting" : streamStatusLabel(st.status)}
             </span>
           }
           sub={
             st?.status === "waiting_for_ip"
-              ? `Shyft only accepts allowlisted IPs and this connection's keeps changing · ${st.ipTries} tries from ${st.ipDistinct} IPs so far`
+              ? `the data provider hasn't accepted the connection yet · ${st.ipTries} tries so far`
               : st?.lastAt
                 ? `last trade ${ago(st.lastAt)}`
                 : undefined
@@ -96,7 +97,8 @@ export default function StreamPage() {
         <p className="text-sm text-muted-foreground">Profit from trades GodsEye has watched live. Wallets that make $100+ over 3+ trades and win at least half get a full check.</p>
         <div className="mt-2">
           <DataState error={error} stale={stale} updatedAt={updatedAt} what="live wallets" />
-          {(!error || stale) && rows.length === 0 && <Empty img="radar" title={data ? "Nobody yet" : "Loading…"}>{data ? "Wallets appear as the stream sees them trade." : "Fetching live wallets."}</Empty>}
+          {!data && !error && <SkeletonRows rows={5} />}
+          {data && rows.length === 0 && <Empty img="radar" title="Nobody yet">Wallets appear as the stream sees them trade.</Empty>}
           {rows.map((w, i) => {
             const status = w.tier ? null : w.promoted ? "Checking now" : "Not checked";
             const row = (

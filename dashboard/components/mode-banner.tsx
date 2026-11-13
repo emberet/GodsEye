@@ -2,6 +2,7 @@
 import { usePoll } from "@/lib/use-poll";
 import type { Summary } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { Tip } from "@/components/tip";
 
 /** One small tag, always honest about whether GodsEye is running and whether real money moves. */
 export function ModeBanner() {
@@ -27,9 +28,11 @@ export function ModeBanner() {
           ? "Copy trades are simulated with live Jupiter quotes. No real funds move."
           : "The agent hasn't reported whether it trades real money or paper.";
   return (
-    <span title={tip} role="status" className="tag min-h-[32px] gap-2 rounded-[11px] bg-card px-3 shadow-hard-sm">
-      <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", data.live && !data.paused ? "animate-pulsedot bg-lime" : data.live ? "bg-sun" : "bg-coral")} aria-hidden />
-      {state} · {mode}
-    </span>
+    <Tip text={tip}>
+      <span title={tip} role="status" className="tag min-h-[32px] gap-2 rounded-[11px] bg-card px-3 shadow-hard-sm">
+        <span className={cn("h-2.5 w-2.5 rounded-full border-2 border-ink", data.live && !data.paused ? "animate-pulsedot bg-lime" : data.live ? "bg-sun" : "bg-coral")} aria-hidden />
+        {state} · {mode}
+      </span>
+    </Tip>
   );
 }
